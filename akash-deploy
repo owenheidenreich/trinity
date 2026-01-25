@@ -1,0 +1,3 @@
+#!/bin/bash
+# Convenience wrapper - runs scripts/deploy.sh for Akash deployment
+exec "$(dirname "$0")/scripts/deploy.sh" "$@"

@@ -1,0 +1,15 @@
+# ============================================================================
+# Trinity ICP Workspace - Cargo.toml
+# ============================================================================
+#
+# This workspace configuration allows dfx to find and build the backend canister.
+# The frontend is built with Vite (JavaScript), but the backend is Rust.
+# ============================================================================
+
+[workspace]
+members = [
+    "src/backend_canister"
+]
+
+# Ensure consistent resolver across all packages
+resolver = "2"

@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Trinity Header Test</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            background: #1e1e1e;
+            color: #fff;
+            padding: 40px;
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        h1 {
+            color: #4CAF50;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            margin: 5px;
+        }
+        .test-section {
+            background: #2d2d2d;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+        }
+        .result {
+            background: #1a1a1a;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 10px 0;
+            border-left: 4px solid #4CAF50;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 Trinity Auth Headers Test</h1>
+    
+    <div class="test-section">
+        <h2>Step 1: Create Test Identity</h2>
+        <button onclick="createIdentity()">Create Identity</button>
+        <div id="identity-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Step 2: Test Signed Request</h2>
+        <button onclick="testRequest()">Send Signed Request to Test Backend</button>
+        <div id="request-result"></div>
+    </div>
+
+    <script src="src/trinity_frontend/assets/icp-auth.js"></script>
+    <script>
+        let testIdentity = null;
+        let testPrincipal = null;
+
+        async function createIdentity() {
+            const resultDiv = document.getElementById('identity-result');
+            resultDiv.innerHTML = '<div class="result">Creating identity...</div>';
+            
+            try {
+                const { Ed25519KeyIdentity } = window.ICPAuth;
+                testIdentity = Ed25519KeyIdentity.generate();
+                testPrincipal = testIdentity.getPrincipal().toText();
+                
+                resultDiv.innerHTML = `<div class="result">✅ Identity Created\n\nPrincipal: ${testPrincipal}</div>`;
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="result">❌ Error: ${error.message}</div>`;
+            }
+        }
+
+        async function signMessage(message) {
+            if (!testIdentity) {
+                throw new Error('Create identity first');
+            }
+            
+            const encoder = new TextEncoder();
+            const messageBytes = encoder.encode(message);
+            const signature = await testIdentity.sign(messageBytes);
+            return Array.from(signature)
+                .map(b => b.toString(16).padStart(2, '0'))
+                .join('');
+        }
+
+        async function testRequest() {
+            const resultDiv = document.getElementById('request-result');
+            
+            if (!testIdentity || !testPrincipal) {
+                resultDiv.innerHTML = '<div class="result">❌ Create identity first</div>';
+                return;
+            }
+            
+            resultDiv.innerHTML = '<div class="result">Sending signed request...</div>';
+            
+            try {
+                const endpoint = '/test/echo-headers';
+                const timestamp = Date.now().toString();
+                const message = `${testPrincipal}:${timestamp}:${endpoint}`;
+                const signature = await signMessage(message);
+                
+                console.log('📤 Sending request:', {
+                    principal: testPrincipal,
+                    endpoint,
+                    timestamp,
+                    message,
+                    signature: signature.substring(0, 32) + '...'
+                });
+                
+                const response = await fetch('http://localhost:5001' + endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'ICP-Principal': testPrincipal,
+                        'ICP-Signature': signature,
+                        'ICP-Timestamp': timestamp
+                    },
+                    body: JSON.stringify({ test: true })
+                });
+                
+                const data = await response.json();
+                
+                resultDiv.innerHTML = `<div class="result">✅ Response Received\n\n${JSON.stringify(data, null, 2)}</div>`;
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="result">❌ Error: ${error.message}</div>`;
+                console.error('Request failed:', error);
+            }
+        }
+    </script>
+</body>
+</html>

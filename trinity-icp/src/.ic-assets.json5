@@ -1,0 +1,57 @@
+// ICP Asset Configuration for Trinity Frontend
+// This file configures security policies and headers for the canister
+[
+  {
+    // Apply to all assets
+    "match": "**/*",
+
+    // Use "standard" security policy which is more permissive for APIs
+    // Options: "standard" (recommended), "hardened" (strict CSP)
+    "security_policy": "standard",
+
+    // Custom headers for the frontend
+    "headers": {
+      // Content Security Policy - CRITICAL for allowing Akash API calls and ICP Identity
+      // This allows:
+      // - connect-src: API calls to Akash ingress + ICP Identity + Cloudflare + unpkg
+      // - script-src: inline scripts and CDN libraries (cdnjs, unpkg, cloudflare)
+      // - style-src: inline styles and CDN stylesheets
+      // - img-src: images from anywhere
+      // - frame-src: ICP Identity popup window
+      // - upgrade-insecure-requests is intentionally OMITTED to allow HTTP
+      "Content-Security-Policy": "default-src 'self'; connect-src 'self' http://*.akash.pub https://*.akash.pub http://*.ingress.* https://*.ingress.* wss://*.akash.pub ws://*.akash.pub https://identity.ic0.app https://icp-api.io https://*.icp0.io https://*.cloudflare.com https://unpkg.com *; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com https://unpkg.com https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; font-src 'self' https://cdnjs.cloudflare.com; img-src 'self' data: blob: https:; frame-src 'self' https://identity.ic0.app https://*.ic0.app; frame-ancestors 'self';",
+
+      // Allow cross-origin requests (for Akash API)
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Accept"
+    }
+  },
+
+  {
+    // HTML files get additional caching headers
+    "match": "**/*.html",
+    "headers": {
+      // No caching for HTML to ensure updates are immediate
+      "Cache-Control": "no-cache, no-store, must-revalidate"
+    }
+  },
+
+  {
+    // JavaScript and CSS files - no caching to ensure immediate updates
+    "match": "**/*.{js,css}",
+    "headers": {
+      // Always fetch fresh version
+      "Cache-Control": "no-cache, no-store, must-revalidate"
+    }
+  },
+
+  {
+    // .well-known directory for ICP custom domain registration
+    "match": ".well-known/**/*",
+    "headers": {
+      "Content-Type": "text/plain",
+      "Cache-Control": "no-cache"
+    }
+  }
+]

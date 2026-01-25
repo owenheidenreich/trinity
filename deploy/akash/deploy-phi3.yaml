@@ -1,0 +1,44 @@
+version: "2.0"
+
+services:
+  trinity-phi3:
+    image: gdubx/trinity-inference:v2-20260124-182612
+    env:
+      - PROVIDER_ID=trinity-phi3
+      - MODEL_NAME=phi3:3.8b
+      - MODEL_BACKEND=ollama
+      - GPU_TYPE=NVIDIA-RTX-3090
+      - MAX_QUEUE_SIZE=2
+      - OLLAMA_HOST=http://localhost:11434
+      - LIGHTHOUSE_API_KEY=cac651de.89f60066a4434ee98844288e220ad6dc
+    expose:
+      - port: 8000
+        as: 80
+        to:
+          - global: true
+
+profiles:
+  compute:
+    trinity-phi3:
+      resources:
+        cpu:
+          units: 8
+        memory:
+          size: 32Gi
+        storage:
+          size: 60Gi
+
+
+
+  placement:
+    akash:
+      pricing:
+        trinity-phi3:
+          denom: uakt
+          amount: 8000   # ~$8/month
+
+deployment:
+  trinity-phi3:
+    akash:
+      profile: trinity-phi3
+      count: 1

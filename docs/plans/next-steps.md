@@ -1,0 +1,83 @@
+- Next steps for Trinity
+    - Contextual Memory
+        - Keep The Model stateless at all times
+            - Do not store history or memory inside the model
+            - Treat The Model as a fast inference engine only
+        - Introduce a conversation-scoped memory object
+            - One memory object per chat / session ID
+            - Memory is created at conversation start and discarded when the session ends
+        - Store conversation memory outside the inference server
+            - Memory should live in the ICP layer
+            - The inference server remains fully stateless
+        - Split conversation memory into two parts
+            - A short running summary of the conversation
+            - A small window of the most recent messages (verbatim)
+        - Use a fixed system prompt for The Model
+            - Define role, tone, and constraints once
+            - Never regenerate or mutate the system prompt dynamically
+        - Build the prompt for The Model using a consistent structure
+            - System instructions
+            - Conversation summary
+            - Recent message window
+            - Current user input
+        - Limit the recent message window to a small number of turns
+            - Typically the last 4–6 user/assistant exchanges
+            - Prevents context bloat and drift
+        - Update the conversation summary periodically, not every turn
+            - Re-summarize after a fixed number of messages (e.g., every 4–6 turns)
+            - Replace the old summary instead of appending to it
+        - Generate summaries using a cheap model path
+            - The Model itself or a small Llama variant
+            - Summary generation is a background operation, not part of user response latency
+        - Ensure memory updates happen after each model response
+            - Append new messages to the recent window
+            - Trigger summary refresh only when the threshold is met
+        - Pass only the curated prompt to The Model
+            - Never send raw or full conversation logs
+            - The Model should only see what is relevant to stay on topic
+        - Use a conversation/session ID to associate memory
+            - Provided by the frontend or edge layer
+            - Required to keep multiple conversations isolated
+        - Automatically discard memory when the conversation ends
+            - No persistence beyond the active session
+            - Prevents unintentional long-term memory accumulation
+    - Security 
+        - HTTPS (cloudflare) installed. 
+        -   Next steps : Design a better security handler that the ICP can host. 
+        - Domain name: trinityai.cc (cloudflare)
+            - Consider utilizing ENS Ethereum Name Service, and transitioning to a secure hosting on ICP? 
+                - ‘trinity.eth’
+                - custon SSL secure https handling insecure akash backend
+    - Transparency
+        - Show location of provider 
+        - Show tech stack
+        - Show current estimated cost to operate (burnrate of AKT, ICP, and FIL)
+        - Teach me how to properly Open source
+    - Save chat function (implementation of "Filecoin", to complete the Trinity)
+        - modify index.html 
+            - Chats are not saved unless the user manually clicks save
+            - There are non-working save chat functions that need to be removed. clean up the old code and Delete non working auto save functions.
+            - Create a save chat button
+            - Archived chats will go to Filecoin storage. 
+            - Utilize `Filecoin` blockchain method for storage of older chats
+            - also known as IPFS
+    - Privacy
+        - Encrypt all prompts / or simply do not show any of them.  a message that says that something was sent/received. 
+            - I can currently read the inputs and outputs from user and AI on the akash backend.
+        - Ensure the saved chats from filecoin storage are encrypted
+            -  Maybe the AI memory file should also with it, so that users can pick up where they left off after they saved.      
+    - Authentication
+        - No login required for guest users
+        - The option to create a username and password (no email)
+        - Paying customers must have a username login and password
+    - Dynamic hardware and LLM shifting
+        - Detects user prompt complexity and organizes into tiers
+        - Dynamically changes models 
+        - a spectrum of cheaper GPUs or more expensive GPUs
+        - common knowledge goes to lesser models and with cheaper GPUs
+        - as the questions are determined to be tier 1, 2 or 3, it routes to the appropriate models
+        - The most Complex tasks get routed to the most intelligent models and the best GPUs
+        - All tiers (1, 2, and 3) are running simultaneously on Akash Console. The job goal is to simply shift to different providers based on the question complexity.
+    - Donations
+        - Automatic logic that routes (some number) 99% of all donations are  directly into AKT, ICP, and FIL (at the correct ratios) to keep it running, and then 
+        - Payments/donations strongly encourage crypto transactions 

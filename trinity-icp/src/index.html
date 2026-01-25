@@ -1,0 +1,78 @@
+<!-- 
+    ⚠️ DEVELOPMENT ONLY - DO NOT USE DIRECTLY
+    This file requires an HTTP server (npm run dev or Python server)
+    For production/offline use: open dist/index.html
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <meta name="app-version" content="2.0.1">
+    <title>Trinity</title>
+    
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <div class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-title">Trinity</div>
+                <button class="toggle-btn" onclick="toggleSidebar()">☰</button>
+            </div>
+
+            <div class="status-info" id="statusInfo">
+                <div class="status-line">
+                    <div class="status-dot" id="statusDot"></div>
+                    <span id="statusText">Connecting...</span>
+                </div>
+                <div id="providerInfo" style="margin-top: 4px; font-size: 12px; color: #999;"></div>
+                <div id="modelInfo" style="font-size: 12px; color: #999;"></div>
+            </div>
+
+            <div class="sidebar-content" id="sidebarContent">
+                <!-- Content rendered dynamically by UI.renderSidebar() -->
+            </div>
+        </div>
+
+        <div class="main-content">
+            <button class="toggle-sidebar-btn" onclick="toggleSidebar()">☰</button>
+
+            <div class="chat-area" id="chatArea">
+                <div class="empty-state" id="emptyState">
+                    <h1>Trinity</h1>
+                </div>
+
+                <div class="messages-container" id="messagesContainer">
+                    </div>
+            </div>
+
+            <div class="input-container" id="inputContainer">
+                <div class="input-wrapper">
+                    <button class="attach-btn" title="Attach file">+</button>
+                    <textarea 
+                        id="promptInput" 
+                        placeholder="Ask anything..."
+                        rows="1"
+                        onkeydown="handleKeyDown(event)"
+                        oninput="autoResize(this)"
+                    ></textarea>
+                    <button class="send-btn" id="sendBtn" onclick="generate()" disabled>
+                        ➤
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/11.1.1/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
+    <!-- Main App -->
+    <script type="module" src="/app.js"></script>
+</body>
+</html>

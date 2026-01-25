@@ -1,0 +1,47 @@
+# ============================================================================
+# Trinity Backend Canister - Cargo.toml
+# ============================================================================
+# 
+# This is the Rust package configuration for the ICP backend canister.
+# The canister replaces Cloudflare Workers with ICP HTTPS Outcalls,
+# providing a fully decentralized proxy to the Akash backend.
+#
+# Key Dependencies:
+# - candid: ICP's interface description language
+# - ic-cdk: Internet Computer Canister Development Kit
+# - ed25519-dalek: Ed25519 signature verification (matches frontend auth)
+# - serde: JSON serialization for Akash API communication
+# ============================================================================
+
+[package]
+name = "trinity_backend"
+version = "0.1.0"
+edition = "2021"
+description = "Trinity ICP Backend Canister - HTTPS Outcalls to Akash"
+authors = ["Trinity Team"]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# ICP Canister SDK
+candid = "0.10"
+ic-cdk = "0.17"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Cryptography (Ed25519 signature verification)
+sha2 = "0.10"
+ed25519-dalek = { version = "2", default-features = false, features = ["alloc", "zeroize"] }
+hex = "0.4"
+base64 = "0.22"
+
+# Async runtime for HTTP outcalls
+ic-cdk-timers = "0.11"
+
+[profile.release]
+# Optimize for smallest binary size (important for canister deployment)
+lto = true
+opt-level = 'z'

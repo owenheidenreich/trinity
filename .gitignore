@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Node
+node_modules/
+.npm
+*.log
+
+# DFX (ICP)
+.dfx/
+.vessel/
+
+# Environment variables
+.env
+.env.local
+*.jwt
+lighthouse_api_key.txt
+*_api_key.txt
+
+# Test data
+deployment/test-data/
+deployment/chats-local/
+tests/__pycache__/
+
+# Logs
+*.log
+/tmp/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Trinity specific
+~$*.docx

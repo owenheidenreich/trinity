@@ -1,0 +1,121 @@
+// ============================================================================
+// Trinity Backend Canister - Candid Interface
+// ============================================================================
+//
+// This file defines the public API of the backend canister.
+// Candid is ICP's interface description language (like OpenAPI/Swagger).
+//
+// ENDPOINTS:
+// - generate: Main LLM inference endpoint (replaces Cloudflare Worker)
+// - health: Health check for Akash backend
+// - set_akash_url: Update Akash backend URL (controller only)
+// - get_akash_url: Get current Akash backend URL
+// - get_canister_info: Debug info
+// - clear_cache: Clear response cache (controller only)
+// - transform_response: HTTP response transformation for ICP consensus
+// ============================================================================
+
+// Chat message structure
+type Message = record {
+    role : text;
+    content : text;
+};
+
+// LLM generation request
+type GenerateRequest = record {
+    prompt : text;
+    model : opt text;
+    context_messages : opt vec Message;
+};
+
+// Authentication headers (matches frontend authManager.js)
+type AuthHeaders = record {
+    principal_id : text;
+    timestamp : text;
+    signature : text;
+    public_key : text;
+};
+
+// LLM generation response
+type GenerateResponse = record {
+    response : text;
+    model : text;
+    provider_id : text;
+    done : bool;
+};
+
+// Health check response from /health/icp endpoint
+// Contains only static/deterministic fields for ICP consensus
+type HealthResponse = record {
+    status : text;
+    provider_id : text;
+    model : text;
+    gpu_type : text;
+    ollama_connected : bool;
+    build_timestamp : text;
+    version : text;
+    icp_compatible : bool;
+};
+
+// Error response
+type ErrorResponse = record {
+    error : text;
+    code : nat16;
+};
+
+// Result types
+type Result_Generate = variant {
+    Ok : GenerateResponse;
+    Err : ErrorResponse;
+};
+
+type Result_Health = variant {
+    Ok : HealthResponse;
+    Err : ErrorResponse;
+};
+
+type Result_Unit = variant {
+    Ok;
+    Err : text;
+};
+
+type Result_Nat = variant {
+    Ok : nat;
+    Err : text;
+};
+
+// HTTP types for transform function
+type HttpHeader = record {
+    name : text;
+    value : text;
+};
+
+type HttpResponsePayload = record {
+    status : nat;
+    headers : vec HttpHeader;
+    body : vec nat8;
+};
+
+type TransformArgs = record {
+    response : HttpResponsePayload;
+    context : vec nat8;
+};
+
+// ============================================================================
+// SERVICE DEFINITION
+// ============================================================================
+
+service : (opt text) -> {
+    // Configuration (controller only)
+    set_akash_url : (text) -> (Result_Unit);
+    get_akash_url : () -> (text) query;
+    get_canister_info : () -> (text) query;
+    clear_cache : () -> (Result_Nat);
+    
+    // Main endpoints
+    health : () -> (Result_Health);
+    generate : (GenerateRequest, AuthHeaders, text) -> (Result_Generate);
+    
+    // Transform function for HTTP outcalls
+    transform_response : (TransformArgs) -> (HttpResponsePayload) query;
+}

@@ -1,0 +1,38 @@
+services:
+  trinity:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      platforms:
+        - linux/amd64
+    
+    image: gdubx/trinity-inference:latest
+    platform: linux/amd64
+    container_name: trinity-inference-local
+    
+    ports:
+      - "8000:8000"
+    
+    environment:
+      - PROVIDER_ID=docker-local-test
+      - MODEL_NAME=phi3
+      - GPU_TYPE=CPU
+      - MAX_QUEUE_SIZE=10
+      - OLLAMA_HOST=http://localhost:11434
+    
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 8G
+        reservations:
+          cpus: '2'
+          memory: 4G
+    
+    restart: unless-stopped
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

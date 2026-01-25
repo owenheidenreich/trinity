@@ -1,0 +1,48 @@
+version: "2.0"
+
+services:
+  trinity-llama8b:
+    image: gdubx/trinity-inference:v2-20260124-182612
+    env:
+      - PROVIDER_ID=trinity-llama8b
+      - MODEL_NAME=llama3.1:8b
+      - MODEL_BACKEND=ollama
+      - GPU_TYPE=NVIDIA-RTX-4090
+      - MAX_QUEUE_SIZE=4
+      - OLLAMA_HOST=http://localhost:11434
+      - LIGHTHOUSE_API_KEY=cac651de.89f60066a4434ee98844288e220ad6dc
+    expose:
+      - port: 8000
+        as: 80
+        to:
+          - global: true
+
+profiles:
+  compute:
+    trinity-llama8b:
+      resources:
+        cpu:
+          units: 8
+        memory:
+          size: 32Gi
+        storage:
+          size: 40Gi
+        gpu:
+          units: 1
+          attributes:
+            vendor:
+              nvidia:
+                - model: rtx4090
+
+  placement:
+    akash:
+      pricing:
+        trinity-llama8b:
+          denom: uakt
+          amount: 15000   # ~$15/month
+
+deployment:
+  trinity-llama8b:
+    akash:
+      profile: trinity-llama8b
+      count: 1

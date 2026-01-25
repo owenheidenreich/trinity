@@ -1,0 +1,21 @@
+{
+  "canisters": {
+    "trinity_frontend": {
+      "type": "assets",
+      "source": ["dist"]
+    },
+    "trinity_backend": {
+      "type": "rust",
+      "package": "trinity_backend",
+      "candid": "src/backend_canister/trinity_backend.did"
+    }
+  },
+  "defaults": {
+    "build": {
+      "args": "",
+      "packtool": ""
+    }
+  },
+  "output_env_file": ".env",
+  "version": 1
+}
