@@ -43,6 +43,7 @@ import AutosaveManager from './storage/autosave.js';
 import State from './state/store.js';
 import ContextMemory from './state/contextMemory.js';
 import initRainbowBorders from './ui/rainbowBorder.js';
+import { generateViaCanister, healthCheckViaCanister, isCanisterConfigured } from './api/canister-client.js';
 
 // ============================================================================
 // 1b. AUTHENTICATION - Imported from auth/authManager.js
@@ -157,25 +158,57 @@ const API = {
     },
 
     async generate(prompt, temperature = 0.7, skipContext = false) {
-        const body = {
-            prompt,
-            max_length: -1,
-            temperature,
-            principal: State.principal  // Include principal for user memory lookup
-        };
-
-        // Include context memory with summaries (unless skipContext is true for summarization)
+        // =====================================================================
+        // ROUTING: ICP Canister (decentralized) vs Direct (legacy Cloudflare)
+        // =====================================================================
+        // Phase 3 Complete: Default to ICP canister for full decentralization
+        // The canister makes HTTPS outcalls to Akash backend
+        // =====================================================================
+        
+        // Build context messages for LLM
+        let contextMessages = [];
         if (!skipContext && State.contextMemory.length > 0) {
             const contextData = State.getContextForLLM();
-            body.contextMemory = contextData.recentMessages;
-            console.log(`✅ CONTEXT ENABLED: Sending ${contextData.recentMessages.length} context messages to LLM`);
+            contextMessages = contextData.recentMessages;
+            console.log(`✅ CONTEXT ENABLED: Sending ${contextMessages.length} context messages to LLM`);
             console.log(`📊 Context includes summary: ${contextData.compressionRatio !== 'none'}`);
-            console.log(`🔍 Context preview:`, contextData.recentMessages.map(m => `${m.role}: ${m.content.substring(0, 50)}...`));
+            console.log(`🔍 Context preview:`, contextMessages.map(m => `${m.role}: ${m.content.substring(0, 50)}...`));
             if (State.userMemory && State.userMemory.facts && State.userMemory.facts.length > 0) {
                 console.log(`🧠 Including ${State.userMemory.facts.length} user memory facts`);
             }
         } else {
             console.warn(`⚠️ CONTEXT DISABLED: skipContext=${skipContext}, contextMemory.length=${State.contextMemory.length}`);
+        }
+        
+        // Route through ICP canister (fully decentralized)
+        if (CONFIG.USE_CANISTER && isCanisterConfigured()) {
+            console.log('📡 Routing through ICP canister (decentralized path)');
+            try {
+                const result = await generateViaCanister(prompt, contextMessages);
+                // Transform canister response to match legacy format
+                return {
+                    generated_text: result.response,
+                    model: result.model,
+                    provider_id: result.provider_id,
+                    done: result.done
+                };
+            } catch (error) {
+                console.error('❌ Canister path failed:', error);
+                throw error;
+            }
+        }
+        
+        // Fallback: Direct HTTP path (legacy Cloudflare route)
+        console.log('☁️ Using direct HTTP path (legacy)');
+        const body = {
+            prompt,
+            max_length: -1,
+            temperature,
+            principal: State.principal
+        };
+        
+        if (contextMessages.length > 0) {
+            body.contextMemory = contextMessages;
         }
 
         return this.request('/generate', {
@@ -300,13 +333,22 @@ const Actions = {
     // Check backend connection
     async checkConnection() {
         try {
-            console.log('Checking connection to:', `${CONFIG.API_URL}/health`);
-            const data = await API.healthCheck();
-            console.log('Health check response:', data);
+            let data;
+            
+            // Route health check through ICP canister when enabled
+            if (CONFIG.USE_CANISTER && isCanisterConfigured()) {
+                console.log('🏥 Checking health via ICP canister...');
+                data = await healthCheckViaCanister();
+                console.log('Health check response (via canister):', data);
+            } else {
+                console.log('Checking connection to:', `${CONFIG.API_URL}/health`);
+                data = await API.healthCheck();
+                console.log('Health check response:', data);
+            }
 
             if (data.status === 'healthy' || data.ollama_connected) {
                 UI.updateConnectionStatus(true, data.provider_id, data.model);
-                console.log('Successfully connected to Akash backend');
+                console.log('✅ Successfully connected to Akash backend');
             } else {
                 console.warn('Backend returned unhealthy status:', data);
                 UI.updateConnectionStatus(false, null, null, 'Backend unhealthy');
@@ -319,6 +361,8 @@ const Actions = {
                 detail = 'Network error - check if Akash deployment is running';
             } else if (error.message.includes('CORS')) {
                 detail = 'CORS error - backend may need CORS headers';
+            } else if (error.message.includes('canister')) {
+                detail = 'ICP canister error - check canister deployment';
             }
 
             UI.updateConnectionStatus(false, null, null, detail);

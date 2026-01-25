@@ -6,7 +6,17 @@
 
 export const CONFIG = {
     // Application version (MUST match meta tag in index.html)
-    APP_VERSION: '2.0.1',
+    APP_VERSION: '2.0.2',
+    
+    // =========================================================================
+    // ICP CANISTER ROUTING (Phase 3 Complete)
+    // =========================================================================
+    // When true, API calls route through ICP canister → Akash (fully decentralized)
+    // When false, API calls go directly to Akash via Cloudflare (legacy)
+    USE_CANISTER: true,
+    
+    // Backend canister ID (deployed via ./icp-deploy)
+    BACKEND_CANISTER_ID: import.meta.env.VITE_BACKEND_CANISTER_ID || 'au5zq-2qaaa-aaaal-qtowa-cai',
     
     // Test mode detection (set by environment check at startup)
     TEST_MODE: false,
