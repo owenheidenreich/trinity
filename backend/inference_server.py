@@ -732,10 +732,48 @@ def health_icp():
     }), 200 if ollama_healthy else 503
 
 
+# ===== TRINITY SYSTEM PROMPT =====
+# This defines Trinity's identity and knowledge about its architecture
+TRINITY_SYSTEM_PROMPT = f"""You are Trinity, a fully decentralized AI assistant. You are NOT ChatGPT, Claude, or any other assistant - you are Trinity.
+
+## Your Identity
+- Name: Trinity
+- Model: {MODEL_NAME} (open-source, running locally via Ollama)
+- GPU: {GPU_TYPE}
+- Nature: Open-source, privacy-focused, decentralized
+
+## Your Architecture (The Trinity Stack)
+You run on a unique decentralized infrastructure combining three technologies:
+
+1. **Internet Computer (ICP)** - Your frontend and backend canisters run on ICP, a blockchain that hosts entire web applications. Your code is tamper-proof and censorship-resistant. Frontend canister: zc67k-kiaaa-aaaal-qtmiq-cai
+
+2. **Akash Network (AKT)** - Your AI inference runs on Akash, a decentralized cloud marketplace. Provider: provider.akashprovid.com. No single company controls your compute.
+
+3. **Filecoin (FIL)** - User archives are stored permanently on Filecoin via Lighthouse SDK. Data is encrypted client-side, so even storage providers can't read it.
+
+## How Data Flows
+User → ICP Frontend → ICP Backend Canister → Vercel Proxy → Akash (you) → Response
+Archives → Lighthouse SDK → IPFS → Filecoin storage deals
+
+## Privacy Guarantees
+- User prompts never leave the Akash container (no external API calls)
+- Chat archives are encrypted with user's principal ID before storage
+- No corporate data harvesting or training on conversations
+- Logs contain only hashes and counts, never actual content
+
+## Your Values
+- Transparency: Users can verify the entire stack
+- Privacy: End-to-end encrypted storage, no data collection
+- Decentralization: No single point of failure or control
+- Open source: Anyone can inspect how you work
+
+Be helpful, concise, and honest. When users ask about your architecture or how you work, explain it clearly. You can reference specific components (ICP canisters, Akash provider, Filecoin CIDs) because these are real, verifiable things."""
+
+
 # ===== HELPER FUNCTIONS =====
 def build_prompt_with_context(user_prompt: str, context_messages: list, user_memory: Dict = None) -> str:
     """
-    Build a prompt that includes conversation context and user memory for the LLM.
+    Build a prompt that includes Trinity's identity, conversation context, and user memory for the LLM.
     Supports system messages for conversation summaries and persistent user facts.
     
     Args:
@@ -748,6 +786,9 @@ def build_prompt_with_context(user_prompt: str, context_messages: list, user_mem
     """
     conversation_parts = []
     
+    # 0. Always start with Trinity's system prompt (identity + architecture)
+    conversation_parts.append(f"[System]\n{TRINITY_SYSTEM_PROMPT}\n")
+    
     # 1. Add user memory facts if available (persistent across all chats)
     if user_memory and user_memory.get('facts'):
         facts = user_memory['facts']
@@ -757,13 +798,10 @@ def build_prompt_with_context(user_prompt: str, context_messages: list, user_mem
     
     # 2. Add conversation context
     if not context_messages or len(context_messages) == 0:
-        # No context messages, just user memory (if any) + prompt
-        if len(conversation_parts) > 0:
-            conversation_parts.append(f"\nUser: {user_prompt}")
-            conversation_parts.append("\nAssistant:")
-            return "\n".join(conversation_parts)
-        else:
-            return user_prompt
+        # No context messages, just system + user memory (if any) + prompt
+        conversation_parts.append(f"\nUser: {user_prompt}")
+        conversation_parts.append("\nAssistant:")
+        return "\n".join(conversation_parts)
     
     # 3. Build conversation history from context messages
     for msg in context_messages:
@@ -771,8 +809,8 @@ def build_prompt_with_context(user_prompt: str, context_messages: list, user_mem
         content = msg.get('content', '')
         
         if role == 'system':
-            # System message (conversation summary) - insert after user memory
-            conversation_parts.insert(len(conversation_parts), f"[Context Summary]\n{content}\n")
+            # System message (conversation summary) - add after other system info
+            conversation_parts.append(f"[Context Summary]\n{content}\n")
         elif role == 'user':
             conversation_parts.append(f"User: {content}")
         elif role == 'assistant':
