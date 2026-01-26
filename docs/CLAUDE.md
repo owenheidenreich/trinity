@@ -894,9 +894,9 @@ dfx deploy trinity_backend --network ic
 
 1. **Candid/Rust Sync:** When changing ICP canister response types, update BOTH `lib.rs` AND `trinity_backend.did`. Mismatches cause deserialization errors.
 
-2. **Akash URL Volatility:** Every Akash redeployment gets a new random URL. Update both:
-   - `cloudflare/workers/trinity-ai-proxy.js`
-   - `trinity-icp/src/backend_canister/src/lib.rs` (AKASH_URL constant)
+2. **Akash URL Volatility:** Every Akash redeployment gets a new random URL. Update:
+   - Run `./scripts/switch-provider.sh <new-url>` to update Vercel proxy
+   - Then update ICP canister: `dfx canister --network ic call au5zq-2qaaa-aaaal-qtowa-cai set_akash_url '("https://vercel-proxy-swart-nine.vercel.app")'`
 
 3. **ICP Consensus:** For HTTPS Outcalls, responses must be deterministic. Use `/health/icp` instead of `/health` for ICP canister health checks.
 
@@ -910,7 +910,109 @@ dfx deploy trinity_backend --network ic
 
 ---
 
-## �📁 Project Structure
+## ⚠️ Common Development Pitfalls
+
+### Git Hygiene & Build Artifacts
+
+**Problem:** Git operations (add, status, commit) become extremely slow (5+ minutes).
+
+**Root Cause:** Build artifact folders getting tracked or scanned:
+- `trinity-icp/target/` - Rust build artifacts (can grow to 70MB+, 900+ files)
+- `trinity-icp/node_modules/` - Node dependencies (18MB+, 18,000+ files)
+
+**Prevention:** These folders are in `.gitignore` but may have been committed historically:
+```bash
+# Check if build artifacts are tracked
+git ls-files | grep -E "target/|node_modules/" | head -5
+
+# If output shows files, remove from git tracking
+git rm -r --cached trinity-icp/target/
+git rm -r --cached trinity-icp/node_modules/
+git commit -m "Remove build artifacts from git tracking"
+```
+
+**Safe Deletion:** If git is slow, delete and regenerate:
+```bash
+# Delete build folders (safe - will regenerate on next build)
+rm -rf trinity-icp/target trinity-icp/node_modules
+
+# Regenerate when needed
+cd trinity-icp && npm install       # Restores node_modules
+cd trinity-icp && cargo build       # Restores target (or dfx build)
+```
+
+**Expected File Count:** Project should have ~1,500 files without build artifacts, NOT 20,000+.
+
+### Zustand State Management
+
+**Problem:** State changes silently fail with no errors.
+
+**Root Cause:** Direct property assignment on Zustand store:
+```javascript
+// ❌ WRONG - Fails silently, state never updates
+State.isAuthenticated = true;
+State.chatHistory = [...messages];
+
+// ✅ CORRECT - Use setter methods
+State.setAuthenticated(principal, timestamp);
+State.setChatHistory(messages);
+State.addMessage('user', content);
+```
+
+**Reference:** `trinity-icp/src/state/store.js`
+
+### Testing Storage Features Locally
+
+**Problem:** Storage features appear to work but data never persists.
+
+**Root Cause:** Local environment uses TinyLlama only for AI inference. Storage requires:
+- Akash disk storage (not available locally)
+- Lighthouse API key (not configured locally)
+
+**Solution:** Always test storage features against production Akash deployment:
+```bash
+# Build and deploy to Akash for storage testing
+cd deploy/docker && ./build.sh
+# Deploy via https://console.akash.network
+# Test against production backend
+```
+
+### Cold Start Timeouts
+
+**Problem:** First request after Akash deployment takes 20-30 seconds.
+
+**Root Cause:** LLM model loading into GPU memory on first inference. This is expected behavior.
+
+**Solution:** Wait for first request to complete. Subsequent requests will be fast.
+
+### Docker Build Architecture
+
+**Problem:** Akash deployment fails with "exec format error".
+
+**Root Cause:** Docker image built for wrong architecture (ARM64 vs AMD64).
+
+**Solution:** Always build with platform flag:
+```bash
+# CORRECT - Akash requires linux/amd64
+docker buildx build --platform linux/amd64 --no-cache -t gdubx/trinity-inference:tag --push .
+
+# WRONG - Mac M1/M2 default to ARM64
+docker build -t gdubx/trinity-inference:tag .
+```
+
+### Browser Cache Issues
+
+**Problem:** Frontend changes don't appear after deployment.
+
+**Root Cause:** Browser serving cached old bundles.
+
+**Solution:** Hard refresh after deploying:
+- Mac: `Cmd+Shift+R`
+- Windows/Linux: `Ctrl+Shift+R`
+
+---
+
+## 📁 Project Structure
 
 ```
 Trinity/

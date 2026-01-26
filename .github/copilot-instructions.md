@@ -12,12 +12,12 @@ Trinity is a **fully decentralized AI chat application** with self-custody authe
 ### Key Components
 - `trinity-icp/src/`: Modular frontend (13 modules, Zustand state management)
 - `backend/inference_server.py`: Flask backend with auth decorators
-- `cloudflare/workers/`: HTTPS proxies to HTTP backends
+- `deploy/vercel-proxy/`: Vercel proxy for SSL termination (replaced Cloudflare)
 - `backend/icp_auth.py`: Ed25519 signature verification
 
 ### Data Flow
 ```
-User Input → Frontend (ICP) → Cloudflare Worker → Akash Backend → Ollama LLM
+User Input → Frontend (ICP) → ICP Backend Canister → Vercel Proxy → Akash Backend → Ollama LLM
                                       ↓
                                Autosave (2s debounce) → Encrypted JSON on Akash disk
                                       ↓
@@ -130,9 +130,9 @@ Reference: `trinity-icp/src/storage/autosave.js`
 ### External Dependencies
 - **Ollama**: Model inference (local + Akash)
 - **Lighthouse SDK**: Direct IPFS + Filecoin storage with verified deals
-- **Cloudflare Workers**: HTTPS termination and CORS
+- **Vercel Proxy**: SSL termination for Akash (replaced Cloudflare)
 - **Akash Network**: Decentralized compute (manual deployment via console)
-- **ICP**: Frontend hosting (dfx deploy)
+- **ICP**: Frontend + backend canister hosting (dfx deploy)
 
 ### API Endpoints
 - `/health`: Status check (no auth)
@@ -150,6 +150,12 @@ Reference: `trinity-icp/src/storage/autosave.js`
 - Docs: `docs/` with authoritative CLAUDE.md reference
 
 ## Common Pitfalls
+
+### Git Slow Operations
+- If `git add` or `git status` takes 5+ minutes, check for build artifacts
+- `trinity-icp/target/` (Rust, 70MB+) and `trinity-icp/node_modules/` (18MB+) should NOT be tracked
+- Delete with `rm -rf trinity-icp/target trinity-icp/node_modules` - they regenerate on build
+- Expected project file count: ~1,500 files (not 20,000+)
 
 ### Silent Failures
 - Zustand direct state assignments don't throw errors but break functionality
