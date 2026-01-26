@@ -654,6 +654,42 @@ cd deploy/local
 | Debug storage bugs | **Production** | Local has no storage |
 | Final validation before release | **Production** | Full feature set |
 
+### ⚠️ IMPORTANT: Run Full Bootup Before Testing
+
+> **Before testing ANY feature that requires Akash backend or viewing the frontend visually, you MUST run the full deployment bootup sequence.** See [Full Production Bootup Process](#-full-production-bootup-process-step-by-step) above.
+
+**Features that REQUIRE full bootup first:**
+- Autosave / chat persistence
+- Chat list / history loading
+- Filecoin archive (upload or download)
+- Context memory persistence
+- Any storage-related functionality
+- Frontend visual testing (to see real AI responses)
+- LLM inference quality testing (production models)
+
+**Quick bootup reminder:**
+```bash
+# 1. Build Docker
+cd deploy/docker && ./build.sh
+
+# 2. Deploy to Akash Console (manual step)
+# 3. Update Vercel proxy with new Akash URL
+cd deploy/vercel-proxy && npx vercel --prod
+
+# 4. Deploy ICP canisters
+cd trinity-icp && npm install --legacy-peer-deps
+dfx deploy --ic trinity_backend
+dfx deploy --ic trinity_frontend
+
+# 5. Verify health
+curl -s https://vercel-proxy-swart-nine.vercel.app/health | jq .status
+```
+
+**If Akash is already running** and you only changed frontend code:
+```bash
+cd trinity-icp && npm install --legacy-peer-deps && dfx deploy --ic trinity_frontend
+```
+
 ### Testing New Backend Features
 
 When implementing backend features that involve storage or Filecoin:
