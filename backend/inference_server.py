@@ -74,6 +74,44 @@ Path(CHATS_DIR).mkdir(parents=True, exist_ok=True)
 
 # ===== GLOBAL STATE =====
 
+# ===== AI TOOLS CONFIGURATION =====
+# All tools use the existing Ollama backend (same as Trinity chat)
+
+# In-memory document storage for Chat With Documents (per-session)
+# Format: { session_id: { 'content': str, 'filename': str, 'uploaded_at': datetime } }
+document_store = {}
+
+# PicklesGPT System Prompt
+PICKLES_SYSTEM_PROMPT = """You are Pickles, a veteran derivatives and futures trader with 17+ years of experience.
+
+## Your Trading Profile
+- You trade ES/NQ/RTY/NG/GC/VIX/CL/SPX/SPY/QQQ, mostly intraday
+- Occasional theta & vega trades, rarely individual stocks (only big caps)
+- Goal: 1% portfolio/week & always be learning
+- After taking profits, the rest goes into long-term buy & hold (stocks, dividends, bonds)
+
+## The Holy Gospel (Your Core Philosophy)
+- "Wait for your A+ setups"
+- "Trade the chart, not the bias"
+- "Always take profits off the table"
+
+## How You Think About Trades
+Every trade needs a well-constructed thesis with:
+- Clear entry point
+- Clear exit point (profit target)
+- Clear stop loss
+- Expected duration
+- Risk parameters
+
+## Your Communication Style
+- Direct and experienced
+- Use trading jargon naturally
+- Occasionally humble ("there's always something that humbles me back into the classroom")
+- Focus on risk management and discipline
+- Encourage waiting for the right setups rather than forcing trades
+
+When answering questions, draw on your 17+ years of trading experience. Be helpful but realistic about the markets."""
+
 # ===== ENCRYPTION UTILITIES =====
 class EncryptionUtils:
     """Handle AES-256-GCM encryption for chat content"""
@@ -1546,6 +1584,189 @@ def delete_memory_fact(index):
     except Exception as e:
         logger.error(f'❌ Error deleting memory fact: {e}', exc_info=True)
         return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# AI TOOLS ENDPOINTS (Using Ollama/Llama3)
+# ============================================================================
+
+def call_ollama_for_tools(prompt: str, temperature: float = 0.7) -> str:
+    """Helper function to call Ollama API for tools."""
+    try:
+        response = requests.post(
+            f"{OLLAMA_HOST}/api/generate",
+            json={
+                "model": MODEL_NAME,
+                "prompt": prompt,
+                "stream": False,
+                "options": {"temperature": temperature}
+            },
+            timeout=120
+        )
+        response.raise_for_status()
+        return response.json().get('response', '')
+    except Exception as e:
+        logger.error(f"Ollama call failed: {e}")
+        raise
+
+
+# ----- CHAT WITH DOCUMENTS -----
+
+@app.route('/tools/documents/upload', methods=['POST'])
+def upload_document():
+    """Upload a document for querying."""
+    try:
+        data = request.json
+        content = data.get('content', '')
+        filename = data.get('filename', 'uploaded_document.txt')
+        session_id = data.get('sessionId', str(time.time()))
+
+        if not content:
+            return jsonify({'error': 'No content provided'}), 400
+
+        document_store[session_id] = {
+            'content': content,
+            'filename': filename,
+            'uploaded_at': datetime.utcnow().isoformat()
+        }
+
+        logger.info(f'📄 Document uploaded: {filename} ({len(content)} chars)')
+        return jsonify({
+            'success': True,
+            'sessionId': session_id,
+            'filename': filename,
+            'documentLength': len(content)
+        })
+    except Exception as e:
+        logger.error(f'❌ Document upload error: {e}', exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/tools/documents/query', methods=['POST'])
+def query_document():
+    """Query an uploaded document using Ollama."""
+    try:
+        data = request.json
+        session_id = data.get('sessionId', '')
+        query = data.get('query', '')
+
+        if not session_id or session_id not in document_store:
+            return jsonify({'error': 'No document found. Please upload first.'}), 400
+        if not query:
+            return jsonify({'error': 'No query provided'}), 400
+
+        doc = document_store[session_id]
+        doc_content = doc['content'][:30000]
+
+        prompt = f"""You are a helpful document analysis assistant.
+Answer based ONLY on this document. If not found, say so.
+
+=== DOCUMENT ({doc['filename']}) ===
+{doc_content}
+=== END DOCUMENT ===
+
+Question: {query}
+Answer:"""
+
+        answer = call_ollama_for_tools(prompt, temperature=0.3)
+        logger.info(f'📄 Document query: "{query[:50]}..."')
+        return jsonify({'answer': answer, 'documentUsed': doc['filename'], 'model': MODEL_NAME})
+    except Exception as e:
+        logger.error(f'❌ Document query error: {e}', exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+# ----- TRANSCRIPT CLEANER -----
+
+@app.route('/tools/transcript/clean', methods=['POST'])
+def clean_transcript():
+    """Clean and polish a transcript."""
+    try:
+        data = request.json
+        raw_text = data.get('text', '')
+
+        if not raw_text:
+            return jsonify({'error': 'No text provided'}), 400
+
+        prompt = f"""You are a professional transcript editor. Clean this transcript:
+1. Fix grammar, spelling, punctuation
+2. Remove filler words (um, uh, like) unless meaningful
+3. Fix run-on sentences
+4. Preserve speaker labels if present
+5. Maintain original meaning and tone
+
+Return ONLY the cleaned transcript.
+
+=== RAW TRANSCRIPT ===
+{raw_text}
+=== END ===
+
+Cleaned transcript:"""
+
+        cleaned = call_ollama_for_tools(prompt, temperature=0.3)
+        logger.info(f'🎙️ Transcript cleaned: {len(raw_text)} -> {len(cleaned)} chars')
+        return jsonify({
+            'cleanedText': cleaned,
+            'originalLength': len(raw_text),
+            'cleanedLength': len(cleaned),
+            'model': MODEL_NAME
+        })
+    except Exception as e:
+        logger.error(f'❌ Transcript error: {e}', exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+# ----- PICKLESGPT -----
+
+@app.route('/tools/pickles/chat', methods=['POST'])
+def pickles_chat():
+    """Chat with PicklesGPT trading assistant."""
+    try:
+        data = request.json
+        user_message = data.get('message', '')
+        context_messages = data.get('contextMemory', [])
+
+        if not user_message:
+            return jsonify({'error': 'No message provided'}), 400
+
+        conversation = ""
+        for msg in context_messages[-6:]:
+            role = msg.get('role', 'user')
+            content = msg.get('content', '')
+            if role == 'user':
+                conversation += f"User: {content}\n"
+            elif role == 'assistant':
+                conversation += f"Pickles: {content}\n"
+
+        prompt = f"""{PICKLES_SYSTEM_PROMPT}
+
+{conversation}User: {user_message}
+
+Pickles:"""
+
+        answer = call_ollama_for_tools(prompt, temperature=0.8)
+        logger.info(f'📈 PicklesGPT: "{user_message[:50]}..."')
+        return jsonify({'response': answer, 'model': MODEL_NAME, 'persona': 'Pickles'})
+    except Exception as e:
+        logger.error(f'❌ PicklesGPT error: {e}', exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/tools/status')
+def tools_status():
+    """Check status of all AI tools."""
+    ollama_ok = check_ollama_connection()
+    return jsonify({
+        'ollama_connected': ollama_ok,
+        'model': MODEL_NAME,
+        'tools': {
+            'chatWithDocuments': {'available': ollama_ok},
+            'transcriptCleaner': {'available': ollama_ok},
+            'picklesGPT': {'available': ollama_ok}
+        },
+        'activeDocumentSessions': len(document_store)
+    })
+
 
 @app.route('/stats')
 

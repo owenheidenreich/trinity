@@ -46,6 +46,7 @@ import ContextMemory from './state/contextMemory.js';
 import initRainbowBorders from './ui/rainbowBorder.js';
 import Validation from './utils/validation.js';
 import { generateViaCanister, healthCheckViaCanister, isCanisterConfigured } from './api/canister-client.js';
+import { initTools } from './tools.js';
 
 // ============================================================================
 // 1b. AUTHENTICATION - Imported from auth/authManager.js
@@ -1417,6 +1418,10 @@ async function init() {
     // Initialize rainbow border animations
     initRainbowBorders();
     console.log('✅ Rainbow border animations initialized');
+
+    // Initialize AI tools (Chat with Docs, Transcript Cleaner, PicklesGPT)
+    initTools();
+    console.log('✅ AI Tools initialized');
 
     // -------------------- Initial State --------------------
 
