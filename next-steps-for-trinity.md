@@ -11,17 +11,13 @@
     - its elementary
     - it should store memory attached to the user id, to collect important info and store relevant details
 - can we update the transparency? 
-    - users should be able to verify their filecoin storage contains their archives
-    - users should see the provider details (its currently listing ` trinity-tier2-balanced [PROD]` but it should retrieve the akash provider and present that.)
-    - I would like to add an about url. it shall be in the upper right hand of the page
-    - It should contain an intelligently written core breakdown of the main three (ICP, AKT, and FIL) and how they are interconnected. (down to the IPFS url handling, and the AKT memory) and then it should explain how the backend stuff works across the main 3. it should provide urls to all at the end for details.
-    - suggest other transparency things
+- can we make authorization more normie friendly?
+    - clickable, only 1 important thing to remember (export button, safe place)
+    - it clutters the sidebar with the username and an emoji check mark. its confusing and doesnt really help
+    - i like the current thing of assigning normies the user and pass, but it being this big long string of characters is less than ideal. research into ways that we can upgrade our auth functionality to make it normie friendly but still strong, and focused on our core principles.
 - privacy
     - i can currently see the first word of any user's prompt if i view the akash logs. please limit my ability to see that in the logs. 
 - security
     - look for any major security flaws. 
 
-
-phase 1 critiques:
-- please change the CID so that it is embedded into the upper right hand screen of that archived chat permenantly. the CID should be a hyperlink that opens a helpful "about filecoin" screen that tells them what to do with that CID. so if the user wants to verify CID they can, and its in an out of the way place so they can still access their archived thats.
 

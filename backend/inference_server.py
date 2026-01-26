@@ -35,6 +35,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Reduce werkzeug HTTP request log spam (every request was being logged)
+logging.getLogger('werkzeug').setLevel(logging.WARNING)
+
 app = Flask(__name__)
 CORS(app)
 
@@ -582,7 +585,8 @@ class ICPIdempotencyCache:
         """Cache a response for the given request_id"""
         with self._lock:
             self._cache[request_id] = (response, status_code, time.time())
-            logger.info(f'💾 ICP cached response for request_id: {request_id}')
+            # DEBUG level to reduce log spam from frequent ICP health checks
+            logger.debug(f'💾 ICP cached response for request_id: {request_id}')
             self._cleanup()
     
     def _cleanup(self):
@@ -853,15 +857,12 @@ def generate():
         import hashlib
         prompt_hash = hashlib.sha256(user_prompt.encode()).hexdigest()[:8]
         word_count = len(user_prompt.split())
-        logger.info(f"[{PROVIDER_ID}] Processing: {word_count} words (hash:{prompt_hash}) with {len(context_memory)} context messages")
-        if len(context_memory) > 0:
-            logger.info(f"[{PROVIDER_ID}] Context: {len(context_memory)} messages totaling {sum(len(m.get('content', '').split()) for m in context_memory)} words")
+        context_count = len(context_memory)
         
-        logger.info(f"[{PROVIDER_ID}] Full prompt length: {len(full_prompt)} chars")
+        # Single consolidated log line for request
+        logger.info(f"🤖 Request: {word_count} words (#{prompt_hash}), {context_count} ctx, seed={seed}")
         
         # Generate with Ollama
-        logger.info(f"🤖 Generating with Ollama (seed={seed}, temp={temperature})")
-        
         # Build Ollama options
         ollama_options = {
             "num_predict": max_length,
@@ -955,16 +956,15 @@ def autosave_chat():
         principal = request.principal
         data = request.json
         
-        logger.info(f'📥 Autosave request from {principal}')
-        logger.info(f'   Request data keys: {data.keys() if data else "None"}')
+        # Privacy: Only log request metadata, not content
+        logger.debug(f'📥 Autosave request from {principal[:16]}...')
         
         chat_id = data.get('chatId')
         messages = data.get('messages', [])
         metadata = data.get('metadata', {})
         
-        logger.info(f'   chatId: {chat_id}')
-        logger.info(f'   messages: {len(messages)} messages')
-        logger.info(f'   metadata: {metadata}')
+        # Privacy: Don't log metadata (may contain user-generated titles)
+        logger.debug(f'   chatId: {chat_id}, messages: {len(messages)}')
         
         if not chat_id:
             logger.error('❌ Missing chatId in autosave request')
@@ -977,28 +977,22 @@ def autosave_chat():
             'metadata': metadata
         }
         
-        logger.info(f'🔐 Encrypting chat data...')
         # Encrypt content
         encrypted = EncryptionUtils.encrypt_chat(chat_data, principal)
-        logger.info(f'✅ Encryption complete')
         
         # Save to disk
         chat_filename = f"{chat_id}.json"
         chat_path = get_user_dir(principal) / chat_filename
         
-        logger.info(f'💾 Saving to: {chat_path}')
         with open(chat_path, 'w') as f:
             json.dump(encrypted, f)
-        logger.info(f'✅ File saved')
         
         # Update metadata
-        logger.info(f'📋 Updating metadata...')
         user_metadata = load_metadata(principal)
         
         # Find or create chat entry in metadata
         chat_entry = next((c for c in user_metadata['chats'] if c['chatId'] == chat_id), None)
         if not chat_entry:
-            logger.info(f'📝 Creating new chat entry in metadata')
             chat_entry = {
                 'chatId': chat_id,
                 'title': metadata.get('title', 'Untitled'),
@@ -1006,16 +1000,14 @@ def autosave_chat():
                 'isArchived': False
             }
             user_metadata['chats'].append(chat_entry)
-        else:
-            logger.info(f'📝 Updating existing chat entry in metadata')
         
         chat_entry['lastUpdated'] = metadata.get('updatedAt', int(time.time() * 1000))
         chat_entry['messageCount'] = len(messages)
         
         save_metadata(principal, user_metadata)
-        logger.info(f'✅ Metadata saved')
         
-        logger.info(f'✅ Chat autosaved successfully: {chat_id} for {principal}')
+        # Privacy: Single minimal log line for successful autosave
+        logger.info(f'💾 Autosaved chat {chat_id[:8]}... ({len(messages)} msgs)')
         
         return jsonify({
             'success': True,
@@ -1418,7 +1410,7 @@ def get_user_memory():
         principal = request.principal
         memory = load_user_memory(principal)
         
-        logger.info(f'📖 Loaded user memory for {principal}: {len(memory.get("facts", []))} facts')
+        logger.debug(f'📖 Loaded user memory: {len(memory.get("facts", []))} facts')
         return jsonify(memory)
     
     except Exception as e:
@@ -1448,7 +1440,7 @@ def update_user_memory():
         
         save_user_memory(principal, memory)
         
-        logger.info(f'💾 Updated user memory for {principal}')
+        logger.debug(f'💾 Updated user memory')
         return jsonify({
             'success': True,
             'memory': memory
@@ -1481,7 +1473,7 @@ def add_memory_fact():
         memory['facts'].append(new_fact)
         save_user_memory(principal, memory)
         
-        logger.info(f'➕ Added fact to user memory: {new_fact["fact"][:50]}...')
+        logger.info(f'➕ Added fact to user memory (total: {len(memory["facts"])})')
         return jsonify({
             'success': True,
             'fact': new_fact,
@@ -1506,7 +1498,7 @@ def delete_memory_fact(index):
         deleted_fact = memory['facts'].pop(index)
         save_user_memory(principal, memory)
         
-        logger.info(f'🗑️ Deleted fact from user memory: {deleted_fact["fact"][:50]}...')
+        logger.info(f'🗑️ Deleted fact #{index} from user memory (remaining: {len(memory["facts"])})')
         return jsonify({
             'success': True,
             'deletedFact': deleted_fact,
