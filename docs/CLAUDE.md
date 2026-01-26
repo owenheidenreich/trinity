@@ -1,16 +1,16 @@
 # Trinity Codebase Reference
 
 > **Purpose:** Comprehensive documentation for AI assistants to quickly understand the Trinity project  
-> **Last Updated:** January 25, 2026  
-> **Last Verified:** January 25, 2026 - Full stack verified working ✅  
+> **Last Updated:** January 26, 2026  
+> **Last Verified:** January 26, 2026 - Full stack verified working ✅  
 > **Status:** Production - Fully Decentralized Stack Operational  
-> **Version:** v2.6.1 (Codebase cleanup + deployment documentation)  
-> **ENS Domain:** trinityai.eth (https://trinityai.eth.limo for all browsers)  
+> **Version:** v2.7.0 (Custom domain setup + ENS deprecated)  
+> **Custom Domain:** trinityai.cc (pending ICP registration)  
 > **ICP Frontend Canister:** zc67k-kiaaa-aaaal-qtmiq-cai  
 > **ICP Backend Canister:** au5zq-2qaaa-aaaal-qtowa-cai  
-> **Akash Backend:** http://sm14iq846hf5jbdgochv1d04a0.ingress.akashprovid.com (tier2-balanced, Llama 3.1 8B)  
+> **Akash Backend:** http://qoa8uee50tfn78p8kcpi3prvp0.ingress.akashprovid.com (tier2-balanced, Llama 3.1 8B)  
 > **Vercel Proxy:** https://vercel-proxy-swart-nine.vercel.app (dual HTTP/HTTPS, env-configured)  
-> **Docker Image:** gdubx/trinity-inference:v2-20260125-182818  
+> **Docker Image:** gdubx/trinity-inference:v2-20260125-203509  
 > **Model:** Llama 3.1 8B on NVIDIA GPU (Tier 2 - balanced performance)  
 > **⚠️ Akash URL Changes:** Update Vercel env with `npx vercel env add AKASH_URL production`  
 > **⚠️ Provider Selection:** CHOOSE `*.akash.pub` or `*.akashprovid.com` domains, AVOID `*.leet.haus`  
@@ -53,9 +53,8 @@
 - ✅ **Sleek UI:** Dark theme with animated rainbow border effects on hover
 
 ### Live URLs
-- **ENS Domain:** https://trinityai.eth.limo (works in all browsers via eth.limo gateway)
-- **ENS Native:** trinityai.eth (works in Brave/Opera with native ENS support)
-- **ICP Canister:** https://zc67k-kiaaa-aaaal-qtmiq-cai.icp0.io (primary frontend)
+- **Primary URL:** https://trinityai.cc (custom domain, pending DNS propagation)
+- **ICP Canister:** https://zc67k-kiaaa-aaaal-qtmiq-cai.icp0.io (direct canister URL)
 - **Backend:** https://dn0jrnobadetf9sj2h3h5m7olk.ingress.hurricane.akash.pub (via Vercel Proxy - currently off)
 - **IPFS Mirror:** ipfs://bafybeigylq4xs26nj23hzfrsmdw2iqutsrlgpakddebdrpqssdcboddsau (pinned via Pinata)
 - **Model:** TinyLlama 1.1B on NVIDIA GPU (Tier 1 - affordable testing)
@@ -311,59 +310,44 @@ cd deploy/vercel-proxy && npx vercel --yes --prod
 
 **Status:** ICP Backend Canister deployed and health check working
 
-### Phase 8: ENS Domain ✅ COMPLETE (January 2026)
-**Purpose:** Decentralized DNS via Ethereum Name Service, enabling human-readable access.
-
-**✅ Completed:**
-- Registered `trinityai.eth` domain (2-year registration, ~$5)
-- Frontend uploaded to IPFS via Pinata (CID: `bafybeigylq4xs26nj23hzfrsmdw2iqutsrlgpakddebdrpqssdcboddsau`)
-- ENS contenthash set to IPFS CID
-- Gateway URL working: `https://trinityai.eth.limo`
-- Native ENS resolution in Brave/Opera browsers
-
-**ENS vs Handshake Decision:**
-| Feature | ENS (Chosen ✅) | Handshake |
-|---------|---------------|------------|
-| Cost | ~$5/year | ~$5 one-time |
-| Browser Support | Brave, Opera native + eth.limo gateway | Requires custom resolvers |
-| Ecosystem | Ethereum, widely recognized | Smaller, DNS-focused |
-| ICP Integration | IPFS contenthash → ICP mirror | Would need separate setup |
+### Phase 8: Custom Domain ✅ COMPLETE (January 2026)
+**Purpose:** Human-readable domain pointing directly to ICP for fast loading.
 
 **Architecture:**
 ```
-trinityai.eth
-    ↓ ENS Resolution
-IPFS contenthash (bafybei...)
-    ↓ eth.limo gateway
-https://trinityai.eth.limo
-    ↓ Loads IPFS content
-Trinity Frontend (same as ICP)
+trinityai.cc (Cloudflare DNS-only)
+    ↓ CNAME → trinityai.cc.icp1.io
+ICP Boundary Nodes
+    ↓ Routes to canister
+zc67k-kiaaa-aaaal-qtmiq-cai (Trinity Frontend)
+```
+
+**DNS Records (Cloudflare - Proxy OFF):**
+| Type | Name | Content |
+|------|------|---------|
+| CNAME | @ | trinityai.cc.icp1.io |
+| TXT | _canister-id | zc67k-kiaaa-aaaal-qtmiq-cai |
+| CNAME | _acme-challenge | _acme-challenge.trinityai.cc.icp2.io |
+
+**Files Required:**
+- `.well-known/ic-domains` - Lists domains (trinityai.cc)
+- `.ic-assets.json5` - ICP asset configuration
+
+**Registration Command:**
+```bash
+curl -sL -X POST https://icp0.io/custom-domains/v1/trinityai.cc | jq
 ```
 
 **Access Methods:**
-- **All Browsers:** `https://trinityai.eth.limo` (eth.limo gateway)
-- **Brave/Opera:** `trinityai.eth` (native ENS support)
+- **Custom Domain:** `https://trinityai.cc` (fast, ~200ms)
 - **ICP Direct:** `https://zc67k-kiaaa-aaaal-qtmiq-cai.icp0.io` (always available)
 
-**Update Workflow (when frontend changes):**
-```bash
-# 1. Build frontend
-cd trinity-icp && npm run build
+**Why Not ENS?**
+- ENS requires IPFS/IPNS which adds 30-60 seconds load time
+- eth.limo gateway latency is unacceptable for first-time users
+- trinityai.eth is still owned but deprecated in favor of speed
 
-# 2. Upload dist/ folder to Pinata
-# - Go to https://app.pinata.cloud
-# - Upload folder → get new CID
-
-# 3. Update ENS contenthash
-# - Go to https://app.ens.domains
-# - Edit trinityai.eth → Records → Content Hash
-# - Set to ipfs://<new-CID>
-
-# 4. Deploy to ICP as well (primary)
-dfx deploy --ic trinity_frontend
-```
-
-**Status:** Fully decentralized DNS - works in all browsers via eth.limo gateway
+**Status:** DNS configured, pending ICP registration (DNS propagation delay)
 
 ---
 
@@ -387,9 +371,9 @@ dfx deploy --ic trinity_frontend
 
 #### 2. Security ✅ COMPLETE
 - **HTTPS:** Vercel proxy handles SSL termination for Akash backend
-- **Domain:** Frontend accessed via ICP canister URL or trinityai.eth.limo
+- **Domain:** Frontend accessed via ICP canister URL or trinityai.cc
 - **ICP Security Handler:** Implemented via backend canister with HTTPS outcalls
-- **ENS Domain:** ✅ COMPLETE - trinityai.eth registered and working
+- **Custom Domain:** ✅ COMPLETE - trinityai.cc configured, pending registration
 
 #### 3. Save Chat Function (Filecoin) ✅ FULLY IMPLEMENTED
 - **Archive Button:** Manual save functionality implemented

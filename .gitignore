@@ -26,6 +26,11 @@ node_modules/
 lighthouse_api_key.txt
 *_api_key.txt
 
+# IPNS keys (private - do not commit!)
+.ipns-key
+.ipns-name
+.ipns-revision
+
 # Test data
 deployment/test-data/
 deployment/chats-local/

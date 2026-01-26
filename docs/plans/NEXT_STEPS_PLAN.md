@@ -14,6 +14,7 @@ Tasks reordered to minimize Akash redeployments. **All frontend/ICP-only tasks f
 | Phase | Tasks | Docker Update? | Status |
 |-------|-------|----------------|--------|
 | **Phase 1** | About page, CID display, UI tweaks | ❌ No | ✅ COMPLETE |
+| **Phase 1.5** | trinityai.cc custom domain | ❌ No | ⏳ DNS Propagating |
 | **Phase 2** | Security (input validation - frontend) | ❌ No | 🔄 In Progress |
 | **Phase 3** | All backend changes (batched) | ✅ Yes (once) | ⏳ Pending |
 | **Phase 4** | Memory system upgrade | ✅ Yes | ⏳ Pending |
@@ -38,6 +39,39 @@ Tasks reordered to minimize Akash redeployments. **All frontend/ICP-only tasks f
 ### 1.3 ✅ Improve Provider Display
 - Production: Shows `ICP → Akash → Filecoin` colored chain
 - Local dev: Shows `⚠️ Local Dev (no storage)` warning
+
+---
+
+## Phase 1.5: Custom Domain Setup (Pending DNS Propagation)
+
+> **Status:** DNS configured, waiting for propagation
+
+### 1.5.1 ⏳ trinityai.cc Custom Domain
+**Goal:** Replace long canister URL with `https://trinityai.cc`
+
+**Completed:**
+- [x] `.well-known/ic-domains` file created with `trinityai.cc` and `www.trinityai.cc`
+- [x] post-build.js updated to copy `.well-known` to dist
+- [x] ICP frontend deployed with ic-domains file
+- [x] Cloudflare DNS records configured:
+  - CNAME `@` → `trinityai.cc.icp1.io` (DNS only, no proxy)
+  - TXT `_canister-id` → `zc67k-kiaaa-aaaal-qtmiq-cai`
+  - CNAME `_acme-challenge` → `_acme-challenge.trinityai.cc.icp2.io` (DNS only)
+
+**Pending:**
+- [ ] DNS propagation (NXDOMAIN cache expiry ~15-30 min)
+- [ ] ICP custom domain registration
+
+**Validation Commands:**
+```bash
+# Check if DNS has propagated
+curl -sL -X GET "https://icp0.io/custom-domains/v1/trinityai.cc/validate" | jq
+
+# Once validation passes, register the domain
+curl -sL -X POST https://icp0.io/custom-domains/v1/trinityai.cc | jq
+```
+
+**Note:** ENS (trinityai.eth) was deprecated due to 30-60s IPFS gateway latency.
 
 ---
 

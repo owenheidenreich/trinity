@@ -81,3 +81,10 @@
     - Donations
         - Automatic logic that routes (some number) 99% of all donations are  directly into AKT, ICP, and FIL (at the correct ratios) to keep it running, and then 
         - Payments/donations strongly encourage crypto transactions 
+
+    - trinityai.cc Custom Domain (PENDING)
+        - DNS records configured in Cloudflare (CNAME, TXT, _acme-challenge)
+        - Waiting for DNS propagation (NXDOMAIN cache expiry ~15-30 min)
+        - Once propagated, register with ICP: `curl -sL -X POST https://icp0.io/custom-domains/v1/trinityai.cc | jq`
+        - Validate with: `curl -sL -X GET "https://icp0.io/custom-domains/v1/trinityai.cc/validate" | jq`
+        - ENS (trinityai.eth) deprecated due to 30-60s IPFS load times

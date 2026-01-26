@@ -9,7 +9,7 @@
 **A fully decentralized AI chat application.** No accounts. No passwords. No centralized servers. Just you and your AI, secured by cryptography.
 
 <p align="center">
-  <a href="https://trinityai.eth.limo">trinityai.eth.limo</a> · 
+  <a href="https://trinityai.cc">trinityai.cc</a> · 
   <a href="https://zc67k-kiaaa-aaaal-qtmiq-cai.icp0.io">ICP Canister</a>
 </p>
 
@@ -23,7 +23,7 @@
 | Company stores your conversations | You own your data, encrypted with keys only you hold |
 | Servers in data centers | Compute on Akash (decentralized cloud) |
 | Data on company databases | Archives on Filecoin (permanent, verifiable storage) |
-| Access via company domain | Access via ENS (trinityai.eth) or ICP canister |
+| Access via company domain | Access via ICP canister (trinityai.cc) |
 
 **Zero trust architecture.** We can't read your chats. We can't lock you out. We can't shut down.
 
@@ -46,7 +46,7 @@
 │   • HTTPS outcalls    • Hot storage     • IPFS pinning         │
 │                                                                 │
 ├─────────────────────────────────────────────────────────────────┤
-│   DNS: trinityai.eth (ENS) → eth.limo gateway → IPFS mirror    │
+│   DNS: trinityai.cc → ICP boundary nodes (fast, direct)        │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -68,15 +68,15 @@ Click archive and your chat is uploaded to IPFS, then automatically sealed into 
 ### Context Memory
 Trinity remembers. A 6-message sliding window plus periodic summarization means coherent long conversations without exploding token counts.
 
-### Decentralized DNS
-Access via `trinityai.eth` in Brave/Opera, or `trinityai.eth.limo` in any browser. No ICANN, no registrars, no takedowns.
+### Custom Domain
+Access via `trinityai.cc` - a traditional domain pointing directly to ICP boundary nodes. Fast loading (~200ms), no IPFS latency.
 
 ---
 
 ## Quick Start
 
 ### Use Trinity (No Installation)
-Just visit **[trinityai.eth.limo](https://trinityai.eth.limo)** and start chatting.
+Just visit **[trinityai.cc](https://trinityai.cc)** or **[the ICP canister](https://zc67k-kiaaa-aaaal-qtmiq-cai.icp0.io)** and start chatting.
 
 ### Run Locally (Development)
 ```bash
@@ -177,7 +177,7 @@ Trinity/
 | **Compute** | Akash Network | Decentralized, cost-effective GPUs |
 | **Hosting** | ICP Canisters | Unstoppable, no servers |
 | **Storage** | Lighthouse SDK | IPFS + verified Filecoin deals |
-| **DNS** | ENS (trinityai.eth) | Decentralized, censorship-resistant |
+| **DNS** | Cloudflare (trinityai.cc) → ICP | Fast custom domain pointing to ICP |
 | **Proxy** | Vercel Edge | SSL termination for Akash |
 
 ---
@@ -224,7 +224,7 @@ Running Trinity costs real crypto:
 - [x] Phase 2: Encrypted autosave
 - [x] Phase 3: Filecoin archive via Lighthouse
 - [x] Phase 4: ICP backend canister (no Cloudflare)
-- [x] Phase 5: ENS domain (trinityai.eth)
+- [x] Phase 5: Custom domain (trinityai.cc → ICP)
 - [ ] Phase 6: Dynamic LLM tier routing
 - [ ] Phase 7: Donation/payment system
 - [ ] Phase 8: Open source release
@@ -252,7 +252,7 @@ MIT License. Use it, fork it, improve it.
 
 ## Links
 
-- **Live App:** [trinityai.eth.limo](https://trinityai.eth.limo)
+- **Live App:** [trinityai.cc](https://trinityai.cc)
 - **ICP Canister:** [zc67k-kiaaa-aaaal-qtmiq-cai.icp0.io](https://zc67k-kiaaa-aaaal-qtmiq-cai.icp0.io)
 - **IPFS Mirror:** `ipfs://bafybeigylq4xs26nj23hzfrsmdw2iqutsrlgpakddebdrpqssdcboddsau`
 - **Documentation:** [docs/CLAUDE.md](docs/CLAUDE.md)

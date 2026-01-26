@@ -1,11 +1,13 @@
 // Post-build script to make dist compatible with file:// protocol
-import { readFileSync, writeFileSync, readdirSync, copyFileSync } from 'fs';
+import { readFileSync, writeFileSync, readdirSync, copyFileSync, mkdirSync, existsSync } from 'fs';
 import { resolve, dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const indexPath = resolve(__dirname, '../dist/index.html');
 const assetsDir = resolve(__dirname, '../dist/assets');
+const distDir = resolve(__dirname, '../dist');
+const srcDir = resolve(__dirname, '../src');
 
 console.log('📝 Post-processing index.html for file:// protocol support...');
 
@@ -38,7 +40,6 @@ writeFileSync(indexPath, html, 'utf-8');
 console.log('✅ index.html processed - file:// protocol should now work');
 
 // Copy icp-auth.js to dist
-const distDir = resolve(__dirname, '../dist');
 const icpAuthSource = resolve(__dirname, '../src/auth/icp-auth.js');
 const icpAuthDest = join(distDir, 'icp-auth.js');
 copyFileSync(icpAuthSource, icpAuthDest);
@@ -73,3 +74,25 @@ if (!hasWindowAssignments) {
 console.log('✅ Using IIFE-assigned window functions (no wrapper needed)');
 
 writeFileSync(mainBundlePath, jsContent, 'utf-8');
+
+// Copy .well-known folder for ICP custom domain registration
+const wellKnownSrc = join(srcDir, '.well-known');
+const wellKnownDest = join(distDir, '.well-known');
+if (existsSync(wellKnownSrc)) {
+    if (!existsSync(wellKnownDest)) {
+        mkdirSync(wellKnownDest, { recursive: true });
+    }
+    const wellKnownFiles = readdirSync(wellKnownSrc);
+    for (const file of wellKnownFiles) {
+        copyFileSync(join(wellKnownSrc, file), join(wellKnownDest, file));
+    }
+    console.log('✅ .well-known folder copied to dist/');
+}
+
+// Copy .ic-assets.json5 for ICP asset configuration
+const icAssetsSource = join(srcDir, '.ic-assets.json5');
+const icAssetsDest = join(distDir, '.ic-assets.json5');
+if (existsSync(icAssetsSource)) {
+    copyFileSync(icAssetsSource, icAssetsDest);
+    console.log('✅ .ic-assets.json5 copied to dist/');
+}
