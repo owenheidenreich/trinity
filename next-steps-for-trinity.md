@@ -10,6 +10,13 @@
 - expand its memory capabilities
     - its elementary
     - it should store memory attached to the user id, to collect important info and store relevant details
-- can we make a tiny model faster
-    - speed increase without changing anything about the current stack.
-    - see tier2 YAML file for current specs.
+- can we update the transparency? 
+    - users should be able to verify their filecoin storage contains their archives
+    - users should see the provider details (its currently listing ` trinity-tier2-balanced [PROD]` but it should retrieve the akash provider and present that.)
+    - I would like to add an about url. it shall be in the upper right hand of the page
+    - It should contain an intelligently written core breakdown of the main three (ICP, AKT, and FIL) and how they are interconnected. (down to the IPFS url handling, and the AKT memory) and then it should explain how the backend stuff works across the main 3. it should provide urls to all at the end for details.
+    - suggest other transparency things
+- privacy
+    - i can currently see the first word of any user's prompt if i view the akash logs. please limit my ability to see that in the logs. 
+- security
+    - look for any major security flaws. 
