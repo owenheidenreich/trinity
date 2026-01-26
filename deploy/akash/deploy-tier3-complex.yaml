@@ -15,7 +15,7 @@ version: "2.0"
 
 services:
   trinity:
-    image: gdubx/trinity-inference:icp-consensus
+    image: gdubx/trinity-inference:v2-20260125-182818
     env:
       - PROVIDER_ID=trinity-tier3-complex
       - MODEL_NAME=qwen2.5:72b

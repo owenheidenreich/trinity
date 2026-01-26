@@ -4,16 +4,16 @@
 > **Last Updated:** January 25, 2026  
 > **Last Verified:** January 25, 2026 - Full stack verified working ✅  
 > **Status:** Production - Fully Decentralized Stack Operational  
-> **Version:** v2.6.0 (ENS Domain + Dual-Protocol Proxy + Provider Selection + Tier System)  
+> **Version:** v2.6.1 (Codebase cleanup + deployment documentation)  
 > **ENS Domain:** trinityai.eth (https://trinityai.eth.limo for all browsers)  
 > **ICP Frontend Canister:** zc67k-kiaaa-aaaal-qtmiq-cai  
 > **ICP Backend Canister:** au5zq-2qaaa-aaaal-qtowa-cai  
-> **Akash Backend:** https://dn0jrnobadetf9sj2h3h5m7olk.ingress.hurricane.akash.pub (currently off)  
+> **Akash Backend:** http://sm14iq846hf5jbdgochv1d04a0.ingress.akashprovid.com (tier2-balanced, Llama 3.1 8B)  
 > **Vercel Proxy:** https://vercel-proxy-swart-nine.vercel.app (dual HTTP/HTTPS, env-configured)  
-> **Docker Image:** gdubx/trinity-inference:icp-consensus (MUST build with `--platform linux/amd64`)  
-> **Model:** TinyLlama 1.1B on NVIDIA GPU (Tier 1 - affordable testing)  
-> **⚠️ Akash URL Changes:** Use `./scripts/switch-provider.sh <url>` to update Vercel proxy  
-> **⚠️ Provider Selection:** CHOOSE `*.akash.pub` domains, AVOID `*.leet.haus` (broken ingress)  
+> **Docker Image:** gdubx/trinity-inference:v2-20260125-182818  
+> **Model:** Llama 3.1 8B on NVIDIA GPU (Tier 2 - balanced performance)  
+> **⚠️ Akash URL Changes:** Update Vercel env with `npx vercel env add AKASH_URL production`  
+> **⚠️ Provider Selection:** CHOOSE `*.akash.pub` or `*.akashprovid.com` domains, AVOID `*.leet.haus`  
 > **Next Phase:** See [plans/DECENTRALIZATION_ROADMAP.md](plans/DECENTRALIZATION_ROADMAP.md)
 
 ---
@@ -510,6 +510,95 @@ dfx canister --network ic call au5zq-2qaaa-aaaal-qtowa-cai set_akash_url '("http
 
 # 4. Test health
 dfx canister --network ic call au5zq-2qaaa-aaaal-qtowa-cai health
+```
+
+### 🚀 Full Production Bootup Process (Step-by-Step)
+
+> **Use this checklist when deploying to a new Akash provider or after any infrastructure change.**
+> **Estimated time:** 5-10 minutes (depending on Akash deployment speed)
+
+#### Prerequisites
+- Docker Desktop running with buildx support
+- `dfx` CLI installed and authenticated to IC network
+- `npx vercel` available (Vercel CLI via npx)
+- Akash Console access (https://console.akash.network)
+
+#### Step 1: Build Docker Container
+```bash
+cd deploy/docker && ./build.sh
+```
+**Expected output:** Image pushed to `gdubx/trinity-inference:v2-YYYYMMDD-HHMMSS`
+**What it does:** Builds and pushes Docker image, auto-updates YAML files with new tag
+
+#### Step 2: Deploy to Akash (Manual)
+1. Go to https://console.akash.network
+2. Click "Create Deployment" or "Update Deployment"
+3. Paste contents of `deploy/akash/deploy-tier2-balanced.yaml` (or tier1/tier3)
+4. Select a provider with `*.akash.pub` domain (AVOID `*.leet.haus`)
+5. Wait for deployment to complete
+6. Copy the ingress URL (e.g., `sm14iq846hf5jbdgochv1d04a0.ingress.akashprovid.com`)
+
+#### Step 3: Update Vercel Proxy
+```bash
+cd deploy/vercel-proxy
+echo "http://<NEW_AKASH_URL>" | npx vercel env add AKASH_URL production
+npx vercel --prod
+```
+**Note:** Use `http://` NOT `https://` for Akash URLs (Vercel proxy handles SSL)
+**If AKASH_URL already exists:** `npx vercel env rm AKASH_URL production -y` first
+
+#### Step 4: Deploy ICP Backend Canister
+```bash
+cd trinity-icp && dfx deploy --ic trinity_backend
+```
+**Expected:** "Upgraded code for canister trinity_backend"
+**Note:** The canister routes through Vercel proxy, so no URL update needed unless proxy changes
+
+#### Step 5: Deploy ICP Frontend
+```bash
+cd trinity-icp && npm install --legacy-peer-deps && dfx deploy --ic trinity_frontend
+```
+**⚠️ CRITICAL:** Must run `npm install --legacy-peer-deps` BEFORE `dfx deploy`!
+The `node_modules/` folder is gitignored and won't exist after a fresh clone.
+**Expected:** "Upgraded code for canister trinity_frontend"
+
+#### Step 6: Run Health Checks
+```bash
+# Direct Akash health
+curl -s http://<AKASH_URL>/health | jq .status
+
+# Vercel proxy health
+curl -s https://vercel-proxy-swart-nine.vercel.app/health | jq .status
+
+# ICP canister health (via dfx)
+dfx canister --ic call trinity_backend health
+```
+**Expected:** All should return `"healthy"` or `status = "healthy"`
+
+#### Troubleshooting Common Issues
+
+| Issue | Symptom | Solution |
+|-------|---------|----------|
+| `npm run build` fails | "@dfinity/agent not found" | Run `npm install --legacy-peer-deps` first |
+| `vercel: command not found` | CLI not in PATH | Use `npx vercel` instead of `vercel` |
+| Vercel shows wrong Akash URL | Old env var cached | Remove with `npx vercel env rm AKASH_URL production -y` then re-add |
+| ICP canister http_request error | Calling raw endpoint | Use `dfx canister call` not curl to canister URL |
+| npm peer dependency conflict | Vite version mismatch | Always use `--legacy-peer-deps` flag |
+| Frontend shows old version | Browser cache | Hard refresh (Cmd+Shift+R) or clear cache |
+
+#### Quick Reference Commands
+```bash
+# Full bootup (after Akash deployment)
+cd deploy/docker && ./build.sh                    # Build Docker
+cd ../vercel-proxy && npx vercel --prod           # Deploy proxy
+cd ../../trinity-icp && npm install --legacy-peer-deps  # Install deps
+dfx deploy --ic trinity_backend                   # Backend canister
+dfx deploy --ic trinity_frontend                  # Frontend canister
+
+# Health check suite
+curl -s http://<AKASH_URL>/health | jq .
+curl -s https://vercel-proxy-swart-nine.vercel.app/health | jq .
+dfx canister --ic call trinity_backend health
 ```
 
 ### Local Testing Environment (TinyLlama)
