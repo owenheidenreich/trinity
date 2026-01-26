@@ -1,0 +1,21 @@
+# ============================================================================
+# Trinity ICP - Cargo Configuration for WASM Target
+# ============================================================================
+#
+# This configuration is REQUIRED for building the backend canister.
+# Without it, dependencies like curve25519-dalek (from ed25519-dalek) can
+# hang during compilation because they don't know how to target WASM.
+# ============================================================================
+
+[target.wasm32-unknown-unknown]
+# Increase stack size for cryptographic operations
+rustflags = ["-C", "link-arg=-z", "-C", "link-arg=stack-size=3000000"]
+
+[build]
+# Default to WASM target for this workspace
+target = "wasm32-unknown-unknown"
+
+# Environment variable overrides for WASM builds
+[env]
+# Disable proc-macro2 semver checks that can cause issues
+RUSTC_BOOTSTRAP = "1"

@@ -1,0 +1,61 @@
+version: "2.0"
+
+# ============================================================================
+# Trinity Test Environment - CPU Only (No GPU)
+# ============================================================================
+# 
+# Purpose: Fast, cheap testing environment for development
+# Model: TinyLlama 1.1B (small enough for CPU inference)
+# Cost: ~$5-10/month (CPU only, no GPU)
+# Response Time: 5-15 seconds (slower than GPU but sufficient for testing)
+#
+# Use this to test:
+# - ICP canister → Vercel proxy → Akash flow
+# - Authentication and signature verification
+# - Autosave and storage functionality
+# - ICP consensus handling
+#
+# DO NOT use for production - responses will be slow and lower quality
+# ============================================================================
+
+services:
+  trinity-test:
+    image: gdubx/trinity-inference:icp-consensus
+    env:
+      - PROVIDER_ID=trinity-test-cpu
+      - MODEL_NAME=tinyllama:1.1b
+      - MODEL_BACKEND=ollama
+      - GPU_TYPE=CPU
+      - MAX_QUEUE_SIZE=3
+      - OLLAMA_HOST=http://localhost:11434
+      - LIGHTHOUSE_API_KEY=cac651de.89f60066a4434ee98844288e220ad6dc
+    expose:
+      - port: 8000
+        as: 80
+        to:
+          - global: true
+
+profiles:
+  compute:
+    trinity-test:
+      resources:
+        cpu:
+          units: 2
+        memory:
+          size: 8Gi
+        storage:
+          size: 20Gi
+        # NO GPU - CPU only for cheap testing
+
+  placement:
+    akash:
+      pricing:
+        trinity-test:
+          denom: uakt
+          amount: 5000   # ~$5/month (CPU only is cheap!)
+
+deployment:
+  trinity-test:
+    akash:
+      profile: trinity-test
+      count: 1

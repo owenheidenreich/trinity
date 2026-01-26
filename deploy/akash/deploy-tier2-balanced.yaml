@@ -1,0 +1,65 @@
+version: "2.0"
+
+# ============================================================================
+# Trinity Tier 2: Balanced Production (Llama 3.1 8B)
+# ============================================================================
+# 
+# Purpose: Balanced performance for most production queries
+# Model: Llama 3.1 8B (4.7GB)
+# Cost: ~$0.10-0.25/hour (~$75-180/month)
+# Response Time: 3-8 seconds
+# Intelligence: Good (handles most queries well)
+#
+# GPU Selection: RTX3090/4090/A10/A40/L40S - production-grade providers
+# ============================================================================
+
+services:
+  trinity:
+    image: gdubx/trinity-inference:icp-consensus
+    env:
+      - PROVIDER_ID=trinity-tier2-balanced
+      - MODEL_NAME=llama3.1:8b
+      - MODEL_BACKEND=ollama
+      - GPU_TYPE=NVIDIA-GPU
+      - MAX_QUEUE_SIZE=10
+      - OLLAMA_HOST=http://localhost:11434
+      - LIGHTHOUSE_API_KEY=cac651de.89f60066a4434ee98844288e220ad6dc
+    expose:
+      - port: 8000
+        as: 80
+        to:
+          - global: true
+
+profiles:
+  compute:
+    trinity:
+      resources:
+        cpu:
+          units: 8
+        memory:
+          size: 32Gi
+        storage:
+          size: 100Gi
+        gpu:
+          units: 1
+          attributes:
+            vendor:
+              nvidia:
+                - model: rtx3090
+                - model: rtx4090
+                - model: a10
+                - model: a40
+                - model: l40s
+
+  placement:
+    akash:
+      pricing:
+        trinity:
+          denom: uakt
+          amount: 20000
+
+deployment:
+  trinity:
+    akash:
+      profile: trinity
+      count: 1

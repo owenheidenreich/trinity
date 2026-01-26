@@ -2,7 +2,7 @@ version: "2.0"
 
 services:
   trinity-llama70b:
-    image: gdubx/trinity-inference:v2-20260124-182612
+    image: gdubx/trinity-inference:icp-consensus
     env:
       - PROVIDER_ID=trinity-llama70b
       - MODEL_NAME=llama3.1:70b

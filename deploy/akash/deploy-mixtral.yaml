@@ -2,7 +2,7 @@ version: "2.0"
 
 services:
   trinity-mixtral8x22b:
-    image: gdubx/trinity-inference:v2-20260124-182612
+    image: gdubx/trinity-inference:icp-consensus
     env:
       - PROVIDER_ID=trinity-mixtral8x22b
       - MODEL_NAME=mixtral:8x22b

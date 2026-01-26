@@ -2,7 +2,7 @@ version: "2.0"
 
 services:
   trinity-qwen72b:
-    image: gdubx/trinity-inference:v2-20260124-182612
+    image: gdubx/trinity-inference:icp-consensus
     env:
       - PROVIDER_ID=trinity-qwen72b
       - MODEL_NAME=qwen2.5:72b
@@ -16,8 +16,6 @@ services:
         as: 80
         to:
           - global: true
-        accept:
-          - webdisallow
 
 profiles:
   compute:

@@ -1,0 +1,56 @@
+version: "2.0"
+
+# ============================================================================
+# Trinity Production - TinyLlama 1.1B on A100
+# ============================================================================
+# 
+# Simplified deployment that requests A100 specifically
+# Use this if the multi-GPU-model version doesn't find providers
+# ============================================================================
+
+services:
+  trinity:
+    image: gdubx/trinity-inference:icp-consensus
+    env:
+      - PROVIDER_ID=trinity-tinyllama
+      - MODEL_NAME=tinyllama:1.1b
+      - MODEL_BACKEND=ollama
+      - GPU_TYPE=NVIDIA-A100
+      - MAX_QUEUE_SIZE=10
+      - OLLAMA_HOST=http://localhost:11434
+      - LIGHTHOUSE_API_KEY=cac651de.89f60066a4434ee98844288e220ad6dc
+    expose:
+      - port: 8000
+        as: 80
+        to:
+          - global: true
+
+profiles:
+  compute:
+    trinity:
+      resources:
+        cpu:
+          units: 4
+        memory:
+          size: 16Gi
+        storage:
+          size: 30Gi
+        gpu:
+          units: 1
+          attributes:
+            vendor:
+              nvidia:
+                - model: a100
+
+  placement:
+    akash:
+      pricing:
+        trinity:
+          denom: uakt
+          amount: 20000
+
+deployment:
+  trinity:
+    akash:
+      profile: trinity
+      count: 1

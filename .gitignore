@@ -48,4 +48,10 @@ tests/__pycache__/
 *~
 
 # Trinity specific
+.credentials/
 ~$*.docx
+# Rust build artifacts
+target/
+trinity-icp/target/
+*.wasm
+Cargo.lock

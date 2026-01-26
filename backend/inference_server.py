@@ -554,12 +554,15 @@ def check_ollama_connection() -> bool:
 # ===== ICP IDEMPOTENCY CACHE =====
 # ICP HTTP Outcalls require deterministic responses across 13 replicas
 # We cache responses by X-Request-ID to ensure all replicas get the same response
+# CRITICAL: Uses per-request locking to prevent race conditions where multiple
+# replicas start LLM generation before any response is cached
 class ICPIdempotencyCache:
     """Cache for ICP HTTP Outcalls - ensures all 13 replicas get identical responses"""
     
     def __init__(self, ttl_seconds: int = 30):
         self._cache: Dict[str, Tuple[Dict, int, float]] = {}  # request_id -> (response, status_code, timestamp)
         self._lock = threading.Lock()
+        self._request_locks: Dict[str, threading.Lock] = {}  # Per-request locks to serialize LLM calls
         self._ttl = ttl_seconds
     
     def get(self, request_id: str) -> Optional[Tuple[Dict, int]]:
@@ -587,6 +590,17 @@ class ICPIdempotencyCache:
         expired = [rid for rid, (_, _, ts) in self._cache.items() if now - ts > self._ttl]
         for rid in expired:
             del self._cache[rid]
+        # Also cleanup old request locks
+        expired_locks = [rid for rid in self._request_locks if rid not in self._cache]
+        for rid in expired_locks[:100]:  # Limit cleanup to prevent long locks
+            del self._request_locks[rid]
+    
+    def get_request_lock(self, request_id: str) -> threading.Lock:
+        """Get or create a lock for a specific request_id"""
+        with self._lock:
+            if request_id not in self._request_locks:
+                self._request_locks[request_id] = threading.Lock()
+            return self._request_locks[request_id]
 
 # Global idempotency cache for ICP outcalls
 icp_cache = ICPIdempotencyCache(ttl_seconds=30)
@@ -596,34 +610,52 @@ def icp_idempotent(f):
     Decorator for ICP-compatible idempotent endpoints.
     Uses X-Request-ID header to return cached responses for the same request.
     This ensures all 13 ICP replicas receive identical responses.
+    
+    CRITICAL: Uses per-request locking to prevent race conditions.
+    When 13 replicas hit this endpoint simultaneously:
+    1. First replica acquires lock, others wait
+    2. First replica executes LLM, caches result, releases lock
+    3. Other 12 replicas get cached result
     """
     @wraps(f)
     def decorated(*args, **kwargs):
         request_id = request.headers.get('X-Request-ID')
         
         if request_id:
-            # Check cache first
+            # Fast path: Check cache first (no locking needed for reads)
             cached = icp_cache.get(request_id)
             if cached:
                 response, status_code = cached
                 return jsonify(response), status_code
-        
-        # Execute the actual function
-        result = f(*args, **kwargs)
-        
-        # Cache the result if we have a request_id
-        if request_id and result:
-            # Handle both tuple returns and Response objects
-            if isinstance(result, tuple):
-                response_data = result[0].get_json()
-                status_code = result[1] if len(result) > 1 else 200
-            else:
-                response_data = result.get_json()
-                status_code = 200
             
-            icp_cache.set(request_id, response_data, status_code)
-        
-        return result
+            # Acquire per-request lock - serializes LLM calls for same request_id
+            request_lock = icp_cache.get_request_lock(request_id)
+            with request_lock:
+                # Double-check cache after acquiring lock (another thread may have cached it)
+                cached = icp_cache.get(request_id)
+                if cached:
+                    response, status_code = cached
+                    logger.info(f'🔄 ICP cache hit after lock for request_id: {request_id}')
+                    return jsonify(response), status_code
+                
+                # Execute the actual function (only one thread per request_id does this)
+                result = f(*args, **kwargs)
+                
+                # Cache the result
+                if result:
+                    if isinstance(result, tuple):
+                        response_data = result[0].get_json()
+                        status_code = result[1] if len(result) > 1 else 200
+                    else:
+                        response_data = result.get_json()
+                        status_code = 200
+                    
+                    icp_cache.set(request_id, response_data, status_code)
+                
+                return result
+        else:
+            # No request_id - just execute without caching (direct browser request)
+            return f(*args, **kwargs)
     
     return decorated
 
@@ -789,9 +821,16 @@ def generate():
         
         user_prompt = data.get('prompt', '')
         max_length = data.get('max_length', 150)
-        temperature = data.get('temperature', 0.7)
         context_memory = data.get('contextMemory', [])
         principal = data.get('principal')  # Optional for unauthenticated requests
+        
+        # ICP canister sends options with seed and temperature for deterministic consensus
+        options = data.get('options', {})
+        temperature = options.get('temperature', data.get('temperature', 0.7))
+        seed = options.get('seed')  # ICP deterministic seed - critical for consensus
+        
+        # Check if this is an ICP request (has X-Request-ID header from canister)
+        is_icp_request = request.headers.get('X-Request-ID') is not None
         
         if not user_prompt:
             raise ValueError("Prompt cannot be empty")
@@ -820,7 +859,19 @@ def generate():
         logger.info(f"[{PROVIDER_ID}] Full prompt length: {len(full_prompt)} chars")
         
         # Generate with Ollama
-        logger.info(f"🤖 Generating with Ollama")
+        logger.info(f"🤖 Generating with Ollama (seed={seed}, temp={temperature})")
+        
+        # Build Ollama options
+        ollama_options = {
+            "num_predict": max_length,
+            "temperature": temperature,
+        }
+        
+        # Add seed for deterministic generation (critical for ICP consensus)
+        # When seed is set, all 13 ICP replicas get identical LLM output
+        if seed is not None:
+            ollama_options["seed"] = int(seed)
+            logger.info(f"🎲 Using deterministic seed: {seed}")
         
         response = requests.post(
             f"{OLLAMA_HOST}/api/generate",
@@ -828,10 +879,7 @@ def generate():
                 "model": MODEL_NAME,
                 "prompt": full_prompt,
                 "stream": False,
-                "options": {
-                    "num_predict": max_length,
-                    "temperature": temperature,
-                }
+                "options": ollama_options
             },
             timeout=120
         )
@@ -852,16 +900,25 @@ def generate():
         
         logger.info(f"[{PROVIDER_ID}] Generated {tokens_generated} tokens in {latency_ms:.0f}ms")
         
-        return jsonify({
-            'prompt': user_prompt,
-            'generated_text': generated_text,
+        # Build response - ICP requests get deterministic fields only for consensus
+        response_data = {
+            'response': generated_text,  # Match Rust GenerateResponse struct
             'model': MODEL_NAME,
             'provider_id': PROVIDER_ID,
-            'gpu_type': GPU_TYPE,
-            'tokens_generated': tokens_generated,
-            'latency_ms': latency_ms,
-            'timestamp': datetime.utcnow().isoformat(),
-        })
+            'done': True,
+        }
+        
+        # Only include non-deterministic fields for non-ICP requests
+        # ICP runs 13 replicas - they must all get identical responses
+        if not is_icp_request:
+            response_data['prompt'] = user_prompt
+            response_data['generated_text'] = generated_text
+            response_data['gpu_type'] = GPU_TYPE
+            response_data['tokens_generated'] = tokens_generated
+            response_data['latency_ms'] = latency_ms
+            response_data['timestamp'] = datetime.utcnow().isoformat()
+        
+        return jsonify(response_data)
         
     except ValueError as e:
         metrics.record_request(False, 0, 0)

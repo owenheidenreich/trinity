@@ -38,10 +38,5 @@ ed25519-dalek = { version = "2", default-features = false, features = ["alloc", 
 hex = "0.4"
 base64 = "0.22"
 
-# Async runtime for HTTP outcalls
-ic-cdk-timers = "0.11"
-
-[profile.release]
-# Optimize for smallest binary size (important for canister deployment)
-lto = true
-opt-level = 'z'
+# NOTE: ic-cdk-timers removed - was unused and slowed down builds
+# NOTE: [profile.release] moved to workspace root Cargo.toml

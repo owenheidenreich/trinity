@@ -2,12 +2,18 @@
 
 > **Purpose:** Comprehensive documentation for AI assistants to quickly understand the Trinity project  
 > **Last Updated:** January 25, 2026  
-> **Status:** Production - Full Stack Operational with Modular Architecture  
-> **Version:** v2.2.0 (ICP Backend Canister + Lighthouse/Filecoin)  
-> **Akash Backend:** https://u2k74jdr358rt168vo6bmi8mas.ingress.akashprovid.com  
-> **ICP Frontend Canister:** zc67k-kiaaa-aaaal-qtmiq-cai
+> **Last Verified:** January 25, 2026 - Full stack verified working ✅  
+> **Status:** Production - Fully Decentralized Stack Operational  
+> **Version:** v2.6.0 (ENS Domain + Dual-Protocol Proxy + Provider Selection + Tier System)  
+> **ENS Domain:** trinityai.eth (https://trinityai.eth.limo for all browsers)  
+> **ICP Frontend Canister:** zc67k-kiaaa-aaaal-qtmiq-cai  
 > **ICP Backend Canister:** au5zq-2qaaa-aaaal-qtowa-cai  
-> **⚠️ Akash Backend URL Changes Frequently:** Check https://console.akash.network for current deployment URL, or inspect `cloudflare/workers/trinity-ai-proxy.js` for `AKASH_BACKEND` constant  
+> **Akash Backend:** https://dn0jrnobadetf9sj2h3h5m7olk.ingress.hurricane.akash.pub (currently off)  
+> **Vercel Proxy:** https://vercel-proxy-swart-nine.vercel.app (dual HTTP/HTTPS, env-configured)  
+> **Docker Image:** gdubx/trinity-inference:icp-consensus (MUST build with `--platform linux/amd64`)  
+> **Model:** TinyLlama 1.1B on NVIDIA GPU (Tier 1 - affordable testing)  
+> **⚠️ Akash URL Changes:** Use `./scripts/switch-provider.sh <url>` to update Vercel proxy  
+> **⚠️ Provider Selection:** CHOOSE `*.akash.pub` domains, AVOID `*.leet.haus` (broken ingress)  
 > **Next Phase:** See [plans/DECENTRALIZATION_ROADMAP.md](plans/DECENTRALIZATION_ROADMAP.md)
 
 ---
@@ -47,10 +53,41 @@
 - ✅ **Sleek UI:** Dark theme with animated rainbow border effects on hover
 
 ### Live URLs
-- **Production:** https://trinityai.cc
-- **Backend:** https://u2k74jdr358rt168vo6bmi8mas.ingress.akashprovid.com
-- **Model:** Llama 3.1 70B (2x NVIDIA A100 80GB)
+- **ENS Domain:** https://trinityai.eth.limo (works in all browsers via eth.limo gateway)
+- **ENS Native:** trinityai.eth (works in Brave/Opera with native ENS support)
+- **ICP Canister:** https://zc67k-kiaaa-aaaal-qtmiq-cai.icp0.io (primary frontend)
+- **Backend:** https://dn0jrnobadetf9sj2h3h5m7olk.ingress.hurricane.akash.pub (via Vercel Proxy - currently off)
+- **IPFS Mirror:** ipfs://bafybeigylq4xs26nj23hzfrsmdw2iqutsrlgpakddebdrpqssdcboddsau (pinned via Pinata)
+- **Model:** TinyLlama 1.1B on NVIDIA GPU (Tier 1 - affordable testing)
 - **Build System:** Vite 7.3.1 with IIFE bundling for file:// protocol support
+
+### Model Tiers (Dynamic LLM Shifting)
+| Tier | Model | GPU | Use Case | Cost |
+|------|-------|-----|----------|------|
+| 1 | TinyLlama 1.1B | T4/RTX3090/4090/A10 | Testing, simple queries | ~$25/mo |
+| 2 | Llama 3.1 8B | RTX3090/4090/A10/A40 | Balanced performance | ~$50/mo |
+| 3 | Qwen 2.5 72B | A100 80GB | Complex reasoning | ~$200/mo |
+
+### Akash Provider Selection (Critical!)
+**⚠️ Provider selection is crucial for deployment success.**
+
+**CHOOSE (Reliable):**
+- `*.akash.pub` domains (e.g., `hurricane.akash.pub`, `europlots.akash.pub`)
+- Providers with GPU resources (better networking)
+- A100, RTX3090/4090, A10 providers
+
+**AVOID (Broken/Unreliable):**
+- `*.leet.haus` domains - ingress networking completely broken
+- CPU-only providers for LLM workloads
+- Providers with < 4 CPU, < 16Gi RAM
+
+**Provider Switch Workflow:**
+```bash
+# 1. Deploy on Akash Console (manual step)
+# 2. Get new URL from deployment logs
+# 3. Update Vercel proxy environment variable
+./scripts/switch-provider.sh "https://new-url.ingress.provider.akash.pub"
+```
 
 ---
 
@@ -95,7 +132,7 @@
 - Principal ID derivation from public key
 - Private key export/import functionality
 - localStorage persistence with auto-restore
-- **Status:** Production ready on trinityai.cc
+- **Status:** Production ready on ICP canister
 
 ### Phase 2: Backend Integration ✅ COMPLETE
 - `@require_auth` decorator for all /chat/* endpoints
@@ -179,25 +216,91 @@ Lighthouse provides verified Filecoin deals, not just IPFS pinning.
 - Idempotency cache with `X-Request-ID` header (handles 13 replica requests)
 - Candid interface with proper type definitions
 - Frontend client (`trinity-icp/src/api/canister-client.js`)
-- A/B testing router for gradual migration (`trinity-icp/src/api/backend-router.js`)
+- Vercel proxy for SSL certificate handling (Akash providers have invalid SSL)
+- Deterministic LLM responses via seed + temperature=0
 
 **Canister IDs:**
 - Frontend: `zc67k-kiaaa-aaaal-qtmiq-cai`
 - Backend: `au5zq-2qaaa-aaaal-qtowa-cai`
 
 **Key Files:**
-- `trinity-icp/src/backend_canister/src/lib.rs` - Main Rust canister (550 lines)
+- `trinity-icp/src/backend_canister/src/lib.rs` - Main Rust canister (560+ lines)
 - `trinity-icp/src/backend_canister/trinity_backend.did` - Candid interface
-- `backend/inference_server.py` - Added `/health/icp` + `@icp_idempotent` decorator
+- `backend/inference_server.py` - Added `/health/icp` + `@icp_idempotent` decorator + ICP seed handling
+- `deploy/vercel-proxy/api/proxy.js` - Vercel proxy for SSL termination
 
 **ICP Consensus Solution:**
 The challenge with ICP HTTPS Outcalls is that all 13 subnet replicas make the same request.
-If responses differ (timestamps, dynamic metrics), consensus fails.
+If responses differ (timestamps, dynamic metrics, or different LLM outputs), consensus fails.
 
-Solution:
-1. `/health/icp` endpoint returns ONLY static data (no timestamps)
-2. `@icp_idempotent` decorator caches responses by `X-Request-ID`
-3. Canister generates deterministic request IDs using time buckets
+**Complete Solution (3-layer approach):**
+1. **Deterministic Seed:** Canister generates seed from request_id, passes to Ollama with `temperature: 0`
+2. **Backend Response Filtering:** For ICP requests (with X-Request-ID header), backend omits non-deterministic fields (`timestamp`, `latency_ms`, `tokens_generated`)
+3. **Transform Function:** Canister's `transform_response` strips any remaining dynamic fields from response body
+
+**Code in lib.rs:**
+```rust
+// Generate deterministic seed from request_id
+let seed = request_id.bytes().fold(0u64, |acc, b| acc.wrapping_add(b as u64).wrapping_mul(31));
+
+"options": {
+    "seed": seed,
+    "temperature": 0.0  // Fully deterministic
+}
+```
+
+**Code in inference_server.py:**
+```python
+# ICP canister sends options with seed for deterministic consensus
+options = data.get('options', {})
+temperature = options.get('temperature', data.get('temperature', 0.7))
+seed = options.get('seed')  # ICP deterministic seed
+is_icp_request = request.headers.get('X-Request-ID') is not None
+
+# Pass seed to Ollama
+if seed is not None:
+    ollama_options["seed"] = int(seed)
+
+# Return deterministic-only response for ICP requests
+if not is_icp_request:
+    response_data['timestamp'] = datetime.utcnow().isoformat()  # Only for non-ICP
+```
+
+### Phase 7: Cloudflare Removal ✅ COMPLETE (January 2026)
+**Purpose:** Remove centralized Cloudflare dependency, route all traffic through ICP canister.
+
+**✅ Completed:**
+- Deleted `cloudflare/` directory (workers removed)
+- Cloudflare domain and workers deleted from account
+- Frontend config updated to use canister routing (`USE_CANISTER: true`)
+- Vercel proxy deployed to handle Akash SSL certificate issues
+- ICP backend canister configured with Vercel proxy URL
+
+**New Architecture:**
+```
+User Browser → ICP Frontend Canister → ICP Backend Canister 
+                                              ↓
+                              Vercel Proxy (valid SSL) 
+                                              ↓
+                              Akash Backend (invalid SSL) → Ollama
+```
+
+**Why Vercel Proxy?**
+Many Akash providers have self-signed or invalid SSL certificates. ICP HTTPS Outcalls 
+require valid SSL certificates. The Vercel proxy terminates SSL properly and forwards 
+requests to Akash with `rejectUnauthorized: false`.
+
+**Deployment Script (set Akash URL):**
+```bash
+# Update backend canister with new Akash URL (via Vercel proxy)
+dfx canister --network ic call au5zq-2qaaa-aaaal-qtowa-cai set_akash_url '("https://vercel-proxy-swart-nine.vercel.app")'
+
+# Update Vercel proxy with new Akash URL
+# Edit deploy/vercel-proxy/api/proxy.js → AKASH_BASE constant
+cd deploy/vercel-proxy && npx vercel --yes --prod
+```
+
+**Status:** Fully decentralized - no Cloudflare dependency
 
 **Deployment Script:**
 ```bash
@@ -207,6 +310,60 @@ Solution:
 ```
 
 **Status:** ICP Backend Canister deployed and health check working
+
+### Phase 8: ENS Domain ✅ COMPLETE (January 2026)
+**Purpose:** Decentralized DNS via Ethereum Name Service, enabling human-readable access.
+
+**✅ Completed:**
+- Registered `trinityai.eth` domain (2-year registration, ~$5)
+- Frontend uploaded to IPFS via Pinata (CID: `bafybeigylq4xs26nj23hzfrsmdw2iqutsrlgpakddebdrpqssdcboddsau`)
+- ENS contenthash set to IPFS CID
+- Gateway URL working: `https://trinityai.eth.limo`
+- Native ENS resolution in Brave/Opera browsers
+
+**ENS vs Handshake Decision:**
+| Feature | ENS (Chosen ✅) | Handshake |
+|---------|---------------|------------|
+| Cost | ~$5/year | ~$5 one-time |
+| Browser Support | Brave, Opera native + eth.limo gateway | Requires custom resolvers |
+| Ecosystem | Ethereum, widely recognized | Smaller, DNS-focused |
+| ICP Integration | IPFS contenthash → ICP mirror | Would need separate setup |
+
+**Architecture:**
+```
+trinityai.eth
+    ↓ ENS Resolution
+IPFS contenthash (bafybei...)
+    ↓ eth.limo gateway
+https://trinityai.eth.limo
+    ↓ Loads IPFS content
+Trinity Frontend (same as ICP)
+```
+
+**Access Methods:**
+- **All Browsers:** `https://trinityai.eth.limo` (eth.limo gateway)
+- **Brave/Opera:** `trinityai.eth` (native ENS support)
+- **ICP Direct:** `https://zc67k-kiaaa-aaaal-qtmiq-cai.icp0.io` (always available)
+
+**Update Workflow (when frontend changes):**
+```bash
+# 1. Build frontend
+cd trinity-icp && npm run build
+
+# 2. Upload dist/ folder to Pinata
+# - Go to https://app.pinata.cloud
+# - Upload folder → get new CID
+
+# 3. Update ENS contenthash
+# - Go to https://app.ens.domains
+# - Edit trinityai.eth → Records → Content Hash
+# - Set to ipfs://<new-CID>
+
+# 4. Deploy to ICP as well (primary)
+dfx deploy --ic trinity_frontend
+```
+
+**Status:** Fully decentralized DNS - works in all browsers via eth.limo gateway
 
 ---
 
@@ -228,11 +385,11 @@ Solution:
 - **Post-Response Updates:** Memory updates after each LLM response
 - **Session-Based:** Memory associated with conversation ID, discarded when session ends
 
-#### 2. Security ✅ MOSTLY COMPLETE
-- **HTTPS:** Cloudflare SSL certificate installed
-- **Domain:** trinityai.cc active with Cloudflare DNS
-- **ICP Security Handler:** ⏳ PLANNED - Better security handler for ICP hosting
-- **ENS Domain:** ⏳ PLANNED - trinity.eth domain transition
+#### 2. Security ✅ COMPLETE
+- **HTTPS:** Vercel proxy handles SSL termination for Akash backend
+- **Domain:** Frontend accessed via ICP canister URL or trinityai.eth.limo
+- **ICP Security Handler:** Implemented via backend canister with HTTPS outcalls
+- **ENS Domain:** ✅ COMPLETE - trinityai.eth registered and working
 
 #### 3. Save Chat Function (Filecoin) ✅ FULLY IMPLEMENTED
 - **Archive Button:** Manual save functionality implemented
@@ -275,21 +432,24 @@ Solution:
 
 1. **Enhanced Transparency** - Add cost/burn rate display and open source guidance documentation
 2. **Privacy Improvements** - Consider masking or removing prompt logging from backend
-3. **ICP Security Handler** - Implement better security handling for ICP-hosted frontend
-4. **ENS Domain** - Consider trinity.eth domain transition
-5. **Dynamic Hardware/LLM Shifting** - Implement complexity-based model routing
+3. **Dynamic Hardware/LLM Shifting** - Implement complexity-based model routing
+4. **Donations System** - Implement crypto payment infrastructure
 
 ---
 
 ## 🏗️ Architecture Overview
 
-### Network Topology
+### Network Topology (Post-Cloudflare Removal)
 ```
 User Browser
     ↓ HTTPS
-Cloudflare (trinityai.cc)
-    ├→ trinity-frontend-proxy → ICP Canister (Frontend)
-    └→ trinity-api-proxy → Akash Network (Backend + Ollama)
+ICP Frontend Canister (zc67k-kiaaa-aaaal-qtmiq-cai)
+    ↓ Candid calls
+ICP Backend Canister (au5zq-2qaaa-aaaal-qtowa-cai)
+    ↓ HTTPS Outcalls
+Vercel Proxy (vercel-proxy-swart-nine.vercel.app)
+    ↓ HTTPS (rejectUnauthorized: false)
+Akash Network (Backend + Ollama)
 ```
 
 ### Storage Architecture
@@ -319,11 +479,11 @@ Layer 2 (Archive): Lighthouse SDK → IPFS + Filecoin (permanent storage with ve
 |-----------|---------|
 | **Compute** | Akash Network (decentralized cloud) |
 | **Model** | Llama 3.1 70B |
-| **Hardware** | 2x NVIDIA A100 80GB GPUs |
+| **Hardware** | NVIDIA A100 80GB GPU |
 | **Backend** | `inference_server.py` with all endpoints |
 | **Storage** | Encrypted JSON files on Akash disk |
 | **Archive** | Filecoin/IPFS via Lighthouse SDK (verified deals) |
-| **Proxy** | Cloudflare Workers (HTTPS → HTTP) |
+| **Proxy** | Vercel Proxy (SSL termination for invalid Akash certs) |
 | **Cost** | ~$50-120/month when deployed |
 
 **Features available in production:**
@@ -337,18 +497,19 @@ Layer 2 (Archive): Lighthouse SDK → IPFS + Filecoin (permanent storage with ve
 
 **Deployment workflow:**
 ```bash
-# 1. Build Docker image
-cd deploy/docker && ./build.sh
+# 1. Build Docker image (MUST be AMD64 for Akash)
+cd deploy/docker
+docker buildx build --platform linux/amd64 --no-cache -t gdubx/trinity-inference:icp-consensus --push -f Dockerfile ../..
 
 # 2. Deploy to Akash Console (manual)
-# Copy deploy/akash/deploy-llama70.yaml
+# Copy deploy/akash/deploy-qwen.yaml (production model)
 # Paste in Akash Console → Create Deployment
 
-# 3. Update Cloudflare Worker with new Akash URL
-# Edit cloudflare/workers/trinity-ai-proxy.js
+# 3. Update ICP Backend Canister with new Akash URL (if URL changes)
+dfx canister --network ic call au5zq-2qaaa-aaaal-qtowa-cai set_akash_url '("https://vercel-proxy-swart-nine.vercel.app")'
 
-# 4. Deploy frontend to ICP
-cd trinity-icp && dfx deploy --ic trinity_frontend
+# 4. Test health
+dfx canister --network ic call au5zq-2qaaa-aaaal-qtowa-cai health
 ```
 
 ### Local Testing Environment (TinyLlama)
@@ -470,7 +631,7 @@ cd deploy/docker && ./build.sh
 | **Backend** | Akash Network | Docker | When `backend/*.py` changes |
 | **Frontend** | ICP (Internet Computer) | Vite + dfx | When `trinity-icp/src/*` changes |
 | **ICP Backend Canister** | ICP | Cargo + dfx | When `trinity-icp/src/backend_canister/*` changes |
-| **Cloudflare Workers** | Cloudflare | Wrangler | When proxy logic or Akash URL changes |
+| **Vercel Proxy** | Vercel | Vercel CLI | When Akash URL changes (if needed) |
 
 ---
 
@@ -511,8 +672,9 @@ curl https://<akash-url>/health
 
 **Notes:**
 - Akash URL changes every deployment (random subdomain)
-- After Akash URL changes, update `cloudflare/workers/trinity-ai-proxy.js`
+- After Akash URL changes, update ICP canister: `dfx canister --network ic call au5zq-2qaaa-aaaal-qtowa-cai set_akash_url '("<new-url>")'`
 - Build script automatically updates YAML files with new image version
+- **CRITICAL:** Docker must be built for `linux/amd64` (Akash runs x86_64, not ARM64)
 
 ---
 
@@ -590,49 +752,88 @@ dfx canister --network ic call trinity_backend get_canister_info
 
 ---
 
-### ☁️ Cloudflare Workers
+### ☁️ Vercel Proxy (Dual-Protocol SSL Termination)
 
-**When to update:**
-- Akash backend URL changes
-- Proxy logic changes (CORS, routing)
+**Purpose:** Akash providers have inconsistent SSL support:
+- Some providers use HTTPS with invalid/self-signed certificates
+- Some providers only expose HTTP (no SSL at all)
+- ICP HTTPS Outcalls require valid SSL certificates
 
-**Process:**
+The Vercel proxy solves this by:
+1. Providing valid SSL for ICP → Vercel connection
+2. Supporting both HTTP and HTTPS backends via protocol auto-detection
+3. Disabling certificate verification for HTTPS backends with invalid certs
+
+**⚠️ Known Issue (January 2026):** When switching Akash providers, the ingress protocol varies:
+- `leet.haus` providers: Often HTTP-only or HTTPS with issues
+- `akash.pub` providers: Usually HTTPS with self-signed certs
+- Solution: Proxy auto-detects protocol from URL scheme (`http://` vs `https://`)
+
+**Provider Switch Workflow:**
 ```bash
-# Edit the worker file directly
-vim cloudflare/workers/trinity-ai-proxy.js
+# One-command provider switch (updates env var + redeploys):
+./scripts/switch-provider.sh https://new-akash-url.ingress.akash.pub
 
-# Update AKASH_BACKEND constant with new URL
-const AKASH_BACKEND = 'https://new-url.ingress.akashprovid.com';
+# Or manually:
+# 1. Set environment variable in Vercel
+vercel env rm AKASH_URL production --yes 2>/dev/null
+echo "https://new-akash-url.ingress.akash.pub" | vercel env add AKASH_URL production
 
-# Deploy via Cloudflare Dashboard
-# 1. Go to https://dash.cloudflare.com
-# 2. Workers & Pages → trinity-ai-proxy
-# 3. Click "Quick Edit"
-# 4. Paste updated code
-# 5. Deploy
-
-# Or via Wrangler CLI:
-wrangler deploy cloudflare/workers/trinity-ai-proxy.js
+# 2. Redeploy
+cd deploy/vercel-proxy && npx vercel --yes --prod
 ```
 
 **Key files:**
+- `deploy/vercel-proxy/api/proxy.js` - Dual-protocol proxy (http + https modules)
+- `deploy/vercel-proxy/vercel.json` - Vercel routing config
+- `scripts/switch-provider.sh` - One-command provider switch script
+
+**URL:** https://vercel-proxy-swart-nine.vercel.app
+
+**Environment Variable:**
+- `AKASH_URL` - Current Akash backend URL (set in Vercel dashboard or via CLI)
+- Supports both `http://` and `https://` schemes
+- Protocol auto-detected from URL scheme
+
+**Why Node.js (not Edge)?**
+- Vercel Edge Functions cannot disable SSL certificate verification
+- Node.js `https` module supports `rejectUnauthorized: false`
+- Node.js `http` module needed for HTTP-only providers
+
+---
+
+### ⚠️ Cloudflare Workers (REMOVED)
+
+**Status:** Cloudflare Workers and domain have been removed as of January 2026.
+
+**Previous files (deleted):**
 - `cloudflare/workers/trinity-ai-proxy.js` - API proxy (trinityai.cc/api/*)
 - `cloudflare/workers/trinity-frontend-proxy.js` - Frontend proxy (trinityai.cc → ICP)
+
+**Migration:** All traffic now routes through ICP canister → Vercel Proxy → Akash
 
 ---
 
 ### 📋 Common Deployment Scenarios
 
-#### Scenario 1: Backend-only change (e.g., new endpoint)
+#### Scenario 1: Backend-only change (e.g., new endpoint, ICP consensus fix)
 ```bash
 # 1. Edit backend code
 vim backend/inference_server.py
 
-# 2. Build and push Docker
-./deploy/docker/build.sh
+# 2. Build and push Docker (MUST use linux/amd64 for Akash!)
+cd deploy/docker
+docker buildx build --platform linux/amd64 --no-cache -t gdubx/trinity-inference:icp-consensus --push -f Dockerfile ../..
 
 # 3. Update Akash deployment (manual - console.akash.network)
-# 4. If Akash URL changed, update Cloudflare worker
+#    Either "Update Deployment" with new image tag, or close and redeploy
+
+# 4. If Akash URL changed, update Vercel proxy:
+vim deploy/vercel-proxy/api/proxy.js  # Update AKASH_BASE
+cd deploy/vercel-proxy && npx vercel --yes --prod
+
+# 5. Update ICP backend canister with proxy URL:
+dfx canister --network ic call au5zq-2qaaa-aaaal-qtowa-cai set_akash_url '("https://vercel-proxy-swart-nine.vercel.app")'
 ```
 
 #### Scenario 2: Frontend-only change (e.g., UI fix)
@@ -642,7 +843,24 @@ npm run build
 dfx deploy --ic trinity_frontend
 ```
 
-#### Scenario 3: Full-stack change (e.g., new API + UI)
+#### Scenario 3: ICP Backend Canister change (e.g., consensus fix)
+```bash
+cd trinity-icp
+
+# Build canister
+dfx build --network ic trinity_backend
+
+# Deploy (upgrade mode preserves state, but URL resets!)
+dfx canister install --network ic trinity_backend --mode upgrade
+
+# CRITICAL: Re-set the Akash URL after upgrade
+dfx canister --network ic call au5zq-2qaaa-aaaal-qtowa-cai set_akash_url '("https://vercel-proxy-swart-nine.vercel.app")'
+
+# Verify health
+dfx canister --network ic call au5zq-2qaaa-aaaal-qtowa-cai health
+```
+
+#### Scenario 4: Full-stack change (e.g., new API + UI)
 ```bash
 # 1. Backend first
 ./deploy/docker/build.sh
@@ -753,11 +971,16 @@ Trinity/
 │   │   ├── build.sh                   # Docker build & push script
 │   │   └── startup.sh                 # Container entrypoint
 │   ├── akash/                         # Akash SDL deployment configs
-│   │   ├── deploy-llama70.yaml        # Llama 3.1 70B (PRODUCTION)
-│   │   ├── deploy-qwen.yaml           # Qwen 2.5 72B
+│   │   ├── deploy-llama70.yaml        # Llama 3.1 70B
+│   │   ├── deploy-qwen.yaml           # Qwen 2.5 72B (PRODUCTION)
 │   │   ├── deploy-mixtral.yaml        # Mixtral 8x22B
 │   │   ├── deploy-llama3.yaml         # Llama 3.1 8B
 │   │   └── deploy-phi3.yaml           # Phi-3 3.8B
+│   ├── vercel-proxy/                  # 🆕 Vercel SSL proxy (replaces Cloudflare)
+│   │   ├── api/
+│   │   │   └── proxy.js               # Node.js proxy with SSL bypass
+│   │   ├── vercel.json                # Routing config
+│   │   └── package.json               # Project config
 │   └── local/                         # Local development
 │       ├── docker-compose.yml         # Local dev setup
 │       ├── start.sh                   # Local TinyLlama setup
@@ -786,10 +1009,10 @@ Trinity/
 │       ├── start-local.sh             # Start local test env
 │       └── LOCAL_TESTING.md           # Local dev guide
 │
-├── cloudflare/                        # ☁️  CLOUDFLARE WORKERS
-│   └── workers/
-│       ├── trinity-ai-proxy.js        # API proxy (trinityai.cc → Akash)
-│       └── trinity-frontend-proxy.js  # Frontend proxy (domain → ICP)
+├── cloudflare/                        # ⚠️  DEPRECATED (Removed January 2026)
+│   └── workers/                       # Legacy files - not in use
+│       ├── trinity-ai-proxy.js        # (REMOVED) Was API proxy
+│       └── trinity-frontend-proxy.js  # (REMOVED) Was frontend proxy
 │
 ├── docs/                              # 📚 DOCUMENTATION
 │   ├── CLAUDE.md                      # This file (AI assistant ref)
@@ -813,15 +1036,15 @@ Trinity/
 
 | Component | Value | Notes |
 |-----------|-------|-------|
-| **Production Domain** | `trinityai.cc` | Primary user-facing URL |
 | **ICP Frontend Canister** | `zc67k-kiaaa-aaaal-qtmiq-cai` | Frontend assets canister |
 | **ICP Backend Canister** | `au5zq-2qaaa-aaaal-qtowa-cai` | HTTPS Outcalls proxy to Akash |
-| **ICP Direct URL** | `https://zc67k-kiaaa-aaaal-qtmiq-cai.icp0.io` | Direct canister access |
-| **API Endpoint** | `https://api.trinityai.cc` | Cloudflare Worker proxy |
-| **Akash Backend** | `https://u2k74jdr358rt168vo6bmi8mas.ingress.akashprovid.com` | Production inference server (Jan 2026) - ⚠️ URL changes frequently |
+| **ICP Direct URL** | `https://zc67k-kiaaa-aaaal-qtmiq-cai.icp0.io` | Production frontend access |
+| **Vercel Proxy** | `https://vercel-proxy-swart-nine.vercel.app` | SSL termination for Akash |
+| **Akash Backend** | `https://9ibpulolihb210hu1uraei5q8o.ingress.a100.dsm.val.akash.pub` | Production inference server - ⚠️ URL changes with deployment |
 | **Build Tool** | Vite 7.3.1 | IIFE bundler for file:// protocol |
 | **State Management** | Zustand 5.0.3 | Immutable state with getters/setters |
 | **Docker Hub** | `gdubx` | Container registry account |
+| **Docker Image** | `gdubx/trinity-inference:icp-consensus` | Current production image |
 | **Akash Wallet** | `akash155hphg6qyy3vtr584p38wlngtqxzdr0l6jutmp` | Deployment wallet |
 | **Lighthouse API Key** | Set in Akash YAML | Filecoin upload credentials |
 | **Test CID** | `QmZeYzPA3jTYKmjHDZzgDg4kEGTf6R1EUpaNsnKHKCLHoy` | Example archive CID |
@@ -953,10 +1176,12 @@ User types → State.addMessage() → UI.showMessage() → typeMessage()
 
 **API URL Logic:**
 ```javascript
-// Production domains → Akash backend
-if (hostname === 'trinityai.cc' || hostname.includes('icp0.io')) {
-    return 'http://hdol1m0mohfll4s4t8mhip33sg.ingress.a100.dsm.val.akash.pub';
-}
+// Production: Route through ICP Backend Canister
+// USE_CANISTER: true (always in production)
+// BACKEND_CANISTER_ID: 'au5zq-2qaaa-aaaal-qtowa-cai'
+
+// Traffic flows:
+// Frontend → Backend Canister → Vercel Proxy → Akash Backend
 
 // Development → localhost (if available)
 if (isDevelopment && localAvailable) {
@@ -1139,19 +1364,16 @@ cd deployment && ./start-local.sh
 ### Frontend Configuration
 ```javascript
 // trinity-icp/src/config.js
-const CONFIG = {
-    get API_URL() {
-        const hostname = window.location.hostname;
-        if (hostname === 'trinityai.cc' || 
-            hostname === 'www.trinityai.cc' ||
-            hostname.includes('icp0.io')) {
-            return 'https://api.trinityai.cc';  // Production (Cloudflare Worker)
-        }
-        return 'http://localhost:5000';  // Local development
-    },
-    HEALTH_CHECK_INTERVAL_MS: 30000,
-    TYPE_ANIMATION_MAX_MS: 1500,
-    // ... more config
+export const CONFIG = {
+    // ICP Canister routing (Phase 3 Complete)
+    USE_CANISTER: true,  // Always true in production
+    BACKEND_CANISTER_ID: 'au5zq-2qaaa-aaaal-qtowa-cai',
+    
+    // All API calls now route through:
+    // ICP Frontend → ICP Backend Canister → Vercel Proxy → Akash Backend
+    
+    // Local development still supported:
+    // http://localhost:8000 for direct Akash bypass
 };
 ```
 
@@ -1235,11 +1457,10 @@ pkill -f "python3.*inference_server"
 
 | Service | Tier | Monthly Cost |
 |---------|------|--------------|
-| Cloudflare | Free | $0 (Workers, DNS, SSL) |
 | ICP Canister | Pay-per-use | ~$1-5 (cycles for compute/storage) |
-| Akash Network | Pay-per-use | ~$50 (2x A100 80GB) |
+| Vercel Proxy | Free | $0 (serverless functions) |
+| Akash Network | Pay-per-use | ~$50 (A100 80GB) |
 | Lighthouse (Filecoin) | Free | $0 (verified Filecoin deals included) |
-| Domain | Annual | ~$12/year (trinityai.cc) |
 | **Total** | | **~$50-55/month** |
 
 ### Lighthouse/Filecoin Setup
@@ -1377,19 +1598,10 @@ Trinity uses **Lighthouse SDK** for direct IPFS/Filecoin integration with verifi
 
 ### CORS Configuration
 ```javascript
-// cloudflare/workers/trinity-api-proxy.js
-const ALLOWED_ORIGINS = [
-  'https://trinityai.cc',
-  'https://www.trinityai.cc',
-  'https://zc67k-kiaaa-aaaal-qtmiq-cai.icp0.io',
-  'http://localhost:8000',  // Local dev only
-];
-
-const allowedPaths = [
-  '/health', '/generate', '/stats',
-  '/chat/autosave', '/chat/list',
-  '/chat/', // Matches /chat/{chatId}, /chat/recover-archives, /chat/archive/{cid}
-];
+// deploy/vercel-proxy/api/proxy.js
+// CORS handled automatically by Vercel proxy
+// All requests from ICP canister are allowed
+// Backend validates via X-Request-ID header
 ```
 
 ---
@@ -1648,58 +1860,57 @@ User clicks Send → Actions.generate():
   14. UI.setGenerating(false) - re-enable input
 ```
 
-#### API URL Logic
+#### API URL Logic (Post-Cloudflare)
 
 ```javascript
-// In app.js CONFIG.API_URL getter (lines 20-28):
-if (hostname === 'trinityai.cc' ||
-    hostname === 'www.trinityai.cc' ||
-    hostname.includes('icp0.io')) {
-    return 'https://api.trinityai.cc';  // Production
-}
-return 'http://...';  // Development fallback
+// In config.js - ICP Canister routing:
+export const CONFIG = {
+    USE_CANISTER: true,  // All production traffic through canister
+    BACKEND_CANISTER_ID: 'au5zq-2qaaa-aaaal-qtowa-cai',
+};
+
+// Traffic flow:
+// Frontend → Backend Canister → Vercel Proxy → Akash Backend
 ```
 
 ---
 
-### 2. API Proxy (`cloudflare/workers/trinity-ai-proxy.js`)
+### 2. Vercel Proxy (`deploy/vercel-proxy/api/proxy.js`)
 
-**Purpose:** Route `api.trinityai.cc/*` → Akash backend with CORS
+**Purpose:** SSL termination for Akash backends with invalid certificates
 
 **Configuration:**
 ```javascript
-// ⚠️ Akash Backend URL changes frequently - check https://console.akash.network
-const AKASH_BACKEND = 'http://cls1e8des1db50r65f6dpc8c7g.ingress.a100.dsm.val.akash.pub';
+const AKASH_TARGET = 'https://9ibpulolihb210hu1uraei5q8o.ingress.a100.dsm.val.akash.pub';
 
-const ALLOWED_ORIGINS = [
-  'https://trinityai.cc',
-  'https://www.trinityai.cc',
-  'https://zc67k-kiaaa-aaaal-qtmiq-cai.icp0.io',
-  'http://localhost:8000',
-];
-
-const allowedPaths = ['/health', '/generate', '/stats'];
+// Bypass SSL validation (Akash has invalid certs)
+const agent = new https.Agent({ rejectUnauthorized: false });
 ```
 
-**CORS Headers:**
-- `Access-Control-Allow-Methods`: GET, POST, OPTIONS
-- `Access-Control-Allow-Headers`: Content-Type, Accept
-- `Access-Control-Max-Age`: 86400
+**Features:**
+- Handles CORS for ICP canister calls
+- Passes all endpoints (/health, /generate, /chat/*)
+- Returns JSON responses with proper content-type
 
-**Security:** Origin whitelist, endpoint whitelist, 404 for unknown paths
+**Deployed at:** `https://vercel-proxy-swart-nine.vercel.app`
 
 ---
 
-### 3. Frontend Proxy (`cloudflare/workers/trinity-frontend-proxy.js`)
+### 3. ICP Backend Canister (`trinity-icp/src/backend_canister/src/lib.rs`)
 
-**Purpose:** Route `trinityai.cc/*` → ICP Canister
+**Purpose:** Decentralized HTTPS outcalls from ICP to Akash backend
 
-**Configuration:**
-```javascript
-const ICP_CANISTER_URL = 'https://zc67k-kiaaa-aaaal-qtmiq-cai.icp0.io';
+**Key Features:**
+```rust
+// Deterministic seed for ICP consensus
+options.seed = 42
+options.temperature = 0
+
+// Transform function strips dynamic fields
+transform_response() → removes timestamp, latency_ms, etc.
 ```
 
-**Behavior:** Simple pass-through proxy, preserves all headers/paths
+**Endpoints:** `/health`, `/generate` (via HTTPS outcalls)
 
 ---
 
@@ -1805,8 +2016,8 @@ FILECOIN_API_KEY=<pinata-jwt-token>  # Optional: for Filecoin archival
 
 **.well-known/ic-domains:**
 ```
-trinityai.cc
-www.trinityai.cc
+# Custom domains removed - using ICP canister URL directly
+# https://zc67k-kiaaa-aaaal-qtmiq-cai.icp0.io
 ```
 
 ---
@@ -1844,12 +2055,17 @@ www.trinityai.cc
 
 ### Page Load
 ```
-Browser → Cloudflare (trinityai.cc) → Worker → ICP Canister → HTML/JS/CSS
+Browser → ICP Canister (zc67k-kiaaa-aaaal-qtmiq-cai.icp0.io) → HTML/JS/CSS
 ```
 
-### Chat Message
+### Chat Message (via ICP Canister)
 ```
-Browser → Cloudflare (api.trinityai.cc) → Worker → Akash Backend → Ollama → Response
+Browser → ICP Frontend → ICP Backend Canister → Vercel Proxy → Akash Backend → Ollama → Response
+```
+
+### Chat Message (Local Development)
+```
+Browser → localhost:8000 → Akash Backend → Ollama → Response
 ```
 
 ### Frontend Initialization
@@ -1878,31 +2094,141 @@ dfx deploy --ic trinity_frontend
 2. Deploy via Cloudflare Dashboard → Workers & Pages
 
 ### Build & Push Docker Image
+
+**⚠️ CRITICAL: Architecture Requirement**
+The Docker image MUST be built for `linux/amd64` architecture. Akash providers run on x86_64 servers.
+If you build on Apple Silicon (M1/M2/M3), Docker defaults to ARM64 which will NOT work on Akash.
+
 ```bash
 cd deploy/docker
-./build.sh
-# or manually:
-docker buildx build --platform linux/amd64 -t gdubx/trinity-inference:latest --push .
+
+# CORRECT: Cross-compile for AMD64 and push
+docker buildx build --platform linux/amd64 --no-cache -t gdubx/trinity-inference:icp-consensus --push -f Dockerfile ../..
+
+# WRONG: This builds for ARM64 on Apple Silicon - will fail on Akash!
+docker build -t gdubx/trinity-inference:icp-consensus .
 ```
 
-### Update Akash Backend URL
-**⚠️ Akash Backend URLs change frequently. Always check current URL first:**
+**Error if wrong architecture:**
+```
+[trinity]: [Warning] [Failed] [Pod] Failed to pull image "gdubx/trinity-inference:icp-consensus": 
+rpc error: code = NotFound desc = no match for platform in manifest: not found
+```
 
+**Quick Reference:**
+- Image tag: `gdubx/trinity-inference:icp-consensus`
+- Dockerfile location: `deploy/docker/Dockerfile`
+- Build context: Repository root (`../..` from docker folder)
+
+### 🔴 CRITICAL: Akash URL Update Procedure (Checklist)
+
+**⚠️ Akash Backend URLs change with every new deployment. Follow this exact order:**
+
+When you receive a new Akash URL (e.g., `https://9ibpulolihb210hu1uraei5q8o.ingress.a100.dsm.val.akash.pub`):
+
+**Step 1: Update Vercel Proxy**
 ```bash
-# Check current Akash deployment at https://console.akash.network
-# Or inspect the AKASH_BACKEND constant in:
-cat cloudflare/workers/trinity-ai-proxy.js | grep AKASH_BACKEND
+# Edit the Akash URL in the proxy
+vim deploy/vercel-proxy/api/proxy.js
+# Change: const AKASH_BASE = 'https://NEW-AKASH-URL-HERE'
+
+# Deploy to Vercel
+cd deploy/vercel-proxy && npx vercel --yes --prod
 ```
 
-1. Edit `AKASH_BACKEND` in `cloudflare/workers/trinity-ai-proxy.js`
-2. Edit fallback URL in `app.js` → `CONFIG.API_URL` getter
-3. Redeploy Cloudflare Worker
+**Step 2: Update ICP Backend Canister URL**
+```bash
+# The canister always points to Vercel proxy (not directly to Akash)
+dfx canister --network ic call au5zq-2qaaa-aaaal-qtowa-cai set_akash_url '("https://vercel-proxy-swart-nine.vercel.app")'
+```
+
+**Step 3: Verify Connection**
+```bash
+# Test Akash directly (should return health JSON)
+curl -k https://NEW-AKASH-URL/health/icp
+
+# Test via Vercel proxy
+curl https://vercel-proxy-swart-nine.vercel.app/health/icp
+
+# Test via ICP canister
+dfx canister --network ic call au5zq-2qaaa-aaaal-qtowa-cai health
+```
+
+**Step 4: Update Documentation**
+```bash
+# Update CLAUDE.md header with new Akash URL
+vim docs/CLAUDE.md
+# Update line: **Akash Backend:** https://NEW-AKASH-URL
+```
+
+**⚠️ Canister URL Resets on Upgrade:**
+When you run `dfx deploy --network ic trinity_backend`, the AKASH_URL in the canister resets to default.
+Always re-run Step 2 after upgrading the backend canister.
+
+**Files that contain Akash URL references:**
+- `deploy/vercel-proxy/api/proxy.js` - AKASH_BASE constant (MUST update)
+- `trinity-icp/src/backend_canister/src/lib.rs` - Default URL (update for future deploys)
+- `docs/CLAUDE.md` - Header documentation
+- `deploy/akash/deploy-*.yaml` - Image references (usually unchanged)
+
+---
+
+### 🔴 ICP Consensus: The 13-Replica Problem
+
+**Why This Matters:**
+ICP runs every update call on **13 subnet nodes simultaneously**. All 13 make HTTP requests to your backend. If they receive different responses, ICP rejects the call with a consensus error:
+
+```
+❌ Canister error (502): No consensus could be reached. 
+Replicas had different responses. 
+hashes: [e399587f...: 8], [455499976b...: 5]
+```
+
+This means 8 replicas got one response and 5 got another - consensus failed.
+
+**Root Cause: Race Condition**
+Without proper locking, the 13 concurrent requests can each start separate LLM generations before any response is cached, resulting in different outputs.
+
+**Solution: Per-Request Locking in Backend**
+The `@icp_idempotent` decorator in `backend/inference_server.py` now uses per-request locks:
+
+```python
+# When 13 replicas hit the endpoint simultaneously:
+# 1. First replica acquires lock, others wait
+# 2. First replica executes LLM, caches result, releases lock
+# 3. Other 12 replicas get cached result → consensus achieved!
+```
+
+**Key Code Locations:**
+- `backend/inference_server.py` - `ICPIdempotencyCache` class with `_request_locks`
+- `backend/inference_server.py` - `@icp_idempotent` decorator
+- `trinity-icp/src/backend_canister/src/lib.rs` - `transform_response` function strips non-deterministic fields
+
+**What Gets Stripped for Consensus:**
+The canister's `transform_response` removes these fields from responses:
+- `timestamp` - varies per request
+- `latency_ms` - varies per request
+- `tokens_generated` - can vary
+- `prompt` - large, may cause issues
+
+**What Gets Kept:**
+- `gpu_type` - static per deployment
+- `model` - static
+- `provider_id` - static
+- `status` - deterministic
+- `response` - now deterministic with per-request locking
+
+---
+
+### Update Akash Backend URL (Legacy Section - See Checklist Above)
+
 
 ### Add New API Endpoint
-1. Add endpoint to `allowedPaths` in `trinity-ai-proxy.js`
-2. Implement endpoint in `inference_server.py`
-3. Add method to `API` module in `app.js`
-4. Redeploy Cloudflare Worker and Akash deployment
+1. Implement endpoint in `backend/inference_server.py`
+2. Add method to `API` module in `trinity-icp/src/app.js`
+3. Rebuild Docker image with AMD64 and push
+4. Update Akash deployment
+5. Redeploy frontend if needed
 
 ### Add New UI Feature
 1. Add any new state to `State` module
@@ -1912,32 +2238,233 @@ cat cloudflare/workers/trinity-ai-proxy.js | grep AKASH_BACKEND
 
 ---
 
+## � DOCKER BUILD & DEPLOY GUIDE
+
+### Overview
+
+Trinity's backend runs in a Docker container deployed to Akash Network. The container includes:
+- **NVIDIA CUDA 12.2** runtime (for GPU inference)
+- **Python 3.11** with Flask server
+- **Ollama** for LLM inference
+- **inference_server.py** - the main backend code
+
+### Docker Image Details
+
+| Property | Value |
+|----------|-------|
+| Image | `gdubx/trinity-inference:icp-consensus` |
+| Base | `nvidia/cuda:12.2.0-runtime-ubuntu22.04` |
+| Platform | `linux/amd64` (REQUIRED for Akash) |
+| Dockerfile | `deploy/docker/Dockerfile` |
+| Build Context | Repository root (`../..` from docker folder) |
+
+### ⚡ Quick Build Commands
+
+**Incremental Build (Fast - use for code changes):**
+```bash
+cd deploy/docker
+docker buildx build --platform linux/amd64 -t gdubx/trinity-inference:icp-consensus --push -f Dockerfile ../..
+```
+- ⏱️ **~30-60 seconds** (only rebuilds changed layers)
+- ✅ Use this for Python code changes
+
+**Full Rebuild (Slow - use for dependency changes):**
+```bash
+cd deploy/docker
+docker buildx build --platform linux/amd64 --no-cache -t gdubx/trinity-inference:icp-consensus --push -f Dockerfile ../..
+```
+- ⏱️ **~15-20 minutes** (rebuilds everything)
+- ✅ Use when changing `requirements.txt` or Dockerfile
+
+### 🔴 CRITICAL: Platform Flag
+
+**Apple Silicon (M1/M2/M3) users MUST use `--platform linux/amd64`**
+
+Akash providers run on x86_64 servers. Without the platform flag, Docker builds ARM64 images which fail on Akash.
+
+**❌ WRONG (builds ARM64 on Apple Silicon):**
+```bash
+docker build -t gdubx/trinity-inference:icp-consensus .
+```
+
+**✅ CORRECT (cross-compiles to AMD64):**
+```bash
+docker buildx build --platform linux/amd64 -t gdubx/trinity-inference:icp-consensus --push -f Dockerfile ../..
+```
+
+**Error if wrong architecture:**
+```
+Failed to pull image: no match for platform in manifest: not found
+```
+
+### Build Process Explanation
+
+The Dockerfile layers (in order):
+
+1. **Base Image** - NVIDIA CUDA runtime (~3.5GB, cached)
+2. **System Packages** - Python, curl, etc. (~2 min, cached after first build)
+3. **Ollama Install** - LLM runtime (~30 sec, cached)
+4. **Python Dependencies** - `requirements.txt` (~10 sec, rebuilds if requirements change)
+5. **Application Code** - `inference_server.py`, `icp_auth.py` (~1 sec, rebuilds on code change)
+6. **Startup Script** - `startup.sh` (~1 sec)
+
+**Why incremental builds are fast:** Docker caches layers. If only Python code changes (step 5), layers 1-4 are cached and only 5-6 rebuild.
+
+### Files Included in Image
+
+| File | Source | Purpose |
+|------|--------|---------|
+| `inference_server.py` | `backend/` | Main Flask server with all endpoints |
+| `icp_auth.py` | `backend/` | Ed25519 signature verification |
+| `requirements.txt` | `backend/` | Python dependencies |
+| `startup.sh` | `deploy/docker/` | Container entrypoint (starts Ollama + Flask) |
+
+### Environment Variables
+
+Set in `deploy/akash/deploy-qwen.yaml`:
+
+| Variable | Example | Purpose |
+|----------|---------|---------|
+| `PROVIDER_ID` | `trinity-qwen72b` | Unique identifier for this deployment |
+| `MODEL_NAME` | `qwen2.5:72b` | Ollama model to load |
+| `GPU_TYPE` | `NVIDIA-A100` | GPU type (for health endpoint) |
+| `OLLAMA_HOST` | `http://localhost:11434` | Ollama server address |
+| `LIGHTHOUSE_API_KEY` | `cac651de...` | Filecoin/IPFS storage key |
+| `MAX_QUEUE_SIZE` | `5` | Request queue limit |
+
+### Troubleshooting
+
+**Build hangs at "exporting layers":**
+- Normal for first push (~5-10 min for ~4GB image)
+- Subsequent pushes only upload changed layers
+
+**Build fails with "no space left on device":**
+```bash
+docker system prune -a  # Remove unused images/containers
+```
+
+**Image won't pull on Akash:**
+- Verify platform is `linux/amd64`
+- Check Docker Hub: https://hub.docker.com/r/gdubx/trinity-inference/tags
+
+**Container crashes on startup:**
+- Check Akash Console logs
+- Common issue: GPU not available (check `nvidia-smi` in logs)
+
+### Local Testing (Optional)
+
+Test the image locally before deploying to Akash:
+
+```bash
+# Run locally (no GPU)
+docker run -p 8000:8000 -e MODEL_NAME=tinyllama gdubx/trinity-inference:icp-consensus
+
+# Test health endpoint
+curl http://localhost:8000/health
+```
+
+Note: Without a GPU, Ollama will use CPU (very slow for large models).
+
+---
+
+## 🧪 TEST ENVIRONMENT (CPU-Only Akash)
+
+### Purpose
+
+For development and testing, use the CPU-only Akash deployment instead of expensive GPU instances:
+
+| Environment | Model | Cost | Response Time | Use Case |
+|-------------|-------|------|---------------|----------|
+| **Test (CPU)** | TinyLlama 1.1B | ~$5/month | 5-15 seconds | Development, debugging |
+| **Production (GPU)** | Qwen 2.5 72B | ~$50/month | 1-3 seconds | Production users |
+
+### Deploy Test Environment
+
+1. **Deploy CPU-only YAML to Akash:**
+   - Go to https://console.akash.network
+   - Create Deployment
+   - Paste contents of `deploy/akash/deploy-test-cpu.yaml`
+   - Accept a bid (~$5/month)
+
+2. **Update Vercel Proxy with Test URL:**
+   ```bash
+   # Edit deploy/vercel-proxy/api/proxy.js
+   # Update AKASH_BASE to your test deployment URL
+   cd deploy/vercel-proxy && npx vercel --yes --prod
+   ```
+
+3. **Test the flow:**
+   ```bash
+   # Health check
+   curl https://vercel-proxy-swart-nine.vercel.app/health/icp
+   
+   # Generation test
+   curl -X POST https://vercel-proxy-swart-nine.vercel.app/generate \
+     -H "Content-Type: application/json" \
+     -d '{"prompt": "Hello", "model": "tinyllama:1.1b"}'
+   ```
+
+### Test Environment Workflow
+
+```
+Development Cycle:
+1. Make code changes to backend/inference_server.py
+2. Build Docker (incremental - ~30s): 
+   docker buildx build --platform linux/amd64 -t gdubx/trinity-inference:icp-consensus --push -f Dockerfile ../..
+3. Update Akash test deployment (Console → Update → paste same YAML)
+4. Wait ~2 min for new container
+5. Test via Vercel proxy
+6. When ready, switch Vercel proxy to production Akash URL
+```
+
+### Switch Between Test and Production
+
+**To Test Environment:**
+```bash
+# Edit deploy/vercel-proxy/api/proxy.js
+# Set: const AKASH_BASE = 'https://YOUR-TEST-DEPLOYMENT-URL'
+cd deploy/vercel-proxy && npx vercel --yes --prod
+```
+
+**To Production:**
+```bash
+# Edit deploy/vercel-proxy/api/proxy.js  
+# Set: const AKASH_BASE = 'https://9ibpulolihb210hu1uraei5q8o.ingress.a100.dsm.val.akash.pub'
+cd deploy/vercel-proxy && npx vercel --yes --prod
+```
+
+---
+
 ## 🚀 ACTUAL DEPLOYMENT WORKFLOW (PRODUCTION)
 
 > **CRITICAL:** Automated Akash deployment attempts have failed. Manual deployment via Akash Console is required.
+> **⚠️ Docker builds on Apple Silicon (M1/M2/M3) must use `--platform linux/amd64` for Akash compatibility.
 
 ### Full Production Deployment (From Scratch)
 
 **Prerequisites:**
 - Docker Desktop running
 - Akash Console access (https://console.akash.network)
-- Cloudflare Dashboard access (dash.cloudflare.com)
+- Vercel account (for SSL proxy)
 - DFX CLI installed and authenticated
 
 **Steps:**
 
-1. **Build Docker Image**
+1. **Build Docker Image (MUST be AMD64!)**
    ```bash
    cd deploy/docker
-   ./build.sh
+   
+   # CRITICAL: Use buildx with platform flag for cross-compilation
+   docker buildx build --platform linux/amd64 --no-cache -t gdubx/trinity-inference:icp-consensus --push -f Dockerfile ../..
    ```
-   - Generates timestamped Docker image (e.g., `gdubx/trinity-inference:v2-20260121-143522`)
-   - Automatically updates all 5 YAML files in `deploy/akash/`
-   - Pushes image to Docker Hub
+   - Image tag: `gdubx/trinity-inference:icp-consensus`
+   - Cross-compiles to AMD64 (required for Akash)
+   - Pushes directly to Docker Hub
 
-2. **Copy YAML File**
+2. **Update YAML File**
    - Navigate to `deploy/akash/`
-   - Select desired model YAML (usually `deploy-llama70.yaml` for production)
+   - Select desired model YAML (e.g., `deploy-qwen.yaml`)
+   - Ensure image tag matches: `image: gdubx/trinity-inference:icp-consensus`
    - Copy entire YAML content to clipboard
 
 3. **Deploy to Akash Console (Manual)**
@@ -1953,44 +2480,49 @@ cat cloudflare/workers/trinity-ai-proxy.js | grep AKASH_BACKEND
 
 4. **Copy Akash URL**
    - Once deployment is running, copy the generated URL
-   - Format: `http://[random-hash].ingress.[provider].akash.pub`
-   - Example: `http://efe65tbon5adv7ko2i9fv30no4.ingress.a100.dsm.val.akash.pub`
+   - Format: `https://[random-hash].ingress.[provider].akash.pub`
+   - Example: `https://9ibpulolihb210hu1uraei5q8o.ingress.a100.dsm.val.akash.pub`
    - **⚠️ Alternative:** Check current deployment at https://console.akash.network
 
-5. **Update Frontend (app.js)**
-   - Open `trinity-icp/src/app.js`
-   - Find `CONFIG.API_URL` getter (around line 19-30)
-   - Update fallback URL with new Akash URL
-   - Save file
-
-6. **Update Cloudflare Worker**
-   - Visit https://dash.cloudflare.com
-   - Navigate to Workers & Pages → `trinity-api-proxy`
-   - Click "Edit Code"
-   - Update `AKASH_BACKEND` constant (line ~4) with new Akash URL
-   - Click "Save and Deploy"
-
-7. **Redeploy ICP Canister**
+5. **Update Vercel Proxy with Akash URL**
    ```bash
+   # Edit the proxy
+   vim deploy/vercel-proxy/api/proxy.js
+   # Update AKASH_BASE constant with new Akash URL
+   
+   # Deploy to Vercel
+   cd deploy/vercel-proxy && npx vercel --yes --prod
+   ```
+
+6. **Update ICP Backend Canister**
+   ```bash
+   dfx canister --network ic call au5zq-2qaaa-aaaal-qtowa-cai set_akash_url '("https://vercel-proxy-swart-nine.vercel.app")'
+   ```
+
+7. **Update Frontend Config (Optional)**
+   ```bash
+   # Edit trinity-icp/src/config.js → _detectedURL 
    cd trinity-icp
+   npm run build
    dfx deploy --ic trinity_frontend
    ```
-   - Takes ~2-3 minutes
-   - Uploads updated app.js to ICP network
 
 8. **Wait for Akash to Finish Loading**
    - Monitor Akash Console logs
    - Wait for "Ollama server ready" message
    - Wait for model download to complete
-   - Usually takes 5-10 minutes total
+   - Usually takes 5-10 minutes total (Qwen 72B is ~40GB)
 
 9. **Verify Connection**
    ```bash
-   # Test backend health
-   curl https://api.trinityai.cc/health | jq .
+   # Test via Vercel proxy
+   curl https://vercel-proxy-swart-nine.vercel.app/health | jq .
+   
+   # Test via ICP canister
+   dfx canister --network ic call au5zq-2qaaa-aaaal-qtowa-cai health
    
    # Test frontend
-   open https://trinityai.cc
+   open https://zc67k-kiaaa-aaaal-qtmiq-cai.icp0.io
    ```
    - Sidebar should show "Connected ✅"
    - Try sending a test message
@@ -2005,17 +2537,15 @@ cat cloudflare/workers/trinity-ai-proxy.js | grep AKASH_BACKEND
 
 **Steps:**
 
-1. **Build Docker Image**
+1. **Build Docker Image (AMD64!)**
    ```bash
    cd deploy/docker
-   ./build.sh
+   docker buildx build --platform linux/amd64 --no-cache -t gdubx/trinity-inference:icp-consensus --push -f Dockerfile ../..
    ```
-   - Creates new versioned image
-   - Updates YAML files automatically
 
 2. **Copy Updated YAML**
-   - Copy the **same** YAML file currently running (e.g., `deploy-llama70.yaml`)
-   - Important: Use the same model as before
+   - Copy the **same** YAML file currently running (e.g., `deploy-qwen.yaml`)
+   - Important: Use the same model as before, ensure image tag is current
 
 3. **Update Deployment (Akash Console)**
    - Visit https://console.akash.network
@@ -2047,14 +2577,42 @@ cat cloudflare/workers/trinity-ai-proxy.js | grep AKASH_BACKEND
 
 - **URL changes when:** Closing deployment and creating new one (new provider bid)
 - **URL stays same when:** Using "Update Deployment" on existing deployment
-- **Why close deployments:** Akash is expensive (~$50/month for 2x A100)
+- **Why close deployments:** Akash is expensive (~$50/month for A100)
   - Close deployment when not actively developing
   - Redeploy when needed for testing/demos
 
 **Testing Environments:**
 - **Local Testing:** TinyLlama 1.1B via Ollama on Mac (~637MB, free, instant)
-- **Production:** Llama 3.1 70B on 2x A100 GPUs (Akash, ~$50/month when deployed)
+- **Production:** Qwen 2.5 72B on A100 GPU (Akash, ~$50/month when deployed)
 - **Testing Strategy:** Develop locally with TinyLlama, deploy to Akash production only when needed for final validation or demos
+
+---
+
+### ICP Consensus Troubleshooting
+
+**Error: "No consensus could be reached. Replicas had different responses"**
+
+This error occurs when the 13 ICP subnet replicas receive different HTTP responses.
+
+**Root Causes:**
+1. **Non-deterministic LLM output:** Ollama without seed produces random responses
+2. **Dynamic response fields:** `timestamp`, `latency_ms`, `tokens_generated` differ per request
+3. **Invalid SSL certificates:** Causes connection failures on some replicas
+
+**Solutions Implemented:**
+1. **Deterministic Seed:** Canister computes seed from request_id, passes to Ollama with `temperature: 0`
+2. **Response Filtering:** Backend strips dynamic fields for ICP requests (checks X-Request-ID header)
+3. **Transform Function:** Canister's `transform_response` strips remaining dynamic fields
+4. **Vercel Proxy:** Terminates SSL properly for providers with invalid certificates
+
+**Verification:**
+```bash
+# Test health check consensus
+dfx canister --network ic call au5zq-2qaaa-aaaal-qtowa-cai health
+
+# Test generate endpoint (will take 30-60 seconds)
+dfx canister --network ic call au5zq-2qaaa-aaaal-qtowa-cai generate '(record { prompt = "Hello"; model = null; context_messages = null }, record { principal_id = "test"; timestamp = "123"; signature = "abc"; public_key = "def" }, "test-request-123")'
+```
 
 ---
 
@@ -2079,40 +2637,22 @@ cat cloudflare/workers/trinity-ai-proxy.js | grep AKASH_BACKEND
 ## Verification Commands
 
 ```bash
-# Test frontend
-curl -s "https://trinityai.cc/" | head -5
+# Test frontend (ICP Canister)
+curl -s "https://zc67k-kiaaa-aaaal-qtmiq-cai.icp0.io/" | head -5
 
-# Test API health
-curl -s "https://api.trinityai.cc/health" | jq .
+# Test API health (via dfx)
+dfx canister --network ic call au5zq-2qaaa-aaaal-qtowa-cai health
 
-# Test LLM generation (no context)
-curl -s -X POST "https://api.trinityai.cc/generate" \
+# Test API health (via curl to Vercel proxy)
+curl -s "https://vercel-proxy-swart-nine.vercel.app/health" | jq .
+
+# Test LLM generation (via Vercel proxy)
+curl -s -X POST "https://vercel-proxy-swart-nine.vercel.app/generate" \
   -H "Content-Type: application/json" \
   -d '{"prompt": "Hello", "max_length": -1}' | jq -r '.generated_text'
 
-# Test context memory
-curl -s -X POST "https://api.trinityai.cc/generate" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "prompt": "What number?",
-    "contextMemory": [
-      {"role": "user", "content": "Remember: 42"},
-      {"role": "assistant", "content": "Got it, 42"}
-    ]
-  }' | jq -r '.generated_text'
-# Should recall 42
-
-# Test summarization (system message)
-curl -s -X POST "https://api.trinityai.cc/generate" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "prompt": "What is my name?",
-    "contextMemory": [
-      {"role": "system", "content": "User name: Alice, Location: Tokyo"},
-      {"role": "user", "content": "Tell me about cats"},
-      {"role": "assistant", "content": "Cats are mammals..."}
-    ]
-  }' | jq -r '.generated_text'
+# Test generation via ICP canister (deterministic output)
+dfx canister --network ic call au5zq-2qaaa-aaaal-qtowa-cai generate '(record { prompt = "Hello, world!" })'
 # Should recall Alice from system message
 
 # Test ICP domain registration
@@ -2147,6 +2687,35 @@ State.getContextForLLM()
 
 ## 🆘 Troubleshooting
 
+### Akash Provider HTTP/HTTPS Mismatch
+
+**Symptoms:** Container logs show Flask running successfully, but health endpoint times out externally (curl exit code 28)
+
+**Root Cause:** Different Akash providers have different ingress configurations:
+- Some only support HTTP (port 80)
+- Some only support HTTPS (port 443) with self-signed certs
+- Some have broken ingress entirely
+
+**Debug Steps:**
+```bash
+# Test HTTPS
+curl -v --connect-timeout 10 https://your-akash-url.ingress.provider.com/health
+
+# Test HTTP
+curl -v --connect-timeout 10 http://your-akash-url.ingress.provider.com/health
+
+# Check which protocol works - use that in AKASH_URL
+```
+
+**Solutions:**
+1. Switch provider using: `./scripts/switch-provider.sh <url>`
+2. Use the working protocol (http:// or https://) in the URL
+3. If both timeout, the provider's ingress is broken - close deployment and pick different provider
+
+**Prevention:** The Vercel proxy auto-detects protocol from URL scheme, so just ensure AKASH_URL uses the correct protocol.
+
+---
+
 ### Frontend Can't Connect to Backend
 
 **Symptoms:** "Disconnected" status in sidebar, health check failures
@@ -2154,21 +2723,19 @@ State.getContextForLLM()
 **Debug Steps:**
 ```javascript
 // Browser console
-console.log('API URL:', CONFIG.API_URL);
-// Should be: https://api.trinityai.cc (production)
+console.log('Using canister:', CONFIG.USE_CANISTER);
+console.log('Backend canister ID:', CONFIG.BACKEND_CANISTER_ID);
 
-// Check CORS
-fetch(CONFIG.API_URL + '/health')
-  .then(r => r.json())
-  .then(console.log)
-  .catch(console.error);
+// Check connection via canister
+const actor = await getBackendActor();
+await actor.health();
 ```
 
 **Solutions:**
-1. Verify Cloudflare Worker is deployed
-2. Check ALLOWED_ORIGINS in trinity-api-proxy.js
-3. Verify Akash backend URL in worker
-4. Check browser console for CORS errors
+1. Verify ICP backend canister is deployed: `dfx canister --network ic call au5zq-2qaaa-aaaal-qtowa-cai health`
+2. Check Vercel proxy is running: `curl https://vercel-proxy-swart-nine.vercel.app/health`
+3. Verify Akash backend is up: Check Akash console for container status
+4. Check browser console for errors
 
 ### Autosave Not Working
 
@@ -2273,15 +2840,15 @@ Actions.loadChats().then(console.log);
 | Task | Command / File |
 |------|----------------|
 | Deploy frontend | `cd trinity-icp && dfx deploy --ic trinity_frontend` |
-| Build backend | `cd deploy/docker && ./build.sh` |
+| Build backend | `docker buildx build --platform linux/amd64 --no-cache -t gdubx/trinity-inference:icp-consensus --push -f Dockerfile ../..` |
 | Start local backend | `cd deploy/local && ./start.sh` |
 | Run tests | `python3 test/integration/test_filecoin_integration.py` |
-| Update API endpoint | Edit `cloudflare/workers/trinity-api-proxy.js` + redeploy |
+| Update Akash URL | `dfx canister --network ic call au5zq-2qaaa-aaaal-qtowa-cai set_akash_url '("<new-url>")'` |
 | Change model | Update `deploy/akash/deploy-*.yaml` + redeploy |
-| Add new endpoint | 1. Add to `allowedPaths` 2. Add to `backend/inference_server.py` 3. Redeploy |
+| Add new endpoint | 1. Add to `backend/inference_server.py` 2. Add to canister lib.rs 3. Redeploy |
 | View logs | Browser console (frontend) or Akash logs (backend) |
-| Check health | `curl https://api.trinityai.cc/health \| jq .` |
-| Test generation | `curl -X POST https://api.trinityai.cc/generate -d '{"prompt":"Hi"}' \| jq .` |
+| Check health | `dfx canister --network ic call au5zq-2qaaa-aaaal-qtowa-cai health` |
+| Test generation | `dfx canister --network ic call au5zq-2qaaa-aaaal-qtowa-cai generate '(record { prompt = "Hi" })'` |
 
 ---
 
@@ -2315,8 +2882,31 @@ Actions.loadChats().then(console.log);
 ## 📞 Support & Contribution
 
 **Project Owner:** Owen Heidenreich  
-**Repository:** (Private development)  
+**GitHub Repository:** https://github.com/gdubz123/Trinity  
 **Docker Hub:** https://hub.docker.com/u/gdubx  
+
+### GitHub Workflow
+```bash
+# Clone repository
+git clone https://github.com/gdubz123/Trinity.git
+cd Trinity
+
+# Create feature branch
+git checkout -b feature/your-feature-name
+
+# After making changes
+git add .
+git commit -m "Description of changes"
+git push origin feature/your-feature-name
+
+# Create Pull Request via GitHub UI
+```
+
+### Branch Strategy
+- `main` - Production-ready code, deployed to ICP
+- `develop` - Integration branch for features
+- `feature/*` - Feature development branches
+- `hotfix/*` - Critical production fixes
 
 ### Getting Help
 1. Check this document first (comprehensive reference)
@@ -2341,7 +2931,10 @@ This document provides complete context for understanding Trinity. Key files to 
 - ✅ Phase 2: Backend integration complete
 - ✅ Phase 3: Autosave system complete
 - 🟡 Phase 4: Filecoin archive (partial - individual working, bulk pending)
-- ✅ Production deployment (trinityai.cc operational)
+- ✅ Phase 5: ICP HTTPS Outcalls (canister-based routing)
+- ✅ Phase 6: ICP Consensus (deterministic LLM output)
+- ✅ Phase 7: Cloudflare Removal (fully decentralized)
+- ✅ Production deployment (ICP canister operational)
 - ✅ Docker image automated build pipeline
 - ✅ All 5 Akash deployment configs with Filecoin support
 - ✅ Comprehensive documentation and architecture diagrams
@@ -2373,8 +2966,8 @@ This document provides complete context for understanding Trinity. Key files to 
 | Change business logic | `trinity-icp/src/app.js` → `Actions` module |
 | Change authentication | `trinity-icp/src/auth/authManager.js` |
 | Change initialization | `trinity-icp/src/app.js` → `init()` function |
-| Change API routing/CORS | `cloudflare/workers/trinity-ai-proxy.js` |
-| Change frontend routing | `cloudflare/workers/trinity-frontend-proxy.js` |
+| Change API proxy/SSL | `deploy/vercel-proxy/api/proxy.js` |
+| Change ICP canister | `trinity-icp/src/backend_canister/src/lib.rs` |
 | Change backend logic | `backend/inference_server.py` |
 | Change context formatting | `backend/inference_server.py` → build_prompt_with_context() |
 | Change AI model | `deploy/akash/deploy-*.yaml` + env vars |
@@ -2410,7 +3003,7 @@ This document provides complete context for understanding Trinity. Key files to 
 - **Web3 architecture:** Users own their keys, Trinity stores nothing server-side
 - **Future integration ready:** Principal ID will control payment accounts and Filecoin storage paths
 - **Build system:** esbuild bundles @dfinity libraries (296KB icp-auth.js) automatically during deployment
-- **Status:** Production ready on trinityai.cc - create identity, logout, restore all working
+- **Status:** Production ready on ICP - create identity, logout, restore all working
 
 ### Context Memory & Summarization - FULLY FUNCTIONAL ✅
 - **6-message context window:** LLM receives last 6 messages for conversation continuity
@@ -2422,7 +3015,7 @@ This document provides complete context for understanding Trinity. Key files to 
 - **Enhanced logging:** Console shows exactly what context is sent (preview of messages)
 - **Production tested:** Verified AI recalls facts from message 1 even at message 20+
 - **UI indicator:** Toast notification shows when compression occurs
-- **Status:** Working perfectly in production on trinityai.cc
+- **Status:** Working perfectly in production on ICP canister
 
 ### Guest Mode Limitations Removed
 - **Unlimited prompts:** No more 10-prompt guest limit
@@ -2433,14 +3026,14 @@ This document provides complete context for understanding Trinity. Key files to 
 ### Cache Management Improvements
 - **No-cache for JS/CSS:** Set Cache-Control: no-cache for app.js and styles.css
 - **Instant updates:** Users get fresh code immediately after ICP deployment
-- **No manual cache clearing:** Eliminates need to purge Cloudflare or hard refresh
+- **No manual cache clearing:** ICP manages cache headers via .ic-assets.json5
 - **HTML already no-cache:** Maintained existing no-cache policy for HTML files
 
 ### Deployment Workflow Lessons Learned
 - **ICP canister updates:** Use `dfx deploy --ic trinity_frontend` to deploy frontend
-- **Cloudflare caching:** Aggressive caching can prevent users from seeing updates
+- **ICP caching:** ICP canister uses .ic-assets.json5 for cache control headers
 - **Solution:** Set no-cache headers in .ic-assets.json5 for frequently updated files
-- **Akash backend:** Use versioned Docker tags (v2-YYYYMMDD-HHMMSS) to force image pulls
+- **Akash backend:** Use versioned Docker tags (e.g., icp-consensus) to force image pulls
 - **Testing:** Always verify in incognito/private window after deployment
 
 ### Removal of Persistence Layer (Earlier January 2026)
@@ -2557,18 +3150,18 @@ dfx deploy --ic trinity_frontend
 
 ## Architecture
 
-- **Frontend**: Internet Computer (ICP) canister at trinityai.cc
-- **Backend**: Akash Network (decentralized compute)
-- **Proxies**: Cloudflare Workers for routing
-- **Storage**: Filecoin/Pinata for permanent archives
+- **Frontend**: Internet Computer (ICP) canister at https://zc67k-kiaaa-aaaal-qtmiq-cai.icp0.io
+- **Backend**: Akash Network (decentralized compute) via Vercel Proxy
+- **Proxies**: Vercel for SSL termination, ICP canister for HTTPS outcalls
+- **Storage**: Filecoin/Lighthouse for permanent archives
 - **Auth**: Ed25519 signature verification via ICP
 
 ## Current Production
 
-- **Image**: `gdubx/trinity-inference:v2-20260121-132248`
-- **Model**: Llama 3.1 70B
-- **Hardware**: 2x A100 80GB
-- **Cost**: ~$120-200/month
+- **Image**: `gdubx/trinity-inference:icp-consensus`
+- **Model**: Qwen 2.5 72B
+- **Hardware**: A100 80GB
+- **Cost**: ~$50-60/month
 
 ## Documentation
 

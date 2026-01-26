@@ -99,9 +99,9 @@ pub struct ErrorResponse {
 
 thread_local! {
     /// Akash backend URL - configurable by canister controller
-    /// Default points to current production deployment
+    /// Default points to Vercel proxy (handles SSL for Akash)
     static AKASH_URL: RefCell<String> = RefCell::new(
-        "https://u2k74jdr358rt168vo6bmi8mas.ingress.akashprovid.com".to_string()
+        "https://vercel-proxy-swart-nine.vercel.app".to_string()
     );
     
     /// Response cache for idempotency
@@ -285,11 +285,19 @@ async fn generate(
     // 3. Build request to Akash backend
     let url = AKASH_URL.with(|u| format!("{}/generate", u.borrow()));
     
+    // Generate deterministic seed from request_id for ICP consensus
+    // All 13 replicas use the same seed = same LLM output = consensus achieved
+    let seed = request_id.bytes().fold(0u64, |acc, b| acc.wrapping_add(b as u64).wrapping_mul(31));
+    
     let body = serde_json::json!({
         "prompt": request.prompt,
         "model": request.model.unwrap_or_else(|| "llama3.1:70b".to_string()),
         "context": request.context_messages,
-        "stream": false
+        "stream": false,
+        "options": {
+            "seed": seed,
+            "temperature": 0.0  // Fully deterministic with seed
+        }
     });
 
     let request_body = serde_json::to_vec(&body)
@@ -448,12 +456,10 @@ fn verify_signature(auth: &AuthHeaders) -> bool {
 
     // 4. Verify signature
     // Message format matches authManager.js: "{principal}:{timestamp}"
+    // Ed25519 standard: sign raw message bytes (algorithm does internal hashing)
     let message = format!("{}:{}", auth.principal_id, auth.timestamp);
-    let mut hasher = Sha256::new();
-    hasher.update(message.as_bytes());
-    let message_hash = hasher.finalize();
 
-    match public_key.verify_strict(&message_hash, &signature) {
+    match public_key.verify_strict(message.as_bytes(), &signature) {
         Ok(_) => true,
         Err(e) => {
             ic_cdk::println!("Signature verification failed: {}", e);
@@ -532,13 +538,33 @@ fn clear_cache() -> Result<usize, String> {
 
 /// Transform HTTP response for consensus
 /// ICP requires deterministic responses across all 13 replicas
-/// We strip headers and keep only the body
+/// We strip headers AND remove any non-deterministic fields from body
+/// NOTE: gpu_type is kept as it's static per deployment and needed for HealthResponse
 #[ic_cdk::query]
 fn transform_response(args: TransformArgs) -> HttpResponse {
+    // Parse body and remove any remaining non-deterministic fields
+    let body = if let Ok(body_str) = String::from_utf8(args.response.body.clone()) {
+        if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&body_str) {
+            // Remove non-deterministic fields that might cause consensus failure
+            // NOTE: gpu_type is deterministic (static per deployment) so we keep it
+            if let Some(obj) = json.as_object_mut() {
+                obj.remove("timestamp");
+                obj.remove("latency_ms");
+                obj.remove("tokens_generated");
+                obj.remove("prompt");
+            }
+            serde_json::to_vec(&json).unwrap_or(args.response.body)
+        } else {
+            args.response.body
+        }
+    } else {
+        args.response.body
+    };
+
     HttpResponse {
         status: args.response.status,
         headers: vec![], // Strip headers for determinism
-        body: args.response.body,
+        body,
     }
 }
 

@@ -1,1 +1,0 @@
-/Users/owenheidenreich/Documents/Trinity/Trinity/trinity-icp/target/wasm32-unknown-unknown/release/trinity_backend.wasm: /Users/owenheidenreich/Documents/Trinity/Trinity/trinity-icp/src/backend_canister/src/lib.rs

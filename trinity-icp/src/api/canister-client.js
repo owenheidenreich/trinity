@@ -19,15 +19,15 @@
 // ============================================================================
 
 import { Actor, HttpAgent } from '@dfinity/agent';
-import { AuthManager } from '../auth/authManager.js';
+import AuthManager from '../auth/authManager.js';
 
 // ============================================================================
 // CANISTER CONFIGURATION
 // ============================================================================
 
-// Backend canister ID - UPDATE THIS AFTER DEPLOYMENT
-// Get via: dfx canister id trinity_backend --ic
-const BACKEND_CANISTER_ID = import.meta.env.VITE_BACKEND_CANISTER_ID || '';
+// Backend canister ID - deployed via ./icp-deploy
+// Fallback to production canister ID if env var not set
+const BACKEND_CANISTER_ID = import.meta.env.VITE_BACKEND_CANISTER_ID || 'au5zq-2qaaa-aaaal-qtowa-cai';
 
 // ICP host based on environment
 const getICPHost = () => {
@@ -74,11 +74,17 @@ const idlFactory = ({ IDL }) => {
         done: IDL.Bool,
     });
     
+    // Must match HealthResponse in lib.rs exactly
+    // Fields from /health/icp endpoint (deterministic for ICP consensus)
     const HealthResponse = IDL.Record({
         status: IDL.Text,
         provider_id: IDL.Text,
         model: IDL.Text,
-        backend: IDL.Text,
+        gpu_type: IDL.Text,
+        ollama_connected: IDL.Bool,
+        build_timestamp: IDL.Text,
+        version: IDL.Text,
+        icp_compatible: IDL.Bool,
     });
     
     const ErrorResponse = IDL.Record({

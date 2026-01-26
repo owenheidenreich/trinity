@@ -13,3 +13,9 @@ members = [
 
 # Ensure consistent resolver across all packages
 resolver = "2"
+
+# Profile settings must be in workspace root
+[profile.release]
+# NOTE: LTO disabled for faster builds - can re-enable for final production
+# lto = true
+opt-level = 's'  # Faster compile than 'z', similar binary size
