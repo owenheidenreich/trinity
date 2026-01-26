@@ -260,6 +260,76 @@ const Modals = {
 
             input.focus();
         });
+    },
+
+    // Show About Trinity modal
+    showAboutModal() {
+        this.removeAllModals();
+        const dialog = document.createElement('div');
+        dialog.className = 'modal-dialog';
+        dialog.innerHTML = `
+            <div class="modal-content about-modal">
+                <h2 style="text-align: center; margin-bottom: 20px;">About Trinity</h2>
+                <p style="text-align: center; color: #aaa; margin-bottom: 24px;">
+                    A fully decentralized AI assistant
+                </p>
+                
+                <div class="about-section">
+                    <h4>🌐 Internet Computer (ICP)</h4>
+                    <p>Your interface runs on ICP canisters — censorship-resistant smart contracts that serve the frontend globally without centralized servers.</p>
+                </div>
+                
+                <div class="about-section">
+                    <h4>☁️ Akash Network (AKT)</h4>
+                    <p>AI inference runs on Akash's decentralized cloud. Your conversations are processed on GPU nodes worldwide, with no central authority controlling access.</p>
+                </div>
+                
+                <div class="about-section">
+                    <h4>📦 Filecoin (FIL)</h4>
+                    <p>Archived chats are stored permanently on Filecoin via IPFS. Content-addressed storage means your data is verifiable, immutable, and truly yours.</p>
+                </div>
+                
+                <div class="about-section">
+                    <h4>🔗 The Flow</h4>
+                    <pre style="background: #1a1a1a; padding: 12px; border-radius: 6px; font-size: 11px; overflow-x: auto;">
+You → ICP Frontend → ICP Backend Canister
+              ↓
+      Vercel Proxy (SSL)
+              ↓
+      Akash Backend (GPU + Ollama)
+              ↓
+      Archive → Lighthouse → IPFS + Filecoin</pre>
+                </div>
+                
+                <div class="about-section">
+                    <h4>🔐 Your Keys, Your Data</h4>
+                    <p>Trinity uses Ed25519 keypairs for authentication. You own your private key — we never see it. Export it anytime from the sidebar.</p>
+                </div>
+                
+                <div class="about-links" style="margin-top: 20px; text-align: center;">
+                    <a href="https://internetcomputer.org" target="_blank">ICP</a> · 
+                    <a href="https://akash.network" target="_blank">Akash</a> · 
+                    <a href="https://filecoin.io" target="_blank">Filecoin</a> · 
+                    <a href="https://ens.domains" target="_blank">ENS</a>
+                </div>
+                
+                <div class="modal-buttons" style="justify-content: center; margin-top: 24px;">
+                    <button class="btn-confirm">Close</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(dialog);
+
+        // Close on backdrop click
+        dialog.onclick = (e) => {
+            if (e.target === dialog) {
+                dialog.remove();
+            }
+        };
+
+        dialog.querySelector('.btn-confirm').onclick = () => {
+            dialog.remove();
+        };
     }
 };
 

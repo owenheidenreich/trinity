@@ -26,8 +26,20 @@ export const Archive = {
             if (response.success) {
                 console.log('✅ Chat archived to Filecoin:', chatId, 'CID:', response.cid);
 
-                // Show success with CID info
-                UI.showSuccess(`Chat archived to Filecoin! (${response.archivedCount}/10)`);
+                // Show success with CID info - include clickable IPFS link
+                const shortCid = response.cid ? response.cid.slice(0, 12) + '...' : 'unknown';
+                const ipfsUrl = response.cid ? `https://gateway.lighthouse.storage/ipfs/${response.cid}` : null;
+                
+                // Show detailed success notification
+                UI.showSuccess(
+                    `Archived to Filecoin! (${response.archivedCount}/10)\n` +
+                    `CID: ${shortCid}`,
+                    { 
+                        duration: 8000,
+                        link: ipfsUrl,
+                        linkText: 'View on IPFS'
+                    }
+                );
 
                 // If this was the active chat, start a new chat
                 if (State.currentChatId === chatId) {

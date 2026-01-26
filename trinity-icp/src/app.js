@@ -38,6 +38,7 @@ import CONFIG from './config.js';
 import MockStorage from './storage/mock.js';
 import Archive from './modules/archive.js';
 import UI from './ui/index.js';
+import Modals from './ui/modals.js';
 import AuthManager from './auth/authManager.js';
 import AutosaveManager from './storage/autosave.js';
 import State from './state/store.js';
@@ -1304,6 +1305,9 @@ async function init() {
         else if (action === 'closeMemoryDialog') {
             const dialog = btn.closest('.modal-dialog');
             if (dialog) dialog.remove();
+        }
+        else if (action === 'showAbout') {
+            Modals.showAboutModal();
         }
     });
 

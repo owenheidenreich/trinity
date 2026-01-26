@@ -65,18 +65,26 @@ const Notifications = {
         this.showNotification(message, 'error');
     },
 
-    showSuccess(message) {
-        this.showNotification(message, 'success');
+    showSuccess(message, options = {}) {
+        this.showNotification(message, 'success', options);
     },
 
     showWarning(message) {
         this.showNotification(message, 'warning');
     },
 
-    showNotification(message, type = 'info') {
+    showNotification(message, type = 'info', options = {}) {
+        const { duration = 3000, link = null, linkText = 'View' } = options;
+        
         const notif = document.createElement('div');
         notif.className = `notification ${type}`;
-        notif.innerHTML = message;
+        
+        // Build notification content
+        let content = message.replace(/\n/g, '<br>');
+        if (link) {
+            content += `<br><a href="${link}" target="_blank" class="notification-link">${linkText} ↗</a>`;
+        }
+        notif.innerHTML = content;
         document.body.appendChild(notif);
 
         setTimeout(() => {
@@ -86,7 +94,7 @@ const Notifications = {
         setTimeout(() => {
             notif.classList.remove('show');
             setTimeout(() => notif.remove(), 300);
-        }, 3000);
+        }, duration);
     }
 };
 

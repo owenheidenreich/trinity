@@ -170,8 +170,19 @@ const Messages = {
             statusDot.classList.add('connected');
             statusText.textContent = 'Connected';
             
-            const envLabel = CONFIG._currentEnvironment === 'local' ? ' [LOCAL]' : ' [PROD]';
-            if (providerInfo) providerInfo.textContent = `Provider: ${provider || 'Unknown'}${envLabel}`;
+            // Format provider info based on environment
+            if (CONFIG._currentEnvironment === 'local') {
+                if (providerInfo) providerInfo.innerHTML = '<span style="color: #f0ad4e;">⚠️ Local Dev</span> (no storage)';
+            } else {
+                // Production: show decentralized stack
+                if (providerInfo) {
+                    providerInfo.innerHTML = `
+                        <span style="color: #5ac8fa;">ICP</span> → 
+                        <span style="color: #ff6b6b;">Akash</span> → 
+                        <span style="color: #69db7c;">Filecoin</span>
+                    `;
+                }
+            }
             if (modelInfo) modelInfo.textContent = `Model: ${model || 'Unknown'}`;
             console.log('✅ Status updated: Connected to', provider, model);
         } else {

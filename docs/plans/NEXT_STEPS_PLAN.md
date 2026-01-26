@@ -1,103 +1,97 @@
 # Trinity Next Steps Implementation Plan
 
 > **Created:** January 25, 2026  
-> **Status:** Planning  
+> **Status:** In Progress  
 > **Estimated Total Effort:** 10-12 hours  
-> **Order:** Easiest → Hardest (minimal troubleshooting first)
+> **Order:** Frontend-only first → Backend (Docker) updates batched at end
 
 ---
 
 ## Overview
 
-Tasks are ordered by confidence level and expected troubleshooting. Low-hanging fruit first, complex architectural changes last.
+Tasks reordered to minimize Akash redeployments. **All frontend/ICP-only tasks first**, then batch all backend changes into a single Docker build at the end.
 
-| Phase | Tasks | Effort | Supervision Needed |
-|-------|-------|--------|-------------------|
-| **Phase 1** | Log fixes, prompt redaction | 1 hour | ❌ None |
-| **Phase 2** | System prompt, UI tweaks | 2-3 hours | ❌ Minimal |
-| **Phase 3** | About page, provider details | 2-3 hours | ⚠️ Review |
-| **Phase 4** | Security hardening | 2 hours | ⚠️ Review |
-| **Phase 5** | Memory system upgrade | 3-4 hours | ✅ Collaboration |
-
----
-
-## Phase 1: Quick Fixes (No Troubleshooting Expected)
-
-### 1.1 Fix ICP Health Check Log Spam
-**File:** `backend/inference_server.py`  
-**Time:** 15 minutes  
-**Risk:** None
-
-**Problem:** Cache hits logged 6-13 times per health check cycle.
-```
-[trinity]: 🎯 ICP cache hit for request_id: health-au5zq-2qaaa-aaaal-qtowa-cai-176939537
-[trinity]: 🎯 ICP cache hit for request_id: health-au5zq-2qaaa-aaaal-qtowa-cai-176939537
-[trinity]: 🎯 ICP cache hit for request_id: health-au5zq-2qaaa-aaaal-qtowa-cai-176939537
-```
-
-**Solution:** Change log level from INFO to DEBUG for cache hits, or skip logging entirely for health endpoints.
-
-```python
-# Before
-logger.info(f"🎯 ICP cache hit for request_id: {request_id}")
-
-# After - Option A: Debug level
-logger.debug(f"🎯 ICP cache hit for request_id: {request_id}")
-
-# After - Option B: Skip health endpoint logging
-if not request_id.startswith('health-'):
-    logger.info(f"🎯 ICP cache hit for request_id: {request_id}")
-```
-
-**Verification:** Check Akash logs after deployment - should see 90%+ reduction in log volume.
+| Phase | Tasks | Docker Update? | Effort |
+|-------|-------|----------------|--------|
+| **Phase 1** | About page, CID display, UI tweaks | ❌ No | 2-3 hours |
+| **Phase 2** | Security (input validation - frontend) | ❌ No | 1 hour |
+| **Phase 3** | All backend changes (batched) | ✅ Yes (once) | 3-4 hours |
+| **Phase 4** | Memory system upgrade | ✅ Yes | 3-4 hours |
 
 ---
 
-### 1.2 Redact User Prompts from Logs
-**File:** `backend/inference_server.py`  
+## Phase 1: Frontend-Only Changes (No Docker Update)
+
+### 1.1 Add About Link & Modal (Upper Right)
+**Files:** `trinity-icp/src/index.html`, `trinity-icp/src/styles.css`, `trinity-icp/src/app.js`  
+**Time:** 1.5 hours  
+**Requires:** ICP frontend deploy only
+
+**Implementation:**
+1. Add About link to header
+2. Create modal with ICP/AKT/FIL explanation
+3. Include links to documentation
+
+---
+
+### 1.2 Show CID After Archive
+**File:** `trinity-icp/src/modules/archive.js`  
 **Time:** 30 minutes  
-**Risk:** None
+**Requires:** ICP frontend deploy only
 
-**Problem:** First 50 characters of user prompts visible in logs.
+**Problem:** CID only logged to console after archive.
+**Solution:** Show CID in success notification with verification link.
+
+```javascript
+const shortCid = response.cid.substring(0, 12) + '...';
+const verifyUrl = `https://gateway.lighthouse.storage/ipfs/${response.cid}`;
+UI.showSuccess(`Archived! CID: ${shortCid}`, { action: 'Verify', actionUrl: verifyUrl });
 ```
-Generating response for: Tell me about my bank account...
-```
-
-**Solution:** Log word count and hash only.
-
-```python
-import hashlib
-
-def log_prompt_safely(prompt: str, context_count: int):
-    word_count = len(prompt.split())
-    prompt_hash = hashlib.sha256(prompt.encode()).hexdigest()[:8]
-    logger.info(f"[{PROVIDER_ID}] Processing: {word_count} words, hash:{prompt_hash}, context:{context_count} msgs")
-
-# Replace current logging:
-# logger.info(f"[{PROVIDER_ID}] Generating response for: {user_prompt[:50]}...")
-# With:
-log_prompt_safely(user_prompt, len(context_memory))
-```
-
-**Also redact context message logging:**
-```python
-# Before
-logger.info(f"  [{i+1}] {role}: {content[:50]}...")
-
-# After
-logger.info(f"  [{i+1}] {role}: {len(content.split())} words")
-```
-
-**Verification:** Deploy, send test message, confirm logs show word counts not content.
 
 ---
 
-## Phase 2: Identity & Personality (Low Troubleshooting)
+### 1.3 Improve Provider Display
+**File:** `trinity-icp/src/ui/sidebar.js`  
+**Time:** 30 minutes  
+**Requires:** ICP frontend deploy only
 
-### 2.1 Add Trinity System Prompt
+**Current:** Shows `trinity-tier2-balanced [PROD]`
+**Improved:** Show model + GPU type from health response.
+
+```javascript
+const providerInfo = `${data.model} • ${data.gpu_type || 'GPU'}`;
+```
+
+---
+
+## Phase 2: Frontend Security (No Docker Update)
+
+### 2.1 Add Client-Side Input Validation
+**File:** `trinity-icp/src/storage/autosave.js`  
+**Time:** 30 minutes  
+
+Add validation before sending chat IDs to backend:
+```javascript
+function validateChatId(chatId) {
+    return /^[a-zA-Z0-9_-]{1,64}$/.test(chatId);
+}
+```
+
+---
+
+## Phase 3: Backend Changes (Single Docker Update)
+
+> **BATCH ALL THESE TOGETHER** - One Docker build, one Akash update.
+
+### 3.1 ✅ COMPLETE: Fix ICP Health Check Log Spam
+Changed cache hit logs from INFO to DEBUG.
+
+### 3.2 ✅ COMPLETE: Redact User Prompts from Logs
+Now logs word count + hash only, not prompt content.
+
+### 3.3 Add Trinity System Prompt
 **File:** `backend/inference_server.py`  
-**Time:** 45 minutes  
-**Risk:** Low - only affects prompt construction
+**Time:** 45 minutes
 
 **Current state:** No system prompt. Messages sent raw to Ollama.
 
@@ -404,50 +398,43 @@ If no memorable facts, return: {"facts": []}
 ## Implementation Order Summary
 
 ```
-Day 1 (Phase 1 + 2): ~2-3 hours
-├── 1.1 Fix log spam (15 min)
-├── 1.2 Redact prompts (30 min)
-├── 2.1 Add system prompt (45 min)
-└── 2.2 Show CID after archive (30 min)
+TODAY - Frontend Only (No Docker):
+├── 1.1 About page/modal (1.5 hours) ← ICP deploy only
+├── 1.2 Show CID after archive (30 min) ← ICP deploy only
+├── 1.3 Improve provider display (30 min) ← ICP deploy only
+└── 2.1 Client-side input validation (30 min) ← ICP deploy only
 
-Day 2 (Phase 3): ~2-3 hours
-├── 3.1 About page/modal (1.5 hours)
-└── 3.2 Real provider details (1 hour)
+LATER - Backend Batch (Single Docker Update):
+├── 3.1 ✅ Log spam fix (DONE - awaiting deploy)
+├── 3.2 ✅ Prompt redaction (DONE - awaiting deploy)
+├── 3.3 System prompt / Trinity identity (45 min)
+├── 3.4 Input validation on backend (45 min)
+├── 3.5 Rate limit /generate (1 hour)
+└── Docker build + Akash update (once)
 
-Day 3 (Phase 4): ~2 hours
-├── 4.1 Input validation (45 min)
-└── 4.2 Rate limit /generate (1 hour)
-
-Day 4+ (Phase 5): ~3-4 hours (collaborative)
-└── 5.1 Memory system upgrade
+COLLABORATIVE - Memory System:
+└── 4.1 Memory system upgrade (3-4 hours, discussion first)
 ```
 
 ---
 
 ## Verification Checklist
 
-After each phase, verify:
+### After Frontend Deploy (Phase 1-2)
+- [ ] About link visible in upper right
+- [ ] Modal shows ICP/AKT/FIL explanation with links
+- [ ] Archive chat → CID visible in success message
+- [ ] Provider shows model + GPU type
 
-### Phase 1
+### After Backend Deploy (Phase 3)
 - [ ] Akash logs no longer spammed with cache hits
 - [ ] Prompts not visible in logs (only word counts)
-
-### Phase 2
-- [ ] Ask "What are you?" - Trinity responds with identity
-- [ ] Ask "What model are you using?" - correct model name
-- [ ] Archive chat - CID visible in success message
-
-### Phase 3
-- [ ] About link visible in upper right
-- [ ] Modal shows ICP/AKT/FIL explanation
-- [ ] Provider details show GPU type
-
-### Phase 4
+- [ ] Ask "What are you?" → Trinity responds with identity
+- [ ] Ask "What model are you using?" → correct model name
 - [ ] `../../../etc/passwd` as chat_id → rejected with 400
-- [ ] Normal chat IDs still work
 - [ ] Rapid requests get rate limited (429)
 
-### Phase 5
+### After Memory Upgrade (Phase 4)
 - [ ] Trinity remembers facts across conversations
 - [ ] User can see/manage their stored memories
 
@@ -455,7 +442,7 @@ After each phase, verify:
 
 ## Notes for Claude
 
-- **Phase 1 & 2:** Proceed without supervision. These are safe, isolated changes.
-- **Phase 3:** May need input on About page content/styling. Otherwise proceed.
-- **Phase 4:** Test thoroughly before deploying. Have rollback plan.
-- **Phase 5:** Stop and discuss architecture before implementing.
+- **Phase 1-2 (Frontend):** Proceed now. ICP deploy only, no Docker needed.
+- **Phase 3 (Backend):** Batch ALL backend changes, single Docker build.
+- **Phase 4 (Memory):** Stop and discuss architecture before implementing.
+
