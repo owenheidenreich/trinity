@@ -571,7 +571,8 @@ class ICPIdempotencyCache:
             if request_id in self._cache:
                 response, status_code, timestamp = self._cache[request_id]
                 if time.time() - timestamp < self._ttl:
-                    logger.info(f'🎯 ICP cache hit for request_id: {request_id}')
+                    # DEBUG level to reduce log spam from 13 ICP replicas
+                    logger.debug(f'🎯 ICP cache hit for request_id: {request_id}')
                     return response, status_code
                 else:
                     del self._cache[request_id]
@@ -635,7 +636,7 @@ def icp_idempotent(f):
                 cached = icp_cache.get(request_id)
                 if cached:
                     response, status_code = cached
-                    logger.info(f'🔄 ICP cache hit after lock for request_id: {request_id}')
+                    logger.debug(f'🔄 ICP cache hit after lock for request_id: {request_id}')
                     return jsonify(response), status_code
                 
                 # Execute the actual function (only one thread per request_id does this)
@@ -848,13 +849,13 @@ def generate():
         # Build prompt with context and user memory
         full_prompt = build_prompt_with_context(user_prompt, context_memory, user_memory)
         
-        logger.info(f"[{PROVIDER_ID}] Generating response for: {user_prompt[:50]}... (with {len(context_memory)} context messages)")
+        # Privacy: Log word count and hash only - don't expose prompt content
+        import hashlib
+        prompt_hash = hashlib.sha256(user_prompt.encode()).hexdigest()[:8]
+        word_count = len(user_prompt.split())
+        logger.info(f"[{PROVIDER_ID}] Processing: {word_count} words (hash:{prompt_hash}) with {len(context_memory)} context messages")
         if len(context_memory) > 0:
-            logger.info(f"[{PROVIDER_ID}] Context includes:")
-            for i, msg in enumerate(context_memory):
-                role = msg.get('role', 'unknown')
-                content = msg.get('content', '')[:50]
-                logger.info(f"  [{i+1}] {role}: {content}...")
+            logger.info(f"[{PROVIDER_ID}] Context: {len(context_memory)} messages totaling {sum(len(m.get('content', '').split()) for m in context_memory)} words")
         
         logger.info(f"[{PROVIDER_ID}] Full prompt length: {len(full_prompt)} chars")
         

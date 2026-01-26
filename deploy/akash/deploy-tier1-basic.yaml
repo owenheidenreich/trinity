@@ -15,7 +15,7 @@ version: "2.0"
 
 services:
   trinity:
-    image: gdubx/trinity-inference:v2-20260125-182818
+    image: gdubx/trinity-inference:v2-20260125-191049
     env:
       - PROVIDER_ID=trinity-tier1-test
       - MODEL_NAME=tinyllama:1.1b
