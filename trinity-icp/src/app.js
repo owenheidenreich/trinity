@@ -1314,6 +1314,11 @@ async function init() {
         UI.elements.sidebarToggleBtn.addEventListener('click', () => Actions.toggleSidebar());
     }
 
+    // Logout button in status header
+    if (UI.elements.logoutBtn) {
+        UI.elements.logoutBtn.addEventListener('click', () => Actions.logout());
+    }
+
     // CID badge click handler
     const cidLink = document.getElementById('cidLink');
     if (cidLink) {

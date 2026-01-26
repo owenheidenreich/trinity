@@ -23,9 +23,11 @@ echo ""
 # Build and push with version tag
 # -f specifies Dockerfile location in deploy/docker/
 # Build context is the project root (contains backend/ and deploy/)
+# Use CACHEBUST arg to invalidate only code layers (not base image/packages)
 docker buildx build --platform linux/amd64 \
   -f deploy/docker/Dockerfile \
   -t gdubx/trinity-inference:$VERSION \
+  --build-arg CACHEBUST=$(date +%s) \
   --push .
 
 if [ $? -ne 0 ]; then

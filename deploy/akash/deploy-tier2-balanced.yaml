@@ -1,21 +1,8 @@
 version: "2.0"
 
-# ============================================================================
-# Trinity Tier 2: Balanced Production (Llama 3.1 8B)
-# ============================================================================
-# 
-# Purpose: Balanced performance for most production queries
-# Model: Llama 3.1 8B (4.7GB)
-# Cost: ~$0.10-0.25/hour (~$75-180/month)
-# Response Time: 3-8 seconds
-# Intelligence: Good (handles most queries well)
-#
-# GPU Selection: RTX3090/4090/A10/A40/L40S - production-grade providers
-# ============================================================================
-
 services:
   trinity:
-    image: gdubx/trinity-inference:v2-20260125-191049
+    image: gdubx/trinity-inference:v2-20260125-203509
     env:
       - PROVIDER_ID=trinity-tier2-balanced
       - MODEL_NAME=llama3.1:8b

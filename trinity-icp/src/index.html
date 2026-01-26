@@ -26,10 +26,13 @@
             </div>
 
             <div class="status-panel" id="statusPanel">
-                <!-- Connection Status -->
+                <!-- Connection Status with Logout -->
                 <div class="status-header">
-                    <div class="status-dot" id="statusDot"></div>
-                    <span id="statusText">Connecting...</span>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <div class="status-dot" id="statusDot"></div>
+                        <span id="statusText">Connecting...</span>
+                    </div>
+                    <button id="logoutBtn" class="logout-btn" style="display: none;">Logout</button>
                 </div>
                 
                 <!-- Infrastructure Stack -->

@@ -97,6 +97,11 @@ RUN pip3 install --no-cache-dir -r requirements.txt
 # ============================================================================
 # Copy your inference server and startup script into the container
 # Build context is project root, so we access backend/ and deploy/ from there
+
+# CACHEBUST invalidates cache from this point forward on every build
+# This ensures code changes are always included, while base layers stay cached
+ARG CACHEBUST=1
+
 COPY backend/inference_server.py .
 COPY backend/icp_auth.py .
 COPY deploy/docker/startup.sh .

@@ -11,23 +11,20 @@ const Sidebar = {
 
         console.log('🎨 renderSidebar() called - isAuthenticated:', State.isAuthenticated, 'allChats:', State.allChats.length);
 
+        // Show/hide logout button in status header
+        const logoutBtn = document.getElementById('logoutBtn');
+        if (logoutBtn) {
+            logoutBtn.style.display = State.isAuthenticated ? 'block' : 'none';
+        }
+
         let html = '';
 
-        // Auth buttons
+        // Auth section - simplified
         if (State.isAuthenticated) {
             html += `
                 <div style="padding: 12px; border-bottom: 1px solid #3d3d3d;">
-                    <div style="font-size: 10px; color: #4CAF50; margin-bottom: 8px; word-break: break-all; line-height: 1.4; font-family: monospace;">
-                        ✅ ${State.principal}
-                    </div>
-                    <button data-action="viewMemory" class="rainbow-border-btn" style="margin-bottom: 6px;">
-                        Memory (${State.userMemory?.facts?.length || 0})
-                    </button>
-                    <button data-action="exportKey" class="rainbow-border-btn" style="margin-bottom: 6px;">
-                        Export Key
-                    </button>
-                    <button data-action="logout" class="rainbow-border-btn">
-                        Logout
+                    <button data-action="exportKey" class="rainbow-border-btn">
+                        Export Key (Save This!)
                     </button>
                 </div>
             `;

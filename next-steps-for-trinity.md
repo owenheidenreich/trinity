@@ -11,10 +11,16 @@
     - its elementary
     - it should store memory attached to the user id, to collect important info and store relevant details
 - can we update the transparency? 
+- what does akash-deploy do? im running llama3...
+also before moving onto phase 4
 - can we make authorization more normie friendly?
     - clickable, only 1 important thing to remember (export button, safe place)
     - it clutters the sidebar with the username and an emoji check mark. its confusing and doesnt really help
     - i like the current thing of assigning normies the user and pass, but it being this big long string of characters is less than ideal. research into ways that we can upgrade our auth functionality to make it normie friendly but still strong, and focused on our core principles.
+- side panel updates
+    - i dont like the Memory (0) button there. thats a different project for later. remove it for now
+    - place the logout button in the upper right hand corner. redesign the button so its a little smaller and of the lighter grey color.
+
 - privacy
     - i can currently see the first word of any user's prompt if i view the akash logs. please limit my ability to see that in the logs. 
 - security

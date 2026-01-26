@@ -24,6 +24,7 @@ const DOMCache = {
             filecoinIndicator: document.getElementById('filecoinIndicator'),
             modelName: document.getElementById('modelName'),
             modelBadge: document.getElementById('modelBadge'),
+            logoutBtn: document.getElementById('logoutBtn'),
             // Legacy (kept for compatibility)
             providerInfo: document.getElementById('providerInfo'),
             modelInfo: document.getElementById('modelInfo'),
