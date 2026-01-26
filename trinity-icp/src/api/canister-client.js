@@ -180,9 +180,11 @@ export function resetActor() {
  * 
  * @param {string} prompt - The user's message
  * @param {Array} contextMessages - Previous messages for context
+ * @param {string} persona - 'trinity' or 'pickles' persona
+ * @param {string} documentContext - Attached document content (optional)
  * @returns {Promise<Object>} The LLM response
  */
-export async function generateViaCanister(prompt, contextMessages = []) {
+export async function generateViaCanister(prompt, contextMessages = [], persona = 'trinity', documentContext = null) {
     const actor = await getActor();
     
     // Get auth credentials
@@ -201,9 +203,22 @@ export async function generateViaCanister(prompt, contextMessages = []) {
     // Generate unique request ID for idempotency
     const requestId = `${principal}-${timestamp}-${Math.random().toString(36).slice(2, 10)}`;
     
+    // Build enhanced prompt with persona and document context
+    let enhancedPrompt = prompt;
+    
+    // Add persona instruction if using Pickles
+    if (persona === 'pickles') {
+        enhancedPrompt = `[PERSONA: You are Pickles, a 17+ year veteran in crypto trading with over $20 million in documented profits. You speak in a direct, no-nonsense trading floor style with dark humor. You're allergic to hopium, roast moon boys for breakfast, and focus on technical analysis, risk management, and emotional discipline. Keep responses practical and street-smart.]\n\n${enhancedPrompt}`;
+    }
+    
+    // Add document context if provided
+    if (documentContext) {
+        enhancedPrompt = `[DOCUMENT CONTEXT]\n${documentContext}\n[END DOCUMENT]\n\n${enhancedPrompt}`;
+    }
+    
     // Build request
     const request = {
-        prompt,
+        prompt: enhancedPrompt,
         model: [], // Empty array = use default model
         context_messages: contextMessages.length > 0 
             ? [contextMessages.map(m => ({ role: m.role, content: m.content }))]
@@ -218,8 +233,10 @@ export async function generateViaCanister(prompt, contextMessages = []) {
     };
     
     console.log('📡 Calling ICP canister generate...', {
-        promptLength: prompt.length,
+        promptLength: enhancedPrompt.length,
         contextLength: contextMessages.length,
+        persona,
+        hasDocument: !!documentContext,
         requestId: requestId.slice(0, 20) + '...',
     });
     

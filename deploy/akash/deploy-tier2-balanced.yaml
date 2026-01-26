@@ -2,7 +2,7 @@ version: "2.0"
 
 services:
   trinity:
-    image: gdubx/trinity-inference:v2-20260125-203509
+    image: gdubx/trinity-inference:v2-20260126-144127
     env:
       - PROVIDER_ID=trinity-tier2-balanced
       - MODEL_NAME=llama3.1:8b

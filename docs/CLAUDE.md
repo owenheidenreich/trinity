@@ -4,17 +4,17 @@
 > **Last Updated:** January 26, 2026  
 > **Last Verified:** January 26, 2026 - Full stack verified working ✅  
 > **Status:** Production - Fully Decentralized Stack Operational  
-> **Version:** v2.7.0 (Custom domain setup + ENS deprecated)  
+> **Version:** v2.8.0 (Integrated Tools - Persona & Audio Transcription)  
 > **Custom Domain:** trinityai.cc (pending ICP registration)  
 > **ICP Frontend Canister:** zc67k-kiaaa-aaaal-qtmiq-cai  
 > **ICP Backend Canister:** au5zq-2qaaa-aaaal-qtowa-cai  
-> **Akash Backend:** http://qoa8uee50tfn78p8kcpi3prvp0.ingress.akashprovid.com (tier2-balanced, Llama 3.1 8B)  
+> **Akash Backend:** https://5gsteh14g988dahk6k9doqum78.ingress.4090.akashgpu.com (tier2-balanced, Llama 3.1 8B)  
 > **Vercel Proxy:** https://vercel-proxy-swart-nine.vercel.app (dual HTTP/HTTPS, env-configured)  
-> **Docker Image:** gdubx/trinity-inference:v2-20260125-203509  
+> **Docker Image:** gdubx/trinity-inference:v2-20260126-141308  
 > **Model:** Llama 3.1 8B on NVIDIA GPU (Tier 2 - balanced performance)  
 > **⚠️ Akash URL Changes:** Update Vercel env with `npx vercel env add AKASH_URL production`  
 > **⚠️ Provider Selection:** CHOOSE `*.akash.pub` or `*.akashprovid.com` domains, AVOID `*.leet.haus`  
-> **Next Phase:** See [plans/DECENTRALIZATION_ROADMAP.md](plans/DECENTRALIZATION_ROADMAP.md)
+> **⚠️ Docker Hygiene:** Run `docker builder prune -a -f` after builds to prevent disk bloat  
 
 ---
 
@@ -51,6 +51,9 @@
 - ✅ **Modular Architecture:** State management with Zustand, UI/Auth/Storage modules
 - ✅ **Cache Busting:** Version checking with automatic reload on updates
 - ✅ **Sleek UI:** Dark theme with animated rainbow border effects on hover
+- 🚧 **Persona System:** Switch between Trinity and Pickles AI personas
+- 🚧 **Audio Transcription:** Upload audio files, transcribed via OpenAI Whisper
+- 🚧 **Document Context:** Attach text files to include as context in chat
 
 ### Live URLs
 - **Primary URL:** https://trinityai.cc (custom domain, pending DNS propagation)
@@ -86,6 +89,71 @@
 # 2. Get new URL from deployment logs
 # 3. Update Vercel proxy environment variable
 ./scripts/switch-provider.sh "https://new-url.ingress.provider.akash.pub"
+```
+
+### Docker Build Hygiene (Critical!)
+**⚠️ Docker build cache can consume 20-50GB+ if not managed.**
+
+**The Problem:**
+- Each Docker build caches intermediate layers
+- Adding large dependencies (PyTorch, Whisper) creates multi-GB layers
+- Failed/cancelled builds leave orphaned cache
+- Build cache is NOT automatically cleaned
+
+**Symptoms of Docker Bloat:**
+- Disk space mysteriously full (check with `df -h /`)
+- Docker builds fail with I/O errors
+- `docker system prune` hangs indefinitely
+- Push takes 25-35 minutes instead of 10-15
+
+**Prevention - Run After Every Build:**
+```bash
+# Check Docker disk usage
+docker system df
+
+# Clear build cache (SAFE - doesn't affect running containers)
+docker builder prune -a -f
+
+# Nuclear option - removes ALL unused images/containers/volumes
+docker system prune -a --volumes -f
+```
+
+**Dependencies to AVOID in requirements.txt:**
+| Package | Size Impact | Alternative |
+|---------|-------------|-------------|
+| `openai-whisper` | +3GB (pulls PyTorch) | Use cloud API (Groq, OpenAI) |
+| `torch` / `pytorch` | +2.5GB | Only if GPU inference needed |
+| `tensorflow` | +1.5GB | Use ONNX or cloud API |
+| `transformers` | +500MB+ | Use Ollama for inference |
+
+**Current Lean Stack (requirements.txt):**
+```
+flask>=3.0.0
+flask-cors>=4.0.0
+requests>=2.31.0
+psutil>=5.9.0
+APScheduler>=3.10.4
+pycryptodome>=3.18.0
+python-dotenv>=1.0.0
+cryptography>=41.0.0
+# Whisper DISABLED - adds ~3GB, use cloud API instead
+```
+
+**Expected Build Times (with clean cache):**
+- Build: ~2-3 minutes
+- Push: ~10-12 minutes
+- Total: ~15 minutes
+
+**If Docker Gets Corrupted:**
+```bash
+# Quit Docker Desktop
+osascript -e 'quit app "Docker"'
+
+# Remove VM data (fixes most issues)
+rm -rf ~/Library/Containers/com.docker.docker/Data/vms
+
+# Restart Docker
+open -a Docker
 ```
 
 ---
@@ -348,6 +416,65 @@ curl -sL -X POST https://icp0.io/custom-domains/v1/trinityai.cc | jq
 - trinityai.eth is still owned but deprecated in favor of speed
 
 **Status:** DNS configured, pending ICP registration (DNS propagation delay)
+
+### Phase 9: Integrated Tools 🚧 IN PROGRESS (January 2026)
+**Purpose:** Embed AI tools directly into the main chat interface instead of separate views.
+
+**Features:**
+- **Persona Dropdown:** Switch between Trinity (decentralized AI) and Pickles (trading veteran) near chat input
+- **Audio Transcription:** ⏸️ DISABLED - Use cloud API (Groq/OpenAI) to avoid 3GB PyTorch dependency
+- **Document Context:** Attach text files to include as context in chat messages
+- **Unified UI:** No separate tool views - all functionality integrated into main chat
+
+**Persona System:**
+```
+Trinity: Default decentralized AI assistant
+Pickles: 17+ year crypto trading veteran with $20M+ documented profits
+         - Direct, no-nonsense trading floor style
+         - Dark humor, allergic to hopium
+         - Focus on technical analysis, risk management, emotional discipline
+```
+
+**File Limits:**
+- Text files: 100KB max
+- Audio files: 25MB max (when using cloud transcription API)
+
+**Key Files:**
+- `trinity-icp/src/tools.js` - Persona, file attachment handling
+- `trinity-icp/src/api/canister-client.js` - Updated generateViaCanister with persona/documentContext
+- `backend/inference_server.py` - Persona in build_prompt_with_context
+- `trinity-icp/src/index.html` - Persona dropdown, attach button, file preview UI
+- `trinity-icp/src/styles.css` - Persona dropdown and attachment preview styles
+
+**Backend Endpoints:**
+- `POST /generate` - Now accepts `persona` and `documentContext` parameters
+- `GET /tools/status` - Returns tool availability
+
+**Persona Persistence:**
+- Persona selection persists per session
+- Trinity conversations stay with Trinity persona
+- Pickles conversations stay with Pickles persona
+- Stored in frontend memory (not yet per-chat persistence)
+
+**✅ Completed:**
+- Persona dropdown UI with sleek dark theme styling
+- File attachment button with text file detection
+- Backend persona routing in prompt builder
+- Frontend integration in canister-client.js and app.js
+- Removed old separate tool views (documentsView, transcriptView, picklesView)
+- Docker image rebuilt WITHOUT Whisper (lean ~1.5GB instead of ~5GB)
+
+**⏸️ Deferred (to avoid Docker bloat):**
+- Local Whisper transcription (adds 3GB+ PyTorch dependency)
+- Will use cloud transcription API (Groq Whisper API is free) instead
+
+**🚧 Pending:**
+- Akash deployment with new image
+- End-to-end testing of persona switching
+- Per-chat persona persistence (currently session-only)
+- Cloud transcription API integration (Groq/OpenAI)
+
+**Status:** Frontend deployed to ICP, backend image ready (v2-20260126-141308)
 
 ---
 

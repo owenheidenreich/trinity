@@ -1521,3 +1521,60 @@ MOBILE RESPONSIVE STYLES
 .tool-container label { display: block; margin-bottom: 8px; color: #999; font-size: 13px; }
 #cleanedSection { padding-top: 20px; border-top: 1px solid #3d3d3d; }
 #cleanedTranscript { background: #1a1a1a; }
+
+/* ===== PERSONA DROPDOWN ===== */
+.persona-dropdown { position: relative; }
+.persona-btn {
+    display: flex; align-items: center; gap: 6px; padding: 8px 12px;
+    background: #2d2d2d; border: 1px solid #3d3d3d; border-radius: 6px;
+    color: #fff; cursor: pointer; font-size: 13px;
+    transition: all 0.2s ease; white-space: nowrap;
+}
+.persona-btn:hover { background: #3d3d3d; border-color: #4d4d4d; }
+#personaIcon { font-size: 10px; transition: transform 0.2s ease; }
+.persona-dropdown.open #personaIcon { transform: rotate(180deg); }
+.persona-menu {
+    position: absolute; bottom: calc(100% + 8px); left: 0; min-width: 200px;
+    background: #2d2d2d; border: 1px solid #3d3d3d; border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4); display: none; z-index: 1000; overflow: hidden;
+}
+.persona-dropdown.open .persona-menu { display: block; }
+.persona-option {
+    padding: 12px 16px; cursor: pointer; transition: background 0.2s ease;
+    border-bottom: 1px solid #3d3d3d;
+}
+.persona-option:last-child { border-bottom: none; }
+.persona-option:hover { background: #3d3d3d; }
+.persona-option.active { background: #3d4d3d; border-left: 3px solid #4caf50; }
+.persona-name { display: block; font-weight: 500; color: #fff; margin-bottom: 2px; }
+.persona-desc { display: block; font-size: 11px; color: #888; }
+
+/* ===== ATTACHED FILE PREVIEW ===== */
+.attached-file-preview {
+    display: flex; align-items: center; gap: 10px; padding: 10px 16px;
+    background: #2a3a2a; border: 1px solid #3d4d3d; border-radius: 8px; margin: 0 16px 8px;
+}
+.attached-file-name { flex: 1; color: #fff; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attached-file-size { color: #888; font-size: 11px; }
+.attached-file-remove { background: none; border: none; color: #888; font-size: 18px; cursor: pointer; padding: 4px 8px; transition: color 0.2s ease; }
+.attached-file-remove:hover { color: #f44336; }
+
+/* ===== INPUT HINT ===== */
+.input-hint { display: flex; justify-content: center; padding: 4px 16px 8px; }
+#fileLimitHint { font-size: 11px; color: #666; }
+
+/* ===== PERSONA TITLE ===== */
+#personaTitle { transition: color 0.3s ease; }
+.main-content.persona-pickles #personaTitle { color: #4caf50; }
+
+/* ===== TRANSCRIBING INDICATOR ===== */
+.transcribing-indicator {
+    display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px;
+    background: #3d3d3d; border-radius: 6px; font-size: 12px; color: #888;
+}
+.transcribing-indicator::before {
+    content: ""; width: 12px; height: 12px;
+    border: 2px solid #4a7dff; border-top-color: transparent;
+    border-radius: 50%; animation: transcribe-spin 1s linear infinite;
+}
+@keyframes transcribe-spin { to { transform: rotate(360deg); } }

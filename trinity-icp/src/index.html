@@ -21,16 +21,8 @@
     <div class="app-container">
         <div class="sidebar" id="sidebar">
             <div class="sidebar-header">
-                <div class="sidebar-title">AI Tools <a href="#" class="about-link" data-action="showAbout">About</a></div>
+                <div class="sidebar-title">Trinity <a href="#" class="about-link" data-action="showAbout">About</a></div>
                 <button class="toggle-btn" onclick="toggleSidebar()">☰</button>
-            </div>
-
-            <!-- Tool Navigation -->
-            <div class="tool-nav" id="toolNav">
-                <button class="tool-nav-btn active" data-tool="trinity">Trinity Chat</button>
-                <button class="tool-nav-btn" data-tool="documents">Chat with Docs</button>
-                <button class="tool-nav-btn" data-tool="transcript">Transcript Cleaner</button>
-                <button class="tool-nav-btn" data-tool="pickles">PicklesGPT</button>
             </div>
 
             <div class="status-panel" id="statusPanel">
@@ -91,83 +83,54 @@
         <div class="main-content">
             <button class="toggle-sidebar-btn" onclick="toggleSidebar()">☰</button>
 
-            <!-- TRINITY CHAT (Default) -->
-            <div class="tool-view active" id="trinityView">
-                <div class="chat-area" id="chatArea">
-                    <div class="archive-cid-badge" id="archiveCidBadge" style="display: none;">
-                        <a href="#" id="cidLink" class="cid-link">CID: <span id="cidText"></span></a>
-                    </div>
-                    <div class="empty-state" id="emptyState">
-                        <h1>Trinity</h1>
-                    </div>
-                    <div class="messages-container" id="messagesContainer"></div>
+            <!-- Main Chat Area -->
+            <div class="chat-area" id="chatArea">
+                <div class="archive-cid-badge" id="archiveCidBadge" style="display: none;">
+                    <a href="#" id="cidLink" class="cid-link">CID: <span id="cidText"></span></a>
                 </div>
-                <div class="input-container" id="inputContainer">
-                    <div class="input-wrapper">
-                        <button class="attach-btn" title="Attach file">+</button>
+                <div class="empty-state" id="emptyState">
+                    <h1 id="personaTitle">Trinity</h1>
+                </div>
+                <div class="messages-container" id="messagesContainer"></div>
+            </div>
+            
+            <!-- Attached File Preview -->
+            <div class="attached-file-preview" id="attachedFilePreview" style="display: none;">
+                <span class="attached-file-name" id="attachedFileName"></span>
+                <span class="attached-file-size" id="attachedFileSize"></span>
+                <button class="attached-file-remove" id="removeAttachment" title="Remove attachment">×</button>
+            </div>
+            
+            <div class="input-container" id="inputContainer">
+                <div class="input-wrapper">
+                        <!-- Persona Dropdown -->
+                        <div class="persona-dropdown" id="personaDropdown">
+                            <button class="persona-btn" id="personaBtn" title="Switch persona">
+                                <span id="personaIcon">▽</span>
+                                <span id="personaLabel">Trinity</span>
+                            </button>
+                            <div class="persona-menu" id="personaMenu">
+                                <div class="persona-option active" data-persona="trinity">
+                                    <span class="persona-name">Trinity</span>
+                                    <span class="persona-desc">Decentralized AI assistant</span>
+                                </div>
+                                <div class="persona-option" data-persona="pickles">
+                                    <span class="persona-name">PicklesGPT</span>
+                                    <span class="persona-desc">17+ years trading veteran</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Attach Button with Hidden File Input -->
+                        <button class="attach-btn" id="attachBtn" title="Attach file (text, audio)">+</button>
+                        <input type="file" id="fileInput" accept=".txt,.md,.json,.pdf,.doc,.docx,audio/*,.mp3,.wav,.m4a,.ogg,.webm" style="display: none;">
+                        
                         <textarea id="promptInput" placeholder="Ask anything..." rows="1"
                             onkeydown="handleKeyDown(event)" oninput="autoResize(this)"></textarea>
                         <button class="send-btn" id="sendBtn" onclick="generate()" disabled>➤</button>
                     </div>
-                </div>
-            </div>
-
-            <!-- CHAT WITH DOCUMENTS -->
-            <div class="tool-view" id="documentsView" style="display: none;">
-                <div class="tool-container">
-                    <h2>Chat with Documents</h2>
-                    <p class="tool-desc">Upload a document and ask questions about it.</p>
-                    <div class="upload-section">
-                        <textarea id="docContent" placeholder="Paste document text here..." rows="8"></textarea>
-                        <div style="margin-top: 10px;">
-                            <input type="file" id="docFileInput" accept=".txt,.md,.json" style="display: none;">
-                            <button class="tool-btn" onclick="document.getElementById('docFileInput').click()">Upload File</button>
-                            <button class="tool-btn primary" id="uploadDocBtn">Load Document</button>
-                        </div>
-                        <div id="docStatus" class="status-msg"></div>
-                    </div>
-                    <div class="query-section" id="docQuerySection" style="display: none;">
-                        <h3 style="margin-top: 20px;">Ask about your document</h3>
-                        <div class="input-row">
-                            <input type="text" id="docQuery" placeholder="What would you like to know?">
-                            <button class="tool-btn primary" id="queryDocBtn">Ask</button>
-                        </div>
-                        <div id="docAnswer" class="answer-box"></div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- TRANSCRIPT CLEANER -->
-            <div class="tool-view" id="transcriptView" style="display: none;">
-                <div class="tool-container">
-                    <h2>Transcript Cleaner</h2>
-                    <p class="tool-desc">Paste a messy transcript and get a cleaned version.</p>
-                    <label>Raw Transcript:</label>
-                    <textarea id="rawTranscript" placeholder="Paste your raw transcript here..." rows="10"></textarea>
-                    <button class="tool-btn primary" id="cleanTranscriptBtn" style="margin-top: 10px;">Clean Transcript</button>
-                    <div id="transcriptStatus" class="status-msg"></div>
-                    <div id="cleanedSection" style="display: none; margin-top: 20px;">
-                        <label>Cleaned Transcript:</label>
-                        <textarea id="cleanedTranscript" rows="10" readonly></textarea>
-                        <button class="tool-btn" onclick="navigator.clipboard.writeText(document.getElementById('cleanedTranscript').value)" style="margin-top: 10px;">Copy to Clipboard</button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- PICKLESGPT -->
-            <div class="tool-view" id="picklesView" style="display: none;">
-                <div class="tool-container pickles-chat">
-                    <h2>PicklesGPT</h2>
-                    <p class="tool-desc">Chat with Pickles, a veteran trader with 17+ years experience.</p>
-                    <div class="pickles-messages" id="picklesMessages">
-                        <div class="pickles-welcome">
-                            <strong>Pickles:</strong> Hey there! I'm Pickles - 17+ years trading ES, NQ, SPX options, and more.
-                            Remember: "Wait for your A+ setups" and "Trade the chart, not the bias."
-                        </div>
-                    </div>
-                    <div class="pickles-input">
-                        <input type="text" id="picklesInput" placeholder="Ask Pickles about trading...">
-                        <button class="tool-btn primary" id="sendPicklesBtn">Send</button>
+                    <div class="input-hint" id="inputHint">
+                        <span id="fileLimitHint">Files: text up to 100KB, audio up to 25MB</span>
                     </div>
                 </div>
             </div>

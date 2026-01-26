@@ -25,10 +25,7 @@ from Crypto.Cipher import AES
 from Crypto.Random import get_random_bytes
 from Crypto.Protocol.KDF import PBKDF2
 
-# ICP Authentication
-from icp_auth import require_auth, verify_request_auth
-
-# Configure logging with timestamps
+# Configure logging with timestamps FIRST (before using logger)
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -37,6 +34,21 @@ logger = logging.getLogger(__name__)
 
 # Reduce werkzeug HTTP request log spam (every request was being logged)
 logging.getLogger('werkzeug').setLevel(logging.WARNING)
+
+# Audio transcription (after logger is defined)
+import tempfile
+try:
+    import whisper
+    WHISPER_MODEL = None  # Lazy loaded on first use
+    WHISPER_AVAILABLE = True
+    logger.info('✅ Whisper library available')
+except ImportError:
+    WHISPER_AVAILABLE = False
+    WHISPER_MODEL = None
+    logger.warning('⚠️ Whisper not installed - audio transcription disabled')
+
+# ICP Authentication
+from icp_auth import require_auth, verify_request_auth
 
 app = Flask(__name__)
 CORS(app)
@@ -809,23 +821,31 @@ Be helpful, concise, and honest. When users ask about your architecture or how y
 
 
 # ===== HELPER FUNCTIONS =====
-def build_prompt_with_context(user_prompt: str, context_messages: list, user_memory: Dict = None) -> str:
+def build_prompt_with_context(user_prompt: str, context_messages: list, user_memory: Dict = None, persona: str = 'trinity') -> str:
     """
-    Build a prompt that includes Trinity's identity, conversation context, and user memory for the LLM.
+    Build a prompt that includes persona identity, conversation context, and user memory for the LLM.
     Supports system messages for conversation summaries and persistent user facts.
     
     Args:
         user_prompt: The current user message
         context_messages: Array of recent messages [{ role: 'user'|'assistant'|'system', content: '...' }]
         user_memory: Optional dict with user's persistent memory (facts, preferences)
+        persona: 'trinity' or 'pickles' - which AI persona to use
     
     Returns:
         Full prompt string with context
     """
     conversation_parts = []
     
-    # 0. Always start with Trinity's system prompt (identity + architecture)
-    conversation_parts.append(f"[System]\n{TRINITY_SYSTEM_PROMPT}\n")
+    # 0. Choose system prompt based on persona
+    if persona == 'pickles':
+        system_prompt = PICKLES_SYSTEM_PROMPT
+        assistant_name = "Pickles"
+    else:
+        system_prompt = TRINITY_SYSTEM_PROMPT
+        assistant_name = "Assistant"
+    
+    conversation_parts.append(f"[System]\n{system_prompt}\n")
     
     # 1. Add user memory facts if available (persistent across all chats)
     if user_memory and user_memory.get('facts'):
@@ -838,7 +858,7 @@ def build_prompt_with_context(user_prompt: str, context_messages: list, user_mem
     if not context_messages or len(context_messages) == 0:
         # No context messages, just system + user memory (if any) + prompt
         conversation_parts.append(f"\nUser: {user_prompt}")
-        conversation_parts.append("\nAssistant:")
+        conversation_parts.append(f"\n{assistant_name}:")
         return "\n".join(conversation_parts)
     
     # 3. Build conversation history from context messages
@@ -852,10 +872,10 @@ def build_prompt_with_context(user_prompt: str, context_messages: list, user_mem
         elif role == 'user':
             conversation_parts.append(f"User: {content}")
         elif role == 'assistant':
-            conversation_parts.append(f"Assistant: {content}")
+            conversation_parts.append(f"{assistant_name}: {content}")
     
     conversation_parts.append(f"\nCurrent user message: {user_prompt}")
-    conversation_parts.append("\nAssistant:")
+    conversation_parts.append(f"\n{assistant_name}:")
     
     return "\n".join(conversation_parts)
 
@@ -904,6 +924,8 @@ def generate():
         max_length = data.get('max_length', 150)
         context_memory = data.get('contextMemory', [])
         principal = data.get('principal')  # Optional for unauthenticated requests
+        persona = data.get('persona', 'trinity')  # 'trinity' or 'pickles'
+        document_context = data.get('documentContext')  # Optional attached document
         
         # ICP canister sends options with seed and temperature for deterministic consensus
         options = data.get('options', {})
@@ -926,8 +948,14 @@ def generate():
             except Exception as e:
                 logger.warning(f"Could not load user memory: {e}")
         
-        # Build prompt with context and user memory
-        full_prompt = build_prompt_with_context(user_prompt, context_memory, user_memory)
+        # If document context is attached, prepend it to the prompt
+        if document_context:
+            doc_prefix = f"[Attached Document]\n{document_context[:30000]}\n[End Document]\n\nBased on the above document, "
+            user_prompt = doc_prefix + user_prompt
+            logger.info(f"📄 Document attached: {len(document_context)} chars")
+        
+        # Build prompt with context, user memory, and persona
+        full_prompt = build_prompt_with_context(user_prompt, context_memory, user_memory, persona)
         
         # Privacy: Log word count and hash only - don't expose prompt content
         import hashlib
@@ -1716,6 +1744,76 @@ Cleaned transcript:"""
         return jsonify({'error': str(e)}), 500
 
 
+# ----- AUDIO TRANSCRIPTION -----
+
+# File size limit: 25MB (Whisper works best with files under this size)
+MAX_AUDIO_SIZE_MB = 25
+MAX_AUDIO_SIZE_BYTES = MAX_AUDIO_SIZE_MB * 1024 * 1024
+
+@app.route('/tools/audio/transcribe', methods=['POST'])
+def transcribe_audio():
+    """Transcribe audio file using Whisper."""
+    global WHISPER_MODEL
+    
+    if not WHISPER_AVAILABLE:
+        return jsonify({'error': 'Whisper not available on this server'}), 503
+    
+    try:
+        # Check if file was uploaded
+        if 'audio' not in request.files:
+            return jsonify({'error': 'No audio file provided'}), 400
+        
+        audio_file = request.files['audio']
+        if audio_file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+        
+        # Check file size
+        audio_file.seek(0, 2)  # Seek to end
+        file_size = audio_file.tell()
+        audio_file.seek(0)  # Seek back to start
+        
+        if file_size > MAX_AUDIO_SIZE_BYTES:
+            return jsonify({
+                'error': f'File too large. Maximum size is {MAX_AUDIO_SIZE_MB}MB',
+                'fileSize': file_size,
+                'maxSize': MAX_AUDIO_SIZE_BYTES
+            }), 413
+        
+        # Lazy load Whisper model (base model is fast and good enough)
+        if WHISPER_MODEL is None:
+            logger.info('🎤 Loading Whisper model (first use)...')
+            WHISPER_MODEL = whisper.load_model('base')
+            logger.info('✅ Whisper model loaded')
+        
+        # Save to temp file (Whisper needs a file path)
+        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
+            audio_file.save(tmp.name)
+            tmp_path = tmp.name
+        
+        try:
+            # Transcribe
+            logger.info(f'🎤 Transcribing audio: {audio_file.filename} ({file_size / 1024:.1f}KB)')
+            result = WHISPER_MODEL.transcribe(tmp_path)
+            transcript = result['text'].strip()
+            
+            logger.info(f'✅ Transcription complete: {len(transcript)} chars')
+            return jsonify({
+                'transcript': transcript,
+                'language': result.get('language', 'unknown'),
+                'duration': result.get('duration', 0),
+                'fileSize': file_size,
+                'maxSize': MAX_AUDIO_SIZE_BYTES
+            })
+        finally:
+            # Clean up temp file
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+                
+    except Exception as e:
+        logger.error(f'❌ Transcription error: {e}', exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
 # ----- PICKLESGPT -----
 
 @app.route('/tools/pickles/chat', methods=['POST'])
@@ -1762,7 +1860,11 @@ def tools_status():
         'tools': {
             'chatWithDocuments': {'available': ollama_ok},
             'transcriptCleaner': {'available': ollama_ok},
-            'picklesGPT': {'available': ollama_ok}
+            'picklesGPT': {'available': ollama_ok},
+            'audioTranscription': {
+                'available': WHISPER_AVAILABLE,
+                'maxFileSizeMB': MAX_AUDIO_SIZE_MB
+            }
         },
         'activeDocumentSessions': len(document_store)
     })
