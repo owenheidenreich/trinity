@@ -20,3 +20,8 @@
     - i can currently see the first word of any user's prompt if i view the akash logs. please limit my ability to see that in the logs. 
 - security
     - look for any major security flaws. 
+
+
+phase 1 critiques:
+- please change the CID so that it is embedded into the upper right hand screen of that archived chat permenantly. the CID should be a hyperlink that opens a helpful "about filecoin" screen that tells them what to do with that CID. so if the user wants to verify CID they can, and its in an out of the way place so they can still access their archived thats.
+

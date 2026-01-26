@@ -82,17 +82,18 @@ body {
     background: #3d3d3d;
 }
 
-.status-info {
+/* ============ STATUS PANEL - Transparency Display ============ */
+.status-panel {
     padding: 12px;
-    font-size: 12px;
-    color: #999;
     border-bottom: 1px solid #3d3d3d;
 }
 
-.status-line {
+.status-header {
     display: flex;
     align-items: center;
-    margin-bottom: 4px;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #2d2d2d;
 }
 
 .status-dot {
@@ -101,17 +102,148 @@ body {
     border-radius: 50%;
     background: #888;
     margin-right: 8px;
-    transition: background 0.3s;
+    transition: all 0.3s;
 }
 
 .status-dot.connected {
     background: #4caf50;
     box-shadow: 0 0 8px rgba(76, 175, 80, 0.5);
+    animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
 }
 
 .status-dot.disconnected {
     background: #f44336;
     box-shadow: 0 0 8px rgba(244, 67, 54, 0.5);
+}
+
+#statusText {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #888;
+}
+
+/* Infrastructure Stack */
+.infra-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-bottom: 12px;
+}
+
+.infra-item {
+    display: flex;
+    align-items: center;
+    padding: 8px 10px;
+    background: #252525;
+    border-radius: 6px;
+    text-decoration: none;
+    transition: all 0.2s ease;
+    cursor: pointer;
+    border: 1px solid transparent;
+}
+
+.infra-item:hover {
+    background: #2d2d2d;
+    border-color: #3d3d3d;
+    transform: translateX(2px);
+}
+
+.infra-icon {
+    width: 24px;
+    font-size: 14px;
+    text-align: center;
+    opacity: 0.7;
+}
+
+.infra-details {
+    flex: 1;
+    min-width: 0;
+}
+
+.infra-label {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #666;
+    margin-bottom: 1px;
+}
+
+.infra-value {
+    font-size: 11px;
+    color: #ccc;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.infra-value code {
+    font-family: 'SF Mono', 'Menlo', monospace;
+    font-size: 9px;
+    color: #5ac8fa;
+    background: none;
+    padding: 0;
+}
+
+.infra-status {
+    font-size: 8px;
+    margin-left: 8px;
+    opacity: 0.8;
+}
+
+/* Color coding for infrastructure */
+#icpStatus .infra-icon { color: #5ac8fa; }
+#icpStatus .infra-status { color: #5ac8fa; }
+#icpStatus:hover { border-color: rgba(90, 200, 250, 0.3); }
+
+#akashStatus .infra-icon { color: #ff6b6b; }
+#akashStatus .infra-status { color: #ff6b6b; }
+#akashStatus:hover { border-color: rgba(255, 107, 107, 0.3); }
+
+#filecoinStatus .infra-icon { color: #69db7c; }
+#filecoinStatus .infra-status { color: #69db7c; }
+#filecoinStatus:hover { border-color: rgba(105, 219, 124, 0.3); }
+
+/* Model Badge */
+.model-badge {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px;
+    background: linear-gradient(135deg, #1a1a1a 0%, #252525 100%);
+    border-radius: 6px;
+    border: 1px solid #3d3d3d;
+}
+
+.model-label {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #666;
+}
+
+.model-name {
+    font-size: 11px;
+    font-family: 'SF Mono', 'Menlo', monospace;
+    color: #a78bfa;
+    font-weight: 500;
+}
+
+/* Legacy support - hide old elements */
+.status-info {
+    display: none;
+}
+
+.status-line {
+    display: flex;
+    align-items: center;
+    margin-bottom: 4px;
 }
 
 .sidebar-actions {
@@ -248,6 +380,7 @@ body {
     display: flex;
     flex-direction: column;
     -webkit-overflow-scrolling: touch;
+    position: relative;
 }
 
 /* Empty state (centered) */
@@ -1206,6 +1339,39 @@ MOBILE RESPONSIVE STYLES
 
 .notification-link:hover {
     text-decoration: none;
+}
+
+/* Archive CID Badge */
+.archive-cid-badge {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 100;
+    background: rgba(45, 45, 45, 0.95);
+    border: 1px solid #4d4d4d;
+    border-radius: 6px;
+    padding: 6px 12px;
+    backdrop-filter: blur(4px);
+}
+
+.cid-link {
+    color: #69db7c;
+    text-decoration: none;
+    font-size: 11px;
+    font-family: 'Courier New', monospace;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.cid-link:hover {
+    color: #8ce99a;
+    text-decoration: underline;
+}
+
+.cid-link::before {
+    content: '📦';
+    font-size: 12px;
 }
 
 /* ============ SIDEBAR ENHANCEMENTS ============ */

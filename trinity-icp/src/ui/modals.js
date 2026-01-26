@@ -330,6 +330,319 @@ You → ICP Frontend → ICP Backend Canister
         dialog.querySelector('.btn-confirm').onclick = () => {
             dialog.remove();
         };
+    },
+
+    // Show About Filecoin/CID modal
+    showFilecoinModal(cid) {
+        this.removeAllModals();
+        const shortCid = cid.length > 20 ? cid.substring(0, 12) + '...' + cid.substring(cid.length - 8) : cid;
+        const gatewayUrl = `https://gateway.lighthouse.storage/ipfs/${cid}`;
+        
+        const dialog = document.createElement('div');
+        dialog.className = 'modal-dialog';
+        dialog.innerHTML = `
+            <div class="modal-content about-modal">
+                <h2 style="text-align: center; margin-bottom: 20px;">📦 Archived on Filecoin</h2>
+                <p style="text-align: center; color: #aaa; margin-bottom: 24px;">
+                    This chat is permanently stored on the decentralized web
+                </p>
+                
+                <div class="about-section">
+                    <h4>What is a CID?</h4>
+                    <p>A Content Identifier (CID) is a unique fingerprint of your data. Unlike URLs, CIDs are based on the content itself — if even one character changes, the CID changes. This guarantees the data you retrieve is exactly what was stored.</p>
+                </div>
+                
+                <div class="about-section">
+                    <h4>Your Archive CID</h4>
+                    <div style="background: #1a1a1a; padding: 12px; border-radius: 6px; font-family: monospace; font-size: 11px; word-break: break-all; margin-top: 8px;">
+                        ${cid}
+                    </div>
+                </div>
+                
+                <div class="about-section">
+                    <h4>What Can You Do With It?</h4>
+                    <ul style="margin: 0; padding-left: 20px; color: #aaa; font-size: 13px; line-height: 1.6;">
+                        <li><strong>Verify:</strong> Check that your archive exists and is unchanged</li>
+                        <li><strong>Share:</strong> Anyone with the CID can access the encrypted data</li>
+                        <li><strong>Recover:</strong> Retrieve your chat from any IPFS gateway worldwide</li>
+                        <li><strong>Prove:</strong> Cryptographic proof that this content existed at archive time</li>
+                    </ul>
+                </div>
+                
+                <div class="about-section">
+                    <h4>Where Is It Stored?</h4>
+                    <p>Your archive is stored on <strong>Filecoin</strong> (permanent, incentivized storage) and accessible via <strong>IPFS</strong> (global peer-to-peer network). Lighthouse.storage handles the deal-making with Filecoin miners.</p>
+                </div>
+                
+                <div class="modal-buttons" style="justify-content: center; margin-top: 24px; gap: 12px;">
+                    <a href="${gatewayUrl}" target="_blank" class="btn-secondary" style="text-decoration: none;">View on IPFS ↗</a>
+                    <button class="btn-confirm">Close</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(dialog);
+
+        // Close on backdrop click
+        dialog.onclick = (e) => {
+            if (e.target === dialog) {
+                dialog.remove();
+            }
+        };
+
+        dialog.querySelector('.btn-confirm').onclick = () => {
+            dialog.remove();
+        };
+    },
+
+    // Show Akash Provider info modal
+    showAkashProviderModal(providerHostname, gpuType, model) {
+        this.removeAllModals();
+        
+        const dialog = document.createElement('div');
+        dialog.className = 'modal-dialog';
+        dialog.innerHTML = `
+            <div class="modal-content about-modal">
+                <h2 style="text-align: center; margin-bottom: 20px;">☁️ Akash Provider</h2>
+                <p style="text-align: center; color: #aaa; margin-bottom: 24px;">
+                    Your AI runs on decentralized compute
+                </p>
+                
+                <div class="about-section">
+                    <h4>Provider: ${providerHostname}</h4>
+                    <p>This is an <strong>audited Akash provider</strong> — a verified data center operator participating in the Akash decentralized cloud marketplace.</p>
+                </div>
+                
+                <div class="about-section">
+                    <h4>✓ Audited Attributes</h4>
+                    <p>Akash providers can be audited by trusted parties who verify their hardware, uptime, and security practices. Audited providers have on-chain attestations proving:</p>
+                    <ul style="margin: 8px 0 0 0; padding-left: 20px; color: #aaa; font-size: 12px; line-height: 1.6;">
+                        <li><strong>Hardware verification:</strong> GPU type and count confirmed</li>
+                        <li><strong>Geographic location:</strong> Data center location verified</li>
+                        <li><strong>Uptime history:</strong> Historical availability tracked</li>
+                        <li><strong>Security practices:</strong> Isolation and data handling audited</li>
+                    </ul>
+                </div>
+                
+                <div class="about-section">
+                    <h4>Your Session</h4>
+                    <div style="background: #1a1a1a; padding: 12px; border-radius: 6px; font-size: 11px; line-height: 1.8; font-family: monospace;">
+                        <div><span style="color: #888;">Provider:</span> <span style="color: #ff6b6b;">${providerHostname}</span></div>
+                        <div><span style="color: #888;">GPU:</span> <span style="color: #69db7c;">${gpuType}</span></div>
+                        <div><span style="color: #888;">Model:</span> <span style="color: #a78bfa;">${model}</span></div>
+                    </div>
+                </div>
+                
+                <div class="about-section">
+                    <h4>Why Decentralized Compute?</h4>
+                    <p>Unlike centralized cloud providers (AWS, Google, Azure), Akash is a permissionless marketplace. Anyone can provide compute, and anyone can deploy. No single entity can censor or shut down your AI.</p>
+                </div>
+                
+                <div class="modal-buttons" style="justify-content: center; margin-top: 24px; gap: 12px;">
+                    <a href="https://console.akash.network/providers" target="_blank" class="btn-secondary" style="text-decoration: none;">View All Providers ↗</a>
+                    <button class="btn-confirm">Close</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(dialog);
+
+        // Close on backdrop click
+        dialog.onclick = (e) => {
+            if (e.target === dialog) {
+                dialog.remove();
+            }
+        };
+
+        dialog.querySelector('.btn-confirm').onclick = () => {
+            dialog.remove();
+        };
+    },
+
+    // Show ICP info modal
+    showICPModal(canisterId) {
+        this.removeAllModals();
+        
+        const dialog = document.createElement('div');
+        dialog.className = 'modal-dialog';
+        dialog.innerHTML = `
+            <div class="modal-content about-modal">
+                <h2 style="text-align: center; margin-bottom: 20px;">◈ Internet Computer</h2>
+                <p style="text-align: center; color: #aaa; margin-bottom: 24px;">
+                    Your frontend runs on the world computer
+                </p>
+                
+                <div class="about-section">
+                    <h4>What is ICP?</h4>
+                    <p>The Internet Computer is a blockchain that runs at web speed. Unlike traditional blockchains, it can host entire web applications — frontend, backend, and data — all on-chain.</p>
+                </div>
+                
+                <div class="about-section">
+                    <h4>Your Canister</h4>
+                    <div style="background: #1a1a1a; padding: 12px; border-radius: 6px; font-family: monospace; font-size: 11px; word-break: break-all; margin-top: 8px;">
+                        <div><span style="color: #888;">Frontend:</span> <span style="color: #5ac8fa;">${canisterId}</span></div>
+                        <div style="margin-top: 4px;"><span style="color: #888;">Backend:</span> <span style="color: #5ac8fa;">au5zq-2qaaa-aaaal-qtowa-cai</span></div>
+                    </div>
+                    <p style="margin-top: 8px; font-size: 11px; color: #666;">Canisters are smart contracts that can serve web content. Your entire Trinity interface is hosted here.</p>
+                </div>
+                
+                <div class="about-section">
+                    <h4>Why It Matters</h4>
+                    <ul style="margin: 0; padding-left: 20px; color: #aaa; font-size: 12px; line-height: 1.6;">
+                        <li><strong>Censorship resistant:</strong> No single company can take it down</li>
+                        <li><strong>No servers:</strong> Runs on a decentralized network of nodes</li>
+                        <li><strong>Tamper-proof:</strong> Code is verified by blockchain consensus</li>
+                        <li><strong>Always available:</strong> No cloud provider outages</li>
+                    </ul>
+                </div>
+                
+                <div class="modal-buttons" style="justify-content: center; margin-top: 24px; gap: 12px;">
+                    <a href="https://dashboard.internetcomputer.org/canister/${canisterId}" target="_blank" class="btn-secondary" style="text-decoration: none;">View Canister ↗</a>
+                    <button class="btn-confirm">Close</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(dialog);
+
+        dialog.onclick = (e) => {
+            if (e.target === dialog) dialog.remove();
+        };
+        dialog.querySelector('.btn-confirm').onclick = () => dialog.remove();
+    },
+
+    // Show Filecoin/Lighthouse info modal
+    showFilecoinStorageModal() {
+        this.removeAllModals();
+        
+        const dialog = document.createElement('div');
+        dialog.className = 'modal-dialog';
+        dialog.innerHTML = `
+            <div class="modal-content about-modal">
+                <h2 style="text-align: center; margin-bottom: 20px;">◉ Filecoin Storage</h2>
+                <p style="text-align: center; color: #aaa; margin-bottom: 24px;">
+                    Your archives live forever on decentralized storage
+                </p>
+                
+                <div class="about-section">
+                    <h4>The Storage Stack</h4>
+                    <div style="background: #1a1a1a; padding: 12px; border-radius: 6px; font-size: 11px; line-height: 1.8; font-family: monospace;">
+                        <div><span style="color: #69db7c;">Lighthouse SDK</span> <span style="color: #666;">→ handles uploads & deal-making</span></div>
+                        <div><span style="color: #69db7c;">IPFS</span> <span style="color: #666;">→ content-addressed retrieval</span></div>
+                        <div><span style="color: #69db7c;">Filecoin</span> <span style="color: #666;">→ permanent incentivized storage</span></div>
+                    </div>
+                </div>
+                
+                <div class="about-section">
+                    <h4>How It Works</h4>
+                    <p>When you archive a chat, Lighthouse uploads it to IPFS and creates a Filecoin storage deal. Miners are paid to store your data for years. The CID (Content ID) is your permanent receipt.</p>
+                </div>
+                
+                <div class="about-section">
+                    <h4>Why Lighthouse?</h4>
+                    <ul style="margin: 0; padding-left: 20px; color: #aaa; font-size: 12px; line-height: 1.6;">
+                        <li><strong>Easy integration:</strong> Simple SDK for developers</li>
+                        <li><strong>Verified deals:</strong> Confirms data is actually stored</li>
+                        <li><strong>Encryption:</strong> Optional client-side encryption</li>
+                        <li><strong>Perpetual storage:</strong> Deals auto-renew</li>
+                    </ul>
+                </div>
+                
+                <div class="about-section">
+                    <h4>Your Data, Your Keys</h4>
+                    <p>Archives are encrypted with your principal ID before upload. Only you can decrypt them. Lighthouse and Filecoin miners see only encrypted bytes.</p>
+                </div>
+                
+                <div class="modal-buttons" style="justify-content: center; margin-top: 24px; gap: 12px;">
+                    <a href="https://docs.lighthouse.storage" target="_blank" class="btn-secondary" style="text-decoration: none;">Lighthouse Docs ↗</a>
+                    <button class="btn-confirm">Close</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(dialog);
+
+        dialog.onclick = (e) => {
+            if (e.target === dialog) dialog.remove();
+        };
+        dialog.querySelector('.btn-confirm').onclick = () => dialog.remove();
+    },
+
+    // Show Model info modal
+    showModelModal(modelName, gpuType) {
+        this.removeAllModals();
+        
+        // Parse model info
+        const isLlama = modelName.toLowerCase().includes('llama');
+        const isQwen = modelName.toLowerCase().includes('qwen');
+        const is70B = modelName.includes('70b') || modelName.includes('70B');
+        const is8B = modelName.includes('8b') || modelName.includes('8B');
+        
+        let modelDescription = 'A large language model running on decentralized infrastructure.';
+        let modelLink = 'https://ollama.com/library';
+        let modelFamily = 'Unknown';
+        
+        if (isLlama) {
+            modelFamily = 'Meta Llama';
+            modelDescription = 'Meta\'s open-source Llama model, one of the most capable open LLMs available. Trained on publicly available data with strong reasoning and coding abilities.';
+            modelLink = 'https://llama.meta.com';
+        } else if (isQwen) {
+            modelFamily = 'Alibaba Qwen';
+            modelDescription = 'Alibaba\'s Qwen model series, known for strong multilingual capabilities and competitive performance with proprietary models.';
+            modelLink = 'https://qwenlm.github.io';
+        }
+        
+        let sizeInfo = '';
+        if (is70B) sizeInfo = '70 billion parameters — requires significant GPU memory, offers highest quality responses.';
+        else if (is8B) sizeInfo = '8 billion parameters — efficient and fast while maintaining strong capabilities.';
+        
+        const dialog = document.createElement('div');
+        dialog.className = 'modal-dialog';
+        dialog.innerHTML = `
+            <div class="modal-content about-modal">
+                <h2 style="text-align: center; margin-bottom: 20px;">🧠 AI Model</h2>
+                <p style="text-align: center; color: #aaa; margin-bottom: 24px;">
+                    Open-source AI running on your terms
+                </p>
+                
+                <div class="about-section">
+                    <h4>Current Model</h4>
+                    <div style="background: #1a1a1a; padding: 12px; border-radius: 6px; font-size: 11px; line-height: 1.8; font-family: monospace;">
+                        <div><span style="color: #888;">Model:</span> <span style="color: #a78bfa;">${modelName}</span></div>
+                        <div><span style="color: #888;">Family:</span> <span style="color: #a78bfa;">${modelFamily}</span></div>
+                        <div><span style="color: #888;">GPU:</span> <span style="color: #69db7c;">${gpuType}</span></div>
+                    </div>
+                </div>
+                
+                <div class="about-section">
+                    <h4>About This Model</h4>
+                    <p>${modelDescription}</p>
+                    ${sizeInfo ? `<p style="margin-top: 8px; font-size: 12px; color: #888;">${sizeInfo}</p>` : ''}
+                </div>
+                
+                <div class="about-section">
+                    <h4>Why Open Source?</h4>
+                    <ul style="margin: 0; padding-left: 20px; color: #aaa; font-size: 12px; line-height: 1.6;">
+                        <li><strong>Transparent:</strong> Anyone can inspect the model weights</li>
+                        <li><strong>No censorship:</strong> No corporate content policies</li>
+                        <li><strong>Self-hostable:</strong> Run it yourself if you want</li>
+                        <li><strong>Privacy:</strong> Your prompts never leave this infrastructure</li>
+                    </ul>
+                </div>
+                
+                <div class="about-section">
+                    <h4>Powered by Ollama</h4>
+                    <p>Trinity uses Ollama to run models locally on GPU. No API calls to OpenAI, Anthropic, or other centralized providers.</p>
+                </div>
+                
+                <div class="modal-buttons" style="justify-content: center; margin-top: 24px; gap: 12px;">
+                    <a href="${modelLink}" target="_blank" class="btn-secondary" style="text-decoration: none;">Learn More ↗</a>
+                    <button class="btn-confirm">Close</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(dialog);
+
+        dialog.onclick = (e) => {
+            if (e.target === dialog) dialog.remove();
+        };
+        dialog.querySelector('.btn-confirm').onclick = () => dialog.remove();
     }
 };
 

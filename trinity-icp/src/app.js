@@ -44,6 +44,7 @@ import AutosaveManager from './storage/autosave.js';
 import State from './state/store.js';
 import ContextMemory from './state/contextMemory.js';
 import initRainbowBorders from './ui/rainbowBorder.js';
+import Validation from './utils/validation.js';
 import { generateViaCanister, healthCheckViaCanister, isCanisterConfigured } from './api/canister-client.js';
 
 // ============================================================================
@@ -159,6 +160,12 @@ const API = {
         // Canister makes HTTPS outcalls → Vercel Proxy → Akash backend
         // =====================================================================
         
+        // Sanitize prompt input
+        const sanitizedPrompt = Validation.sanitizeText(prompt, 50000);
+        if (!sanitizedPrompt || sanitizedPrompt.length === 0) {
+            throw new Error('Prompt cannot be empty');
+        }
+        
         // Build context messages for LLM
         let contextMessages = [];
         if (!skipContext && State.contextMemory.length > 0) {
@@ -178,7 +185,7 @@ const API = {
         if (CONFIG.USE_CANISTER && isCanisterConfigured()) {
             console.log('📡 Routing through ICP canister (decentralized path)');
             try {
-                const result = await generateViaCanister(prompt, contextMessages);
+                const result = await generateViaCanister(sanitizedPrompt, contextMessages);
                 // Transform canister response to match legacy format
                 return {
                     generated_text: result.response,
@@ -195,7 +202,7 @@ const API = {
         // Fallback: Direct HTTP path (local development or canister bypass)
         console.log('☁️ Using direct HTTP path (local dev)');
         const body = {
-            prompt,
+            prompt: sanitizedPrompt,
             max_length: -1,
             temperature,
             principal: State.principal
@@ -213,6 +220,22 @@ const API = {
 
     // NEW ENDPOINTS FOR AUTOSAVE, ARCHIVE, ETC
     async autosave(chatData) {
+        // Validate chat ID before sending
+        if (!Validation.isValidChatId(State.currentChatId)) {
+            console.error('❌ Invalid chat ID format:', State.currentChatId);
+            throw new Error('Invalid chat ID format');
+        }
+
+        // Validate chat data structure
+        const validation = Validation.validateChatData({
+            chatId: State.currentChatId,
+            messages: State.chatHistory
+        });
+        if (!validation.valid) {
+            console.error('❌ Invalid chat data:', validation.error);
+            throw new Error(validation.error);
+        }
+
         const payload = {
             chatId: State.currentChatId,
             messages: State.chatHistory,
@@ -251,14 +274,26 @@ const API = {
     },
 
     async loadChat(chatId) {
+        if (!Validation.isValidChatId(chatId)) {
+            console.error('❌ Invalid chat ID format:', chatId);
+            throw new Error('Invalid chat ID format');
+        }
         return this.request(`/chat/${chatId}`, { method: 'GET' });
     },
 
     async deleteChat(chatId) {
+        if (!Validation.isValidChatId(chatId)) {
+            console.error('❌ Invalid chat ID format:', chatId);
+            throw new Error('Invalid chat ID format');
+        }
         return this.request(`/chat/${chatId}`, { method: 'DELETE' });
     },
 
     async archiveChat(chatId) {
+        if (!Validation.isValidChatId(chatId)) {
+            console.error('❌ Invalid chat ID format:', chatId);
+            throw new Error('Invalid chat ID format');
+        }
         return this.request(`/chat/${chatId}/archive`, { method: 'POST' });
     },
 
@@ -268,6 +303,10 @@ const API = {
     },
 
     async getArchivedChat(cid) {
+        if (!Validation.isValidCid(cid)) {
+            console.error('❌ Invalid CID format:', cid);
+            throw new Error('Invalid CID format');
+        }
         return this.request(`/chat/archive/${cid}`, { method: 'GET' });
     },
 
@@ -341,11 +380,11 @@ const Actions = {
             }
 
             if (data.status === 'healthy' || data.ollama_connected) {
-                UI.updateConnectionStatus(true, data.provider_id, data.model);
+                UI.updateConnectionStatus(true, data);
                 console.log('✅ Successfully connected to Akash backend');
             } else {
                 console.warn('Backend returned unhealthy status:', data);
-                UI.updateConnectionStatus(false, null, null, 'Backend unhealthy');
+                UI.updateConnectionStatus(false, null, 'Backend unhealthy');
             }
         } catch (error) {
             console.error('Connection error:', error);
@@ -359,7 +398,7 @@ const Actions = {
                 detail = 'ICP canister error - check canister deployment';
             }
 
-            UI.updateConnectionStatus(false, null, null, detail);
+            UI.updateConnectionStatus(false, null, detail);
         }
     },
 
@@ -906,10 +945,33 @@ const Actions = {
                 if (UI.elements.promptInput) UI.elements.promptInput.disabled = true;
                 if (UI.elements.submitButton) UI.elements.submitButton.disabled = true;
                 UI.showWarning('📦 Archived chat (read-only). Cannot send new messages. Start a new chat to continue.');
+                
+                // Show CID badge for archived chats
+                const cidBadge = document.getElementById('archiveCidBadge');
+                const cidText = document.getElementById('cidText');
+                const cidLink = document.getElementById('cidLink');
+                // CID can be in 'cid', 'filecoinCID', or 'filecoin_cid' property
+                const chatCid = currentChat.cid || currentChat.filecoinCID || currentChat.filecoin_cid;
+                if (cidBadge && chatCid) {
+                    const shortCid = chatCid.length > 16 
+                        ? chatCid.substring(0, 8) + '...' + chatCid.substring(chatCid.length - 6)
+                        : chatCid;
+                    cidText.textContent = shortCid;
+                    cidLink.dataset.cid = chatCid;
+                    cidBadge.style.display = 'block';
+                } else if (cidBadge && currentChat.isArchived) {
+                    // Archived but no CID yet - show placeholder
+                    cidText.textContent = 'pending...';
+                    cidBadge.style.display = 'block';
+                }
             } else {
                 // Re-enable input for non-archived chats
                 if (UI.elements.promptInput) UI.elements.promptInput.disabled = false;
                 if (UI.elements.submitButton) UI.elements.submitButton.disabled = false;
+                
+                // Hide CID badge for non-archived chats
+                const cidBadge = document.getElementById('archiveCidBadge');
+                if (cidBadge) cidBadge.style.display = 'none';
             }
         } catch (error) {
             UI.showError('Failed to load chat: ' + error.message);
@@ -1250,6 +1312,18 @@ async function init() {
     }
     if (UI.elements.sidebarToggleBtn) {
         UI.elements.sidebarToggleBtn.addEventListener('click', () => Actions.toggleSidebar());
+    }
+
+    // CID badge click handler
+    const cidLink = document.getElementById('cidLink');
+    if (cidLink) {
+        cidLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            const cid = cidLink.dataset.cid;
+            if (cid) {
+                Modals.showFilecoinModal(cid);
+            }
+        });
     }
 
     // Window resize - collapse sidebar on mobile

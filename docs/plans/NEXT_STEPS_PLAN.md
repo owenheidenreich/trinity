@@ -1,7 +1,7 @@
 # Trinity Next Steps Implementation Plan
 
 > **Created:** January 25, 2026  
-> **Status:** In Progress  
+> **Status:** In Progress - Phase 2  
 > **Estimated Total Effort:** 10-12 hours  
 > **Order:** Frontend-only first → Backend (Docker) updates batched at end
 
@@ -11,56 +11,33 @@
 
 Tasks reordered to minimize Akash redeployments. **All frontend/ICP-only tasks first**, then batch all backend changes into a single Docker build at the end.
 
-| Phase | Tasks | Docker Update? | Effort |
+| Phase | Tasks | Docker Update? | Status |
 |-------|-------|----------------|--------|
-| **Phase 1** | About page, CID display, UI tweaks | ❌ No | 2-3 hours |
-| **Phase 2** | Security (input validation - frontend) | ❌ No | 1 hour |
-| **Phase 3** | All backend changes (batched) | ✅ Yes (once) | 3-4 hours |
-| **Phase 4** | Memory system upgrade | ✅ Yes | 3-4 hours |
+| **Phase 1** | About page, CID display, UI tweaks | ❌ No | ✅ COMPLETE |
+| **Phase 2** | Security (input validation - frontend) | ❌ No | 🔄 In Progress |
+| **Phase 3** | All backend changes (batched) | ✅ Yes (once) | ⏳ Pending |
+| **Phase 4** | Memory system upgrade | ✅ Yes | ⏳ Pending |
 
 ---
 
-## Phase 1: Frontend-Only Changes (No Docker Update)
+## Phase 1: Frontend-Only Changes ✅ COMPLETE
 
-### 1.1 Add About Link & Modal (Upper Right)
-**Files:** `trinity-icp/src/index.html`, `trinity-icp/src/styles.css`, `trinity-icp/src/app.js`  
-**Time:** 1.5 hours  
-**Requires:** ICP frontend deploy only
+> **Deployed:** January 25, 2026  
+> **Commit:** `6978f28` - "Phase 1: Frontend transparency features"
 
-**Implementation:**
-1. Add About link to header
-2. Create modal with ICP/AKT/FIL explanation
-3. Include links to documentation
+### 1.1 ✅ Add About Link & Modal
+- Added "About" link next to Trinity title in sidebar
+- Modal explains ICP/Akash/Filecoin architecture with visual flow
+- Links to each project's website
 
----
+### 1.2 ✅ Show CID After Archive
+- Success notification shows truncated CID
+- Clickable "View on IPFS" link to Lighthouse gateway
+- Extended notification duration to 8 seconds
 
-### 1.2 Show CID After Archive
-**File:** `trinity-icp/src/modules/archive.js`  
-**Time:** 30 minutes  
-**Requires:** ICP frontend deploy only
-
-**Problem:** CID only logged to console after archive.
-**Solution:** Show CID in success notification with verification link.
-
-```javascript
-const shortCid = response.cid.substring(0, 12) + '...';
-const verifyUrl = `https://gateway.lighthouse.storage/ipfs/${response.cid}`;
-UI.showSuccess(`Archived! CID: ${shortCid}`, { action: 'Verify', actionUrl: verifyUrl });
-```
-
----
-
-### 1.3 Improve Provider Display
-**File:** `trinity-icp/src/ui/sidebar.js`  
-**Time:** 30 minutes  
-**Requires:** ICP frontend deploy only
-
-**Current:** Shows `trinity-tier2-balanced [PROD]`
-**Improved:** Show model + GPU type from health response.
-
-```javascript
-const providerInfo = `${data.model} • ${data.gpu_type || 'GPU'}`;
-```
+### 1.3 ✅ Improve Provider Display
+- Production: Shows `ICP → Akash → Filecoin` colored chain
+- Local dev: Shows `⚠️ Local Dev (no storage)` warning
 
 ---
 

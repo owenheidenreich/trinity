@@ -15,6 +15,16 @@ const DOMCache = {
             sidebar: document.getElementById('sidebar'),
             statusDot: document.getElementById('statusDot'),
             statusText: document.getElementById('statusText'),
+            // New status panel elements
+            statusPanel: document.getElementById('statusPanel'),
+            infraStack: document.getElementById('infraStack'),
+            akashProvider: document.getElementById('akashProvider'),
+            akashIndicator: document.getElementById('akashIndicator'),
+            icpIndicator: document.getElementById('icpIndicator'),
+            filecoinIndicator: document.getElementById('filecoinIndicator'),
+            modelName: document.getElementById('modelName'),
+            modelBadge: document.getElementById('modelBadge'),
+            // Legacy (kept for compatibility)
             providerInfo: document.getElementById('providerInfo'),
             modelInfo: document.getElementById('modelInfo'),
             inputContainer: document.getElementById('inputContainer'),

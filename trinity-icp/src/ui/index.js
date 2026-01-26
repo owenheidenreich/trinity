@@ -67,8 +67,8 @@ const UI = {
         return Messages.scrollToBottom();
     },
     
-    updateConnectionStatus(connected, provider, model, errorDetail) {
-        return Messages.updateConnectionStatus(connected, provider, model, errorDetail);
+    updateConnectionStatus(connected, healthData, errorDetail) {
+        return Messages.updateConnectionStatus(connected, healthData, errorDetail);
     },
     
     showEnvironmentSwitcher(Actions) {

@@ -157,38 +157,111 @@ const Messages = {
     },
 
     // Update connection status display
-    updateConnectionStatus(connected, provider, model, errorDetail) {
-        const { statusDot, statusText, providerInfo, modelInfo } = this.elements;
+    updateConnectionStatus(connected, healthData, errorDetail) {
+        const { 
+            statusDot, statusText, 
+            akashProvider, akashIndicator, icpIndicator, filecoinIndicator,
+            modelName, modelBadge,
+            providerInfo, modelInfo // Legacy fallback
+        } = this.elements;
 
         if (!statusDot || !statusText) {
             console.warn('Status elements not found');
             return;
         }
 
-        if (connected) {
+        if (connected && healthData) {
             statusDot.classList.remove('disconnected');
             statusDot.classList.add('connected');
             statusText.textContent = 'Connected';
             
-            // Format provider info based on environment
-            if (CONFIG._currentEnvironment === 'local') {
-                if (providerInfo) providerInfo.innerHTML = '<span style="color: #f0ad4e;">⚠️ Local Dev</span> (no storage)';
-            } else {
-                // Production: show decentralized stack
-                if (providerInfo) {
-                    providerInfo.innerHTML = `
-                        <span style="color: #5ac8fa;">ICP</span> → 
-                        <span style="color: #ff6b6b;">Akash</span> → 
-                        <span style="color: #69db7c;">Filecoin</span>
-                    `;
-                }
+            // Extract info from health data
+            const gpuType = healthData.gpu_type || 'GPU';
+            const model = healthData.model || 'Unknown';
+            
+            // Update Akash provider display - show GPU type, not deployment name
+            if (akashProvider) {
+                akashProvider.textContent = `provider.akashprovid.com (${gpuType})`;
             }
-            if (modelInfo) modelInfo.textContent = `Model: ${model || 'Unknown'}`;
-            console.log('✅ Status updated: Connected to', provider, model);
+            
+            // Update status indicators
+            if (icpIndicator) icpIndicator.textContent = '●';
+            if (akashIndicator) akashIndicator.textContent = '●';
+            if (filecoinIndicator) filecoinIndicator.textContent = '●';
+            
+            // Update model name
+            if (modelName) {
+                modelName.textContent = model;
+            }
+            
+            // Set up click handlers for all infrastructure modals
+            const akashStatus = document.getElementById('akashStatus');
+            if (akashStatus && !akashStatus._handlerAttached) {
+                akashStatus._handlerAttached = true;
+                akashStatus.onclick = (e) => {
+                    e.preventDefault();
+                    import('./modals.js').then(({ default: Modals }) => {
+                        Modals.showAkashProviderModal('provider.akashprovid.com', gpuType, model);
+                    });
+                };
+            }
+            
+            // ICP modal handler
+            const icpStatus = document.getElementById('icpStatus');
+            if (icpStatus && !icpStatus._handlerAttached) {
+                icpStatus._handlerAttached = true;
+                icpStatus.onclick = (e) => {
+                    e.preventDefault();
+                    import('./modals.js').then(({ default: Modals }) => {
+                        Modals.showICPModal('zc67k-kiaaa-aaaal-qtmiq-cai');
+                    });
+                };
+            }
+            
+            // Filecoin modal handler
+            const filecoinStatus = document.getElementById('filecoinStatus');
+            if (filecoinStatus && !filecoinStatus._handlerAttached) {
+                filecoinStatus._handlerAttached = true;
+                filecoinStatus.onclick = (e) => {
+                    e.preventDefault();
+                    import('./modals.js').then(({ default: Modals }) => {
+                        Modals.showFilecoinStorageModal();
+                    });
+                };
+            }
+            
+            // Model modal handler
+            if (modelBadge && !modelBadge._handlerAttached) {
+                modelBadge._handlerAttached = true;
+                modelBadge.onclick = (e) => {
+                    e.preventDefault();
+                    import('./modals.js').then(({ default: Modals }) => {
+                        Modals.showModelModal(model, gpuType);
+                    });
+                };
+            }
+            
+            // Legacy support
+            if (CONFIG._currentEnvironment === 'local') {
+                if (providerInfo) providerInfo.innerHTML = '<span style="color: #f0ad4e;">⚠️ Local Dev</span>';
+                if (modelInfo) modelInfo.textContent = `Model: ${model}`;
+            }
+            
+            console.log('✅ Status updated: Connected to', healthData.provider_id, healthData.model);
         } else {
             statusDot.classList.remove('connected');
             statusDot.classList.add('disconnected');
-            statusText.textContent = 'Connection Failed';
+            statusText.textContent = 'Disconnected';
+            
+            // Update status indicators to show offline
+            if (icpIndicator) icpIndicator.textContent = '○';
+            if (akashIndicator) akashIndicator.textContent = '○';
+            if (filecoinIndicator) filecoinIndicator.textContent = '○';
+            
+            if (modelName) modelName.textContent = 'Offline';
+            if (akashProvider) akashProvider.textContent = errorDetail || 'Connection failed';
+            
+            // Legacy support
             if (providerInfo) providerInfo.textContent = errorDetail || 'Check Akash deployment';
             if (modelInfo) modelInfo.textContent = `URL: ${CONFIG.API_URL}`;
             console.warn('⚠️ Status updated: Disconnected');
