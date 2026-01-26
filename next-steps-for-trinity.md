@@ -1,0 +1,15 @@
+- remove the clutter in the logs its spamming the same message 
+    - `[trinity]: 2026-01-26 02:42:54,590 - __main__ - INFO - 🎯 ICP cache hit for request_id: health-au5zq-2qaaa-aaaal-qtowa-cai-176939537 [trinity]: 2026-01-26 02:42:54,591 - werkzeug - INFO - 10.233.102.164 - - [26/Jan/2026 02:42:54] "GET /health/icp HTTP/1.1" 200 -`
+- give it identity of "trinity"
+    - it should say exactly what model its currently using
+    - what its name is
+    - and it should know about how its built,
+        - Its backend 
+        - what its running on
+        - and the core IPFS, AKT, ICP, and ENS combination
+- expand its memory capabilities
+    - its elementary
+    - it should store memory attached to the user id, to collect important info and store relevant details
+- can we make a tiny model faster
+    - speed increase without changing anything about the current stack.
+    - see tier2 YAML file for current specs.

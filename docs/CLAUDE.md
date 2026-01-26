@@ -654,40 +654,32 @@ cd deploy/local
 | Debug storage bugs | **Production** | Local has no storage |
 | Final validation before release | **Production** | Full feature set |
 
-### ⚠️ IMPORTANT: Run Full Bootup Before Testing
+### ⚠️ Testing Requirements by Level
 
-> **Before testing ANY feature that requires Akash backend or viewing the frontend visually, you MUST run the full deployment bootup sequence.** See [Full Production Bootup Process](#-full-production-bootup-process-step-by-step) above.
+#### Local Development Testing (No Akash needed)
+- UI layout, CSS, animations
+- Auth flow (Ed25519 keypair generation, login/logout)
+- Frontend logic and state management
+- Basic AI chat (via `./dev` script with TinyLlama)
 
-**Features that REQUIRE full bootup first:**
+#### Production Testing (Akash backend required)
+> **Run the [Full Production Bootup Process](#-full-production-bootup-process-step-by-step) BEFORE production-level testing.**
+
+**Features requiring production backend:**
 - Autosave / chat persistence
 - Chat list / history loading
 - Filecoin archive (upload or download)
 - Context memory persistence
-- Any storage-related functionality
-- Frontend visual testing (to see real AI responses)
-- LLM inference quality testing (production models)
+- LLM inference quality (production models)
+- End-to-end user flows
 
-**Quick bootup reminder:**
+**Minimum steps if Akash is already running:**
 ```bash
-# 1. Build Docker
-cd deploy/docker && ./build.sh
-
-# 2. Deploy to Akash Console (manual step)
-# 3. Update Vercel proxy with new Akash URL
-cd deploy/vercel-proxy && npx vercel --prod
-
-# 4. Deploy ICP canisters
-cd trinity-icp && npm install --legacy-peer-deps
-dfx deploy --ic trinity_backend
-dfx deploy --ic trinity_frontend
-
-# 5. Verify health
-curl -s https://vercel-proxy-swart-nine.vercel.app/health | jq .status
-```
-
-**If Akash is already running** and you only changed frontend code:
-```bash
+# Frontend changes only
 cd trinity-icp && npm install --legacy-peer-deps && dfx deploy --ic trinity_frontend
+
+# Backend changes
+cd deploy/docker && ./build.sh  # Then update Akash deployment
 ```
 
 ### Testing New Backend Features
