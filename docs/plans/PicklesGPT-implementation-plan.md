@@ -1,7 +1,8 @@
 # PicklesGPT Implementation Plan
 
 > **Created:** January 26, 2026  
-> **Status:** 🚧 PLANNING  
+> **Updated:** January 26, 2026  
+> **Status:** 🔧 PHASE 1 IN PROGRESS  
 > **Priority:** HIGH  
 > **Estimated Timeline:** 6-8 weeks  
 > **Monthly Cost:** ~$100-140 on Akash
@@ -11,7 +12,7 @@
 ## Overview
 
 **PicklesGPT** (Robo-Pickles) is a financial AI assistant integrated into Trinity that combines:
-- RAG across 70+ trading/finance books from `/Documents/The_Library`
+- RAG across **280 trading/finance books** from `/Documents/The Library`
 - Real-time market data (stocks, crypto, news, economic calendar)
 - Authentic Pickles persona with CAPITALIZED terminology
 - Automated daily market reports
@@ -96,39 +97,50 @@ CHUNK_CONFIG = {
 
 | Component | Size |
 |-----------|------|
-| Raw PDF files (~100 books) | ~500 MB - 1 GB |
-| Extracted text | ~50-100 MB |
-| Embeddings (384-dim vectors) | ~1.5 GB |
-| ChromaDB index overhead | ~500 MB |
-| **Total** | **~3-4 GB** |
+| Raw PDF files (~280 books) | ~1-2 GB |
+| Extracted text | ~100-200 MB |
+| Embeddings (384-dim vectors) | ~4 GB |
+| ChromaDB index overhead | ~1 GB |
+| **Total** | **~6-8 GB** |
 
 ---
 
 ## Implementation Phases
 
-### Phase 1: PDF Ingestion Pipeline (Week 1-2)
+### Phase 1: PDF Ingestion Pipeline (Week 1-2) ✅ COMPLETE
 
 **Goal:** Extract text from all PDFs and create chunked embeddings
 
 **Tasks:**
-- [ ] Add PyMuPDF and sentence-transformers to requirements.txt
-- [ ] Create `pickles/ingest_books.py` script
-- [ ] Implement PDF text extraction with metadata
-- [ ] Implement semantic chunking (by paragraphs/sections)
+- [x] Add PyMuPDF and sentence-transformers to requirements.txt
+- [x] Create `pickles/ingest_books.py` script
+- [x] Implement PDF text extraction with metadata
+- [x] Implement semantic chunking (by paragraphs/sections)
+- [x] Smart front matter detection (skips copyright, TOC, dedications)
+- [x] Create `pickles/vector_store.py` (ChromaDB interface)
+- [x] Create `pickles/test_ingestion.py` (single-book testing)
 - [ ] Add ChromaDB to Docker image
 - [ ] Create book ingestion endpoint `/pickles/ingest`
-- [ ] Test with 5-10 books first, then full library
+- [x] Test with 5-10 books first, then full library
 
-**Files to Create:**
+**Tested Results:**
+| Book | Pages | Chunks |
+|------|-------|--------|
+| Get Rich With Options | 275 | 796 |
+| A Short Course in Technical Trading | 337 | 1129 |
+| Complete Guide to Day Trading | 270 | 705 |
+
+**Files Created:**
 ```
 backend/
 ├── pickles/
-│   ├── __init__.py
-│   ├── ingest_books.py      # PDF processing + embedding
-│   ├── vector_store.py      # ChromaDB interface
-│   ├── market_data.py       # Real-time data fetching
-│   ├── tools.py             # LLM tool definitions
-│   └── persona.py           # System prompts + few-shot
+│   ├── __init__.py           ✅
+│   ├── ingest_books.py       ✅ PDF processing + smart chunking
+│   ├── vector_store.py       ✅ ChromaDB interface
+│   ├── test_ingestion.py     ✅ Single-book test script
+│   ├── market_data.py        ⏳ (Phase 2)
+│   ├── tools.py              ⏳ (Phase 3)
+│   └── persona.py            ⏳ (Phase 4)
 ```
 
 **Dependencies to Add:**
