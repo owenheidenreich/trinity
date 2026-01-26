@@ -11,8 +11,8 @@ const MAX_AUDIO_SIZE_MB = 25;
 const MAX_TEXT_SIZE_BYTES = MAX_TEXT_SIZE_KB * 1024;
 const MAX_AUDIO_SIZE_BYTES = MAX_AUDIO_SIZE_MB * 1024 * 1024;
 
-// Current state
-let currentPersona = 'trinity';
+// Current state - load from localStorage for persistence
+let currentPersona = localStorage.getItem('trinity_persona') || 'trinity';
 let attachedFile = null;
 let attachedContent = null;
 
@@ -26,6 +26,9 @@ function getPersona() {
 
 function setPersona(persona) {
     currentPersona = persona;
+    
+    // Persist to localStorage
+    localStorage.setItem('trinity_persona', persona);
     
     // Update UI
     const label = document.getElementById('personaLabel');
@@ -45,7 +48,7 @@ function setPersona(persona) {
         opt.classList.toggle('active', opt.dataset.persona === persona);
     });
     
-    console.log(`Persona switched to: ${persona}`);
+    console.log(`Persona switched to: ${persona} (persisted)`);
 }
 
 // ============================================================================
@@ -192,6 +195,13 @@ function initTools() {
                 personaDropdown.classList.remove('open');
             });
         });
+        
+        // Restore persisted persona on page load
+        const savedPersona = localStorage.getItem('trinity_persona');
+        if (savedPersona && (savedPersona === 'trinity' || savedPersona === 'pickles')) {
+            setPersona(savedPersona);
+            console.log(`Restored persona from localStorage: ${savedPersona}`);
+        }
     }
     
     const attachBtn = document.getElementById('attachBtn');

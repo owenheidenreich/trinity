@@ -2025,6 +2025,24 @@ def warmup_model():
         logger.error(f"❌ Model warmup failed: {e}")
         return False
 
+
+# =============================================================================
+# PICKLESGPT RAG INTEGRATION
+# =============================================================================
+
+# Try to import PicklesGPT modules for RAG support
+try:
+    from pickles.chat import pickles_bp
+    from pickles.persona import build_pickles_prompt, should_search_books, extract_search_query
+    PICKLES_RAG_AVAILABLE = True
+    app.register_blueprint(pickles_bp)
+    logger.info("✅ PicklesGPT RAG module loaded - /pickles/* endpoints available")
+except ImportError as e:
+    PICKLES_RAG_AVAILABLE = False
+    logger.warning(f"⚠️ PicklesGPT RAG not available: {e}")
+    logger.warning("   Book library search disabled - using basic persona only")
+
+
 if __name__ == '__main__':
     logger.info("=" * 70)
     logger.info("🚀 Trinity Inference Server - Unified Backend")
@@ -2036,6 +2054,7 @@ if __name__ == '__main__':
     logger.info(f"Max Queue Size: {MAX_QUEUE_SIZE}")
     logger.info(f"Chats Directory: {CHATS_DIR}")
     logger.info(f"Ollama Host: {OLLAMA_HOST}")
+    logger.info(f"PicklesGPT RAG: {'✅ Enabled' if PICKLES_RAG_AVAILABLE else '❌ Disabled'}")
     logger.info("=" * 70)
     
     # Check Ollama connection
