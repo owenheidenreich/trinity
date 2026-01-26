@@ -9,7 +9,7 @@
 //   1. CONFIG     - API URLs, environment detection, constants
 //   2. Auth       - Ed25519 keypairs (Principal ID = user identity + FIL address)
 //   3. Autosave   - Debounced saves to Akash disk (/chats/{principal}/{chatId}.json)
-//   4. Archive    - Metadata flags for read-only chats (10 limit, Phase 2: Pinata sync)
+//   4. Archive    - Metadata flags for read-only chats (10 limit, Lighthouse/Filecoin)
 //   5. State      - Global app state (chat history, context memory, user memory)
 //   6. API        - Signed requests to Flask backend (signature verification)
 //   7. UI         - DOM rendering (messages, sidebar, modals, animations)
@@ -28,7 +28,7 @@
 // STORAGE:
 //   - Active chats: Akash disk (/chats/{principal}/{chatId}.json)
 //   - User memory: Akash disk (/chats/{principal}/user_memory.json)
-//   - Archived chats: Phase 1 = metadata flag, Phase 2 = Pinata bundle
+//   - Archived chats: Lighthouse SDK → IPFS + Filecoin deals
 // ============================================================================
 
 // ============================================================================
@@ -48,14 +48,7 @@ import { generateViaCanister, healthCheckViaCanister, isCanisterConfigured } fro
 // ============================================================================
 // 1b. AUTHENTICATION - Imported from auth/authManager.js
 // ============================================================================
-// Auth module has been extracted to auth/authManager.js
-// Provides Ed25519 keypair management, signature generation, and localStorage persistence
-// Methods: initialize(), login(), logout(), importKey(), exportKey(), signMessage(), getPublicKeyHex()
-// ============================================================================
-// 1b. AUTHENTICATION - Imported from auth/authManager.js
-// ============================================================================
-// Auth module has been extracted to auth/authManager.js
-// Provides Ed25519 keypair management, signature generation, and localStorage persistence
+// Auth module provides Ed25519 keypair management, signature generation, and localStorage persistence
 // Methods: initialize(), login(), logout(), importKey(), exportKey(), signMessage(), getPublicKeyHex()
 
 // ============================================================================
@@ -159,10 +152,10 @@ const API = {
 
     async generate(prompt, temperature = 0.7, skipContext = false) {
         // =====================================================================
-        // ROUTING: ICP Canister (decentralized) vs Direct (legacy Cloudflare)
+        // ROUTING: ICP Canister (decentralized) vs Direct HTTP (local dev)
         // =====================================================================
-        // Phase 3 Complete: Default to ICP canister for full decentralization
-        // The canister makes HTTPS outcalls to Akash backend
+        // Default: ICP canister for full decentralization
+        // Canister makes HTTPS outcalls → Vercel Proxy → Akash backend
         // =====================================================================
         
         // Build context messages for LLM
@@ -198,8 +191,8 @@ const API = {
             }
         }
         
-        // Fallback: Direct HTTP path (legacy Cloudflare route)
-        console.log('☁️ Using direct HTTP path (legacy)');
+        // Fallback: Direct HTTP path (local development or canister bypass)
+        console.log('☁️ Using direct HTTP path (local dev)');
         const body = {
             prompt,
             max_length: -1,
@@ -1401,8 +1394,7 @@ window.archiveChat = (chatId) => Archive.initiateArchive(chatId);
 // Debug helpers (accessible in browser console)
 window.debugAuth = () => {
     console.log('=== AUTH DEBUG INFO ===');
-    console.log('Auth.isInitialized:', Auth.isInitialized);
-    console.log('Auth.authClient:', Auth.authClient);
+    console.log('AuthManager.isInitialized:', AuthManager.isInitialized);
     console.log('State.isAuthenticated:', State.isAuthenticated);
     console.log('State.principal:', State.principal);
     console.log('window.login function exists:', typeof window.login === 'function');
