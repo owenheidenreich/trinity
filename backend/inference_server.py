@@ -767,6 +767,16 @@ AKASH_RPC_NODE = os.getenv('AKASH_RPC_NODE', 'https://rpc.akashnet.net:443')
 ICP_BACKEND_CANISTER = os.getenv('ICP_BACKEND_CANISTER', 'au5zq-2qaaa-aaaal-qtowa-cai')
 ICP_FRONTEND_CANISTER = os.getenv('ICP_FRONTEND_CANISTER', 'zc67k-kiaaa-aaaal-qtmiq-cai')
 
+# Deployment info (set via YAML env vars during deployment)
+DEPLOYMENT_TIER = int(os.getenv('DEPLOYMENT_TIER', '1'))
+DEPLOYMENT_TIER_NAME = os.getenv('DEPLOYMENT_TIER_NAME', 'Starter')
+HOURLY_COST_AKT = float(os.getenv('HOURLY_COST_AKT', '0.15'))
+DAILY_COST_AKT = float(os.getenv('DAILY_COST_AKT', '3.6'))
+SESSION_TYPE = os.getenv('SESSION_TYPE', 'community')  # 'community' or 'private'
+SESSION_ID = os.getenv('SESSION_ID', '')  # For private sessions
+SESSION_EXPIRY = os.getenv('SESSION_EXPIRY', '')  # ISO timestamp for private session end
+SESSION_FUNDED_AKT = float(os.getenv('SESSION_FUNDED_AKT', '0'))  # Initial funding amount
+
 
 def get_akt_price_usd() -> Optional[float]:
     """Fetch current AKT price from CoinGecko API"""
@@ -786,90 +796,50 @@ def get_akt_price_usd() -> Optional[float]:
 
 def get_akash_deployment_info() -> Dict:
     """
-    Query Akash blockchain for active deployment escrow info.
-    Uses Akash REST API (LCD) for read-only queries - no wallet needed.
+    Get deployment info from environment variables.
+    These are set during Akash deployment via YAML env vars.
+    
+    For community deployments: uses static tier pricing
+    For private sessions: includes session ID, expiry time, and remaining balance
     """
-    try:
-        # Query active deployments for our wallet
-        lcd_url = 'https://rest.cosmos.directory/akash'
-        
-        # Get active deployments
-        response = requests.get(
-            f"{lcd_url}/akash/deployment/v1beta3/deployments/list",
-            params={
-                'filters.owner': AKASH_WALLET_ADDRESS,
-                'filters.state': 'active'
-            },
-            timeout=15
-        )
-        
-        if response.status_code != 200:
-            logger.warning(f"Akash API returned {response.status_code}")
-            return {'error': 'Failed to query Akash API'}
-        
-        data = response.json()
-        deployments = data.get('deployments', [])
-        
-        if not deployments:
-            return {'error': 'No active deployments found'}
-        
-        # Get the first (current) deployment
-        deployment = deployments[0]
-        deployment_id = deployment.get('deployment', {}).get('deployment_id', {})
-        dseq = deployment_id.get('dseq', 'unknown')
-        
-        # Get escrow account balance
-        escrow = deployment.get('escrow_account', {})
-        balance = escrow.get('balance', {})
-        escrow_uakt = int(balance.get('amount', 0))
-        escrow_akt = escrow_uakt / 1_000_000
-        
-        # Get lease info for cost calculation
-        lease_response = requests.get(
-            f"{lcd_url}/akash/market/v1beta4/leases/list",
-            params={
-                'filters.owner': AKASH_WALLET_ADDRESS,
-                'filters.state': 'active'
-            },
-            timeout=15
-        )
-        
-        hourly_cost_uakt = 0
-        provider = 'unknown'
-        
-        if lease_response.status_code == 200:
-            lease_data = lease_response.json()
-            leases = lease_data.get('leases', [])
-            for lease in leases:
-                lease_info = lease.get('lease', {})
-                if str(lease_info.get('lease_id', {}).get('dseq')) == str(dseq):
-                    price = lease.get('lease', {}).get('price', {})
-                    # Price is per block (~6 seconds)
-                    price_per_block = int(price.get('amount', 0))
-                    hourly_cost_uakt = price_per_block * 600  # ~600 blocks/hour
-                    provider = lease_info.get('lease_id', {}).get('provider', 'unknown')
-                    break
-        
-        # Calculate time remaining
-        hours_remaining = 0
-        if hourly_cost_uakt > 0:
-            hours_remaining = escrow_uakt / hourly_cost_uakt
-        
-        return {
-            'dseq': dseq,
-            'escrow_uakt': escrow_uakt,
-            'escrow_akt': round(escrow_akt, 4),
-            'hourly_cost_uakt': hourly_cost_uakt,
-            'hourly_cost_akt': round(hourly_cost_uakt / 1_000_000, 6),
-            'hours_remaining': round(hours_remaining, 1),
-            'days_remaining': round(hours_remaining / 24, 1),
-            'provider': provider,
-            'wallet': AKASH_WALLET_ADDRESS
-        }
-        
-    except Exception as e:
-        logger.error(f"Error fetching Akash deployment info: {e}")
-        return {'error': str(e)}
+    now = time.time()
+    
+    # Base info from env vars (always available)
+    info = {
+        'tier': DEPLOYMENT_TIER,
+        'tier_name': DEPLOYMENT_TIER_NAME,
+        'model': MODEL_NAME,
+        'hourly_cost_akt': HOURLY_COST_AKT,
+        'daily_cost_akt': DAILY_COST_AKT,
+        'session_type': SESSION_TYPE,
+        'wallet': AKASH_WALLET_ADDRESS,
+        'status': 'online'
+    }
+    
+    # For private sessions, calculate time remaining
+    if SESSION_TYPE == 'private' and SESSION_EXPIRY:
+        try:
+            from datetime import datetime
+            expiry = datetime.fromisoformat(SESSION_EXPIRY.replace('Z', '+00:00'))
+            now_dt = datetime.utcnow().replace(tzinfo=expiry.tzinfo)
+            remaining = (expiry - now_dt).total_seconds()
+            
+            info['session_id'] = SESSION_ID
+            info['funded_akt'] = SESSION_FUNDED_AKT
+            info['hours_remaining'] = max(0, remaining / 3600)
+            info['minutes_remaining'] = max(0, remaining / 60)
+            info['expires_at'] = SESSION_EXPIRY
+            info['expired'] = remaining <= 0
+        except Exception as e:
+            logger.warning(f"Failed to parse session expiry: {e}")
+            info['hours_remaining'] = 0
+            info['expired'] = True
+    else:
+        # Community deployment - show as "online" without time limit
+        info['hours_remaining'] = None  # No limit for community
+        info['days_remaining'] = None
+    
+    return info
 
 
 @app.route('/funding/status')
@@ -891,11 +861,10 @@ def funding_status():
     akt_price = get_akt_price_usd()
     akash_info = get_akash_deployment_info()
     
-    # Calculate USD values if we have both AKT price and deployment info
-    if akt_price and 'escrow_akt' in akash_info:
-        akash_info['escrow_usd'] = round(akash_info['escrow_akt'] * akt_price, 2)
+    # Calculate USD values if we have AKT price
+    if akt_price:
         akash_info['hourly_cost_usd'] = round(akash_info.get('hourly_cost_akt', 0) * akt_price, 4)
-        akash_info['daily_cost_usd'] = round(akash_info.get('hourly_cost_akt', 0) * 24 * akt_price, 2)
+        akash_info['daily_cost_usd'] = round(akash_info.get('daily_cost_akt', 0) * akt_price, 2)
     
     funding_data = {
         'timestamp': int(now * 1000),
@@ -904,7 +873,6 @@ def funding_status():
         'icp': {
             'backend_canister': ICP_BACKEND_CANISTER,
             'frontend_canister': ICP_FRONTEND_CANISTER,
-            # Cycle balance requires canister query - frontend will fetch directly
             'cycles_info': 'Query canister directly for cycle balance'
         },
         'filecoin': {
@@ -917,17 +885,19 @@ def funding_status():
             'icp_canister': ICP_BACKEND_CANISTER
         },
         'private_session': {
-            'enabled': False,  # Phase 2
+            'enabled': True,
             'fee_structure': {
                 'hardware_percent': 95,
-                'community_fund_percent': 4,
-                'platform_percent': 1
+                'platform_percent': 5  # Simplified: 5% goes to platform
             },
             'tiers': [
-                {'name': 'Starter', 'model': 'tinyllama', 'hourly_akt': 0.15, 'ram_gb': 4},
-                {'name': 'Standard', 'model': 'llama3.1:8b', 'hourly_akt': 0.4, 'ram_gb': 16},
-                {'name': 'Professional', 'model': 'qwen2.5:72b', 'hourly_akt': 1.75, 'ram_gb': 64}
-            ]
+                {'tier': 1, 'name': 'Starter', 'model': 'tinyllama:1.1b', 'hourly_akt': 0.15, 'ram_gb': 4},
+                {'tier': 2, 'name': 'Standard', 'model': 'llama3.1:8b', 'hourly_akt': 0.40, 'ram_gb': 16},
+                {'tier': 3, 'name': 'Professional', 'model': 'qwen2.5:72b', 'hourly_akt': 1.75, 'ram_gb': 64}
+            ],
+            'min_duration_hours': 1,
+            'max_duration_hours': 24,
+            'payment_address': AKASH_WALLET_ADDRESS
         }
     }
     
@@ -936,6 +906,105 @@ def funding_status():
     _funding_cache['timestamp'] = now
     
     return jsonify(funding_data)
+
+
+# ===== PRIVATE SESSION MANAGEMENT =====
+@app.route('/session/status')
+def session_status():
+    """
+    Get current session status.
+    For private sessions: returns session ID, time remaining, tier info.
+    For community sessions: returns community status.
+    """
+    akash_info = get_akash_deployment_info()
+    akt_price = get_akt_price_usd()
+    
+    if akt_price:
+        akash_info['hourly_cost_usd'] = round(akash_info.get('hourly_cost_akt', 0) * akt_price, 4)
+    
+    return jsonify({
+        'session_type': SESSION_TYPE,
+        'session_id': SESSION_ID if SESSION_TYPE == 'private' else None,
+        'tier': DEPLOYMENT_TIER,
+        'tier_name': DEPLOYMENT_TIER_NAME,
+        'model': MODEL_NAME,
+        'gpu_type': GPU_TYPE,
+        **akash_info,
+        'akt_price_usd': akt_price
+    })
+
+
+@app.route('/session/request', methods=['POST'])
+def session_request():
+    """
+    Request a new private session.
+    Returns payment instructions (wallet address, memo format, required amount).
+    
+    Request JSON:
+        - tier: 1, 2, or 3
+        - hours: duration in hours (1-24)
+    
+    Response JSON:
+        - payment_address: AKT wallet to send payment
+        - payment_memo: memo to include in transaction
+        - required_akt: amount to send (includes 5% platform fee)
+        - required_usd: USD equivalent
+        - session_id: unique session identifier
+        - expires_in: seconds until payment window closes
+    """
+    data = request.get_json() or {}
+    tier = data.get('tier', 1)
+    hours = data.get('hours', 1)
+    
+    # Validate inputs
+    if tier not in [1, 2, 3]:
+        return jsonify({'error': 'Invalid tier. Use 1, 2, or 3'}), 400
+    
+    if hours < 1 or hours > 24:
+        return jsonify({'error': 'Hours must be between 1 and 24'}), 400
+    
+    # Tier pricing
+    tier_rates = {1: 0.15, 2: 0.40, 3: 1.75}
+    tier_names = {1: 'Starter', 2: 'Standard', 3: 'Professional'}
+    tier_models = {1: 'tinyllama:1.1b', 2: 'llama3.1:8b', 3: 'qwen2.5:72b'}
+    
+    hourly_rate = tier_rates[tier]
+    hardware_akt = hourly_rate * hours
+    
+    # Add 5% platform fee (user pays 105% of hardware cost)
+    total_akt = hardware_akt / 0.95
+    
+    # Get USD price
+    akt_price = get_akt_price_usd() or 0.5
+    total_usd = round(total_akt * akt_price, 2)
+    
+    # Generate session ID
+    import secrets
+    session_id = f"sess_{secrets.token_hex(8)}"
+    
+    # Payment memo format
+    memo = f"trinity:tier:{tier}:{session_id}"
+    
+    return jsonify({
+        'payment_address': AKASH_WALLET_ADDRESS,
+        'payment_memo': memo,
+        'required_akt': round(total_akt, 4),
+        'required_usd': total_usd,
+        'hardware_akt': round(hardware_akt, 4),
+        'platform_fee_akt': round(total_akt - hardware_akt, 4),
+        'session_id': session_id,
+        'tier': tier,
+        'tier_name': tier_names[tier],
+        'model': tier_models[tier],
+        'hours': hours,
+        'expires_in': 3600,  # 1 hour to complete payment
+        'instructions': [
+            f"1. Send {round(total_akt, 4)} AKT to {AKASH_WALLET_ADDRESS}",
+            f"2. Include memo: {memo}",
+            "3. Wait 1-2 minutes for blockchain confirmation",
+            "4. Your private LLM will be deployed automatically"
+        ]
+    })
 
 
 # ===== TRINITY SYSTEM PROMPT =====

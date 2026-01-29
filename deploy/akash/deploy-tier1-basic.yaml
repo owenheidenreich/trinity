@@ -15,7 +15,7 @@ version: "2.0"
 
 services:
   trinity:
-    image: gdubx/trinity-inference:v3-fresh
+    image: gdubx/trinity-inference:v5-sessions
     env:
       - PROVIDER_ID=trinity-tier1-test
       - MODEL_NAME=tinyllama:1.1b
@@ -24,6 +24,12 @@ services:
       - MAX_QUEUE_SIZE=10
       - OLLAMA_HOST=http://localhost:11434
       - LIGHTHOUSE_API_KEY=cac651de.89f60066a4434ee98844288e220ad6dc
+      # Deployment tracking (set by deploy script, used for /funding/status)
+      - DEPLOYMENT_TIER=1
+      - DEPLOYMENT_TIER_NAME=Starter
+      - HOURLY_COST_AKT=0.15
+      - DAILY_COST_AKT=3.6
+      - SESSION_TYPE=community
     expose:
       - port: 8000
         as: 80

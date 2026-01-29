@@ -15,7 +15,7 @@ version: "2.0"
 
 services:
   trinity:
-    image: gdubx/trinity-inference:latest
+    image: gdubx/trinity-inference:v5-sessions
     env:
       - PROVIDER_ID=trinity-tier3-complex
       - MODEL_NAME=qwen2.5:72b
@@ -24,6 +24,12 @@ services:
       - MAX_QUEUE_SIZE=5
       - OLLAMA_HOST=http://localhost:11434
       - LIGHTHOUSE_API_KEY=cac651de.89f60066a4434ee98844288e220ad6dc
+      # Deployment tracking (set by deploy script, used for /funding/status)
+      - DEPLOYMENT_TIER=3
+      - DEPLOYMENT_TIER_NAME=Professional
+      - HOURLY_COST_AKT=1.75
+      - DAILY_COST_AKT=42.0
+      - SESSION_TYPE=community
     expose:
       - port: 8000
         as: 80

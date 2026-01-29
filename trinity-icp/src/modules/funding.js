@@ -9,7 +9,7 @@
  * @module modules/funding
  */
 
-import { getConfig } from '../config.js';
+import CONFIG from '../config.js';
 
 // Funding state
 let fundingData = null;
@@ -49,10 +49,8 @@ export function initFunding() {
  * Fetch and display funding status
  */
 export async function updateFundingStatus() {
-    const config = getConfig();
-    
     try {
-        const response = await fetch(`${config.apiEndpoint}/funding/status`, {
+        const response = await fetch(`${CONFIG.API_URL}/funding/status`, {
             method: 'GET',
             headers: { 'Content-Type': 'application/json' }
         });
@@ -78,19 +76,42 @@ function renderFundingPanel(data) {
     const costEl = document.getElementById('fundingCost');
     const fillEl = document.getElementById('fundingFill');
     
-    if (!data.akash || data.akash.error) {
+    if (!data.akash) {
         if (timeEl) timeEl.textContent = 'Status unavailable';
         if (fillEl) fillEl.style.width = '0%';
         return;
     }
     
     const akash = data.akash;
-    const daysRemaining = akash.days_remaining || 0;
-    const hoursRemaining = akash.hours_remaining || 0;
+    const sessionType = akash.session_type || 'community';
     
-    // Calculate percentage (assume 30 days = 100%)
-    const maxDays = 30;
-    const percentage = Math.min(100, Math.max(0, (daysRemaining / maxDays) * 100));
+    // For community deployments, show "LLM Online" with tier info
+    if (sessionType === 'community') {
+        if (timeEl) {
+            timeEl.textContent = `${akash.tier_name || 'Community'} LLM Online`;
+        }
+        if (costEl && data.akt_price_usd) {
+            const dailyCost = akash.daily_cost_usd || 0;
+            costEl.textContent = `$${dailyCost.toFixed(2)}/day`;
+        }
+        // Show green "healthy" bar for online community LLM
+        if (fillEl) {
+            fillEl.style.width = '100%';
+            fillEl.classList.remove('warning', 'critical');
+            fillEl.classList.add('healthy');
+        }
+        return;
+    }
+    
+    // For private sessions, show time remaining
+    const hoursRemaining = akash.hours_remaining || 0;
+    const minutesRemaining = akash.minutes_remaining || 0;
+    
+    // Calculate percentage (based on initial funded amount)
+    const fundedAkt = akash.funded_akt || 1;
+    const hourlyRate = akash.hourly_cost_akt || 0.15;
+    const maxHours = fundedAkt / hourlyRate;
+    const percentage = Math.min(100, Math.max(0, (hoursRemaining / maxHours) * 100));
     
     // Update progress bar
     if (fillEl) {
@@ -98,9 +119,9 @@ function renderFundingPanel(data) {
         
         // Color coding
         fillEl.classList.remove('healthy', 'warning', 'critical');
-        if (daysRemaining > 7) {
+        if (hoursRemaining > 1) {
             fillEl.classList.add('healthy');
-        } else if (daysRemaining > 3) {
+        } else if (minutesRemaining > 15) {
             fillEl.classList.add('warning');
         } else {
             fillEl.classList.add('critical');
@@ -109,17 +130,19 @@ function renderFundingPanel(data) {
     
     // Update time remaining
     if (timeEl) {
-        if (daysRemaining >= 1) {
-            timeEl.textContent = `~${Math.round(daysRemaining)} days remaining`;
-        } else {
+        if (hoursRemaining >= 1) {
             timeEl.textContent = `~${Math.round(hoursRemaining)} hours remaining`;
+        } else if (minutesRemaining > 0) {
+            timeEl.textContent = `~${Math.round(minutesRemaining)} min remaining`;
+        } else {
+            timeEl.textContent = 'Session expired';
         }
     }
     
     // Update cost info
     if (costEl && data.akt_price_usd) {
-        const dailyCost = akash.daily_cost_usd || 0;
-        costEl.textContent = `$${dailyCost.toFixed(2)}/day`;
+        const hourlyUsd = akash.hourly_cost_usd || 0;
+        costEl.textContent = `$${hourlyUsd.toFixed(2)}/hr`;
     }
 }
 
