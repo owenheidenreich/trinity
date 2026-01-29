@@ -751,6 +751,193 @@ def health_icp():
     }), 200 if ollama_healthy else 503
 
 
+# ===== FUNDING TRANSPARENCY =====
+# Cache for funding data (avoid hammering external APIs)
+_funding_cache = {
+    'data': None,
+    'timestamp': 0,
+    'ttl': 300  # 5 minute cache
+}
+
+# Akash wallet address for the community deployment
+AKASH_WALLET_ADDRESS = os.getenv('AKASH_WALLET_ADDRESS', 'akash155hphg6qyy3vtr584p38wlngtqxzdr0l6jutmp')
+AKASH_RPC_NODE = os.getenv('AKASH_RPC_NODE', 'https://rpc.akashnet.net:443')
+
+# ICP canister IDs
+ICP_BACKEND_CANISTER = os.getenv('ICP_BACKEND_CANISTER', 'au5zq-2qaaa-aaaal-qtowa-cai')
+ICP_FRONTEND_CANISTER = os.getenv('ICP_FRONTEND_CANISTER', 'zc67k-kiaaa-aaaal-qtmiq-cai')
+
+
+def get_akt_price_usd() -> Optional[float]:
+    """Fetch current AKT price from CoinGecko API"""
+    try:
+        response = requests.get(
+            'https://api.coingecko.com/api/v3/simple/price',
+            params={'ids': 'akash-network', 'vs_currencies': 'usd'},
+            timeout=10
+        )
+        if response.status_code == 200:
+            data = response.json()
+            return data.get('akash-network', {}).get('usd')
+    except Exception as e:
+        logger.warning(f"Failed to fetch AKT price: {e}")
+    return None
+
+
+def get_akash_deployment_info() -> Dict:
+    """
+    Query Akash blockchain for active deployment escrow info.
+    Uses Akash REST API (LCD) for read-only queries - no wallet needed.
+    """
+    try:
+        # Query active deployments for our wallet
+        lcd_url = 'https://rest.cosmos.directory/akash'
+        
+        # Get active deployments
+        response = requests.get(
+            f"{lcd_url}/akash/deployment/v1beta3/deployments/list",
+            params={
+                'filters.owner': AKASH_WALLET_ADDRESS,
+                'filters.state': 'active'
+            },
+            timeout=15
+        )
+        
+        if response.status_code != 200:
+            logger.warning(f"Akash API returned {response.status_code}")
+            return {'error': 'Failed to query Akash API'}
+        
+        data = response.json()
+        deployments = data.get('deployments', [])
+        
+        if not deployments:
+            return {'error': 'No active deployments found'}
+        
+        # Get the first (current) deployment
+        deployment = deployments[0]
+        deployment_id = deployment.get('deployment', {}).get('deployment_id', {})
+        dseq = deployment_id.get('dseq', 'unknown')
+        
+        # Get escrow account balance
+        escrow = deployment.get('escrow_account', {})
+        balance = escrow.get('balance', {})
+        escrow_uakt = int(balance.get('amount', 0))
+        escrow_akt = escrow_uakt / 1_000_000
+        
+        # Get lease info for cost calculation
+        lease_response = requests.get(
+            f"{lcd_url}/akash/market/v1beta4/leases/list",
+            params={
+                'filters.owner': AKASH_WALLET_ADDRESS,
+                'filters.state': 'active'
+            },
+            timeout=15
+        )
+        
+        hourly_cost_uakt = 0
+        provider = 'unknown'
+        
+        if lease_response.status_code == 200:
+            lease_data = lease_response.json()
+            leases = lease_data.get('leases', [])
+            for lease in leases:
+                lease_info = lease.get('lease', {})
+                if str(lease_info.get('lease_id', {}).get('dseq')) == str(dseq):
+                    price = lease.get('lease', {}).get('price', {})
+                    # Price is per block (~6 seconds)
+                    price_per_block = int(price.get('amount', 0))
+                    hourly_cost_uakt = price_per_block * 600  # ~600 blocks/hour
+                    provider = lease_info.get('lease_id', {}).get('provider', 'unknown')
+                    break
+        
+        # Calculate time remaining
+        hours_remaining = 0
+        if hourly_cost_uakt > 0:
+            hours_remaining = escrow_uakt / hourly_cost_uakt
+        
+        return {
+            'dseq': dseq,
+            'escrow_uakt': escrow_uakt,
+            'escrow_akt': round(escrow_akt, 4),
+            'hourly_cost_uakt': hourly_cost_uakt,
+            'hourly_cost_akt': round(hourly_cost_uakt / 1_000_000, 6),
+            'hours_remaining': round(hours_remaining, 1),
+            'days_remaining': round(hours_remaining / 24, 1),
+            'provider': provider,
+            'wallet': AKASH_WALLET_ADDRESS
+        }
+        
+    except Exception as e:
+        logger.error(f"Error fetching Akash deployment info: {e}")
+        return {'error': str(e)}
+
+
+@app.route('/funding/status')
+def funding_status():
+    """
+    Funding transparency endpoint.
+    Returns current deployment costs, AKT price, and donation addresses.
+    Cached for 5 minutes to avoid API rate limits.
+    """
+    global _funding_cache
+    
+    now = time.time()
+    
+    # Return cached data if still fresh
+    if _funding_cache['data'] and (now - _funding_cache['timestamp']) < _funding_cache['ttl']:
+        return jsonify(_funding_cache['data'])
+    
+    # Fetch fresh data
+    akt_price = get_akt_price_usd()
+    akash_info = get_akash_deployment_info()
+    
+    # Calculate USD values if we have both AKT price and deployment info
+    if akt_price and 'escrow_akt' in akash_info:
+        akash_info['escrow_usd'] = round(akash_info['escrow_akt'] * akt_price, 2)
+        akash_info['hourly_cost_usd'] = round(akash_info.get('hourly_cost_akt', 0) * akt_price, 4)
+        akash_info['daily_cost_usd'] = round(akash_info.get('hourly_cost_akt', 0) * 24 * akt_price, 2)
+    
+    funding_data = {
+        'timestamp': int(now * 1000),
+        'akt_price_usd': akt_price,
+        'akash': akash_info,
+        'icp': {
+            'backend_canister': ICP_BACKEND_CANISTER,
+            'frontend_canister': ICP_FRONTEND_CANISTER,
+            # Cycle balance requires canister query - frontend will fetch directly
+            'cycles_info': 'Query canister directly for cycle balance'
+        },
+        'filecoin': {
+            'gateway': LIGHTHOUSE_GATEWAY,
+            'storage_info': 'Lighthouse free tier: 1GB'
+        },
+        'donations': {
+            'akt_address': AKASH_WALLET_ADDRESS,
+            'akt_memo': 'Trinity Community LLM',
+            'icp_canister': ICP_BACKEND_CANISTER
+        },
+        'private_session': {
+            'enabled': False,  # Phase 2
+            'fee_structure': {
+                'hardware_percent': 95,
+                'community_fund_percent': 4,
+                'platform_percent': 1
+            },
+            'tiers': [
+                {'name': 'Starter', 'model': 'tinyllama', 'hourly_akt': 0.15, 'ram_gb': 4},
+                {'name': 'Standard', 'model': 'llama3.1:8b', 'hourly_akt': 0.4, 'ram_gb': 16},
+                {'name': 'Professional', 'model': 'qwen2.5:72b', 'hourly_akt': 1.75, 'ram_gb': 64}
+            ]
+        }
+    }
+    
+    # Update cache
+    _funding_cache['data'] = funding_data
+    _funding_cache['timestamp'] = now
+    
+    return jsonify(funding_data)
+
+
 # ===== TRINITY SYSTEM PROMPT =====
 # Concise prompt optimized for smaller models (TinyLlama, etc.)
 TRINITY_SYSTEM_PROMPT = f"""You are Trinity, a decentralized AI assistant.

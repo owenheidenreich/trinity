@@ -174,6 +174,35 @@ fn get_canister_info() -> String {
     )
 }
 
+/// Get the canister's current cycle balance
+/// Used by frontend to display funding transparency
+#[ic_cdk::query]
+fn get_cycle_balance() -> u128 {
+    ic_cdk::api::canister_balance128()
+}
+
+/// Get cycle balance with additional context
+#[ic_cdk::query]
+fn get_funding_info() -> String {
+    let cycles = ic_cdk::api::canister_balance128();
+    let trillion: u128 = 1_000_000_000_000;
+    let cycles_t = cycles as f64 / trillion as f64;
+    
+    // Rough estimate: 1T cycles ≈ $1.30 USD
+    // Average cost per request: ~2B cycles
+    // Estimate remaining requests
+    let cost_per_request: u128 = 2_000_000_000; // 2B cycles
+    let remaining_requests = cycles / cost_per_request;
+    
+    format!(
+        "{{\"cycles\": {}, \"cycles_trillion\": {:.4}, \"estimated_usd\": {:.2}, \"estimated_requests_remaining\": {}}}",
+        cycles,
+        cycles_t,
+        cycles_t * 1.30,
+        remaining_requests
+    )
+}
+
 // ============================================================================
 // HEALTH CHECK
 // ============================================================================

@@ -113,6 +113,10 @@ service : (opt text) -> {
     get_canister_info : () -> (text) query;
     clear_cache : () -> (Result_Nat);
     
+    // Funding transparency
+    get_cycle_balance : () -> (nat) query;
+    get_funding_info : () -> (text) query;
+    
     // Main endpoints
     health : () -> (Result_Health);
     generate : (GenerateRequest, AuthHeaders, text) -> (Result_Generate);

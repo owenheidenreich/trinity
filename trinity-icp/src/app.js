@@ -47,6 +47,7 @@ import initRainbowBorders from './ui/rainbowBorder.js';
 import Validation from './utils/validation.js';
 import { generateViaCanister, healthCheckViaCanister, isCanisterConfigured } from './api/canister-client.js';
 import { initTools, getAttachedContent, clearAttachment } from './tools.js';
+import { initFunding } from './modules/funding.js';
 
 // ============================================================================
 // 1b. AUTHENTICATION - Imported from auth/authManager.js
@@ -1438,6 +1439,10 @@ async function init() {
     // Initialize file attachment tools
     initTools();
     console.log('✅ Tools initialized');
+
+    // Initialize funding transparency panel
+    initFunding();
+    console.log('✅ Funding transparency initialized');
 
     // -------------------- Initial State --------------------
 
