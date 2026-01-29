@@ -3,7 +3,7 @@
  * 
  * Manages countdown timer for private LLM sessions with:
  * - Real-time countdown display
- * - 5-minute warning with option to add time
+ * - 5-minute warning with archive reminder (user-responsible archiving)
  * - Automatic session termination
  * 
  * @module modules/sessionTimer
@@ -15,6 +15,30 @@ let timerInterval = null;
 let warningShown = false;
 
 /**
+ * Start a private session timer from ISO expiry string
+ * Called from funding.js when session becomes active
+ * @param {string} expiresAt - ISO timestamp when session ends
+ */
+export function startSessionTimer(expiresAt) {
+    const endTime = new Date(expiresAt).getTime();
+    const session = localStorage.getItem('trinity_private_session');
+    let tierName = 'Private';
+    
+    if (session) {
+        try {
+            const data = JSON.parse(session);
+            tierName = data.tier_name || 'Private';
+        } catch (e) {}
+    }
+    
+    startSession({
+        endTime: endTime,
+        tier: tierName,
+        startTime: Date.now()
+    });
+}
+
+/**
  * Start a private session timer
  * @param {Object} session - Session details
  * @param {number} session.endTime - Unix timestamp when session ends
@@ -24,7 +48,7 @@ let warningShown = false;
 export function startSession(session) {
     sessionData = {
         ...session,
-        startTime: Date.now()
+        startTime: session.startTime || Date.now()
     };
     warningShown = false;
     
@@ -136,7 +160,8 @@ function showSessionUI() {
 }
 
 /**
- * Show 5-minute warning modal
+ * Show 5-minute warning modal with archive reminder
+ * User is responsible for archiving before session ends
  */
 function showTimeWarning() {
     const modal = document.createElement('div');
@@ -144,23 +169,35 @@ function showTimeWarning() {
     modal.className = 'modal-overlay';
     modal.innerHTML = `
         <div class="modal warning-modal">
-            <h3 style="color: #f59e0b; margin-bottom: 12px;">⚠️ 5 Minutes Remaining</h3>
-            <p style="font-size: 12px; color: #888; margin-bottom: 20px;">
-                Your private session will end soon. Would you like to add more time?
+            <h3 style="color: #f59e0b; margin-bottom: 12px;">5 Minutes Remaining</h3>
+            
+            <div style="background: #2d2d2d; border: 1px solid #fbbf24; border-radius: 6px; padding: 12px; margin-bottom: 16px;">
+                <p style="font-size: 12px; color: #fbbf24; margin-bottom: 8px;">
+                    Archive your chats now!
+                </p>
+                <p style="font-size: 11px; color: #888;">
+                    Your private session is ending soon. Click the archive button in the sidebar to save your chats to Filecoin before the session expires.
+                </p>
+            </div>
+            
+            <p style="font-size: 11px; color: #888; margin-bottom: 16px;">
+                After the session ends, you will return to the free community LLM.
             </p>
             
             <div class="warning-actions">
-                <button class="btn-add-time" onclick="window.showAddTimeModal()">
-                    Add More Time
-                </button>
-                <button class="btn-dismiss" onclick="document.getElementById('timeWarningModal').remove()">
-                    Let it End
+                <button class="btn-dismiss" onclick="document.getElementById('timeWarningModal').remove()" style="background: #3d3d3d; color: #fff; border: none; padding: 10px 24px; border-radius: 6px; cursor: pointer;">
+                    Got it
                 </button>
             </div>
         </div>
     `;
     
     document.body.appendChild(modal);
+    
+    // Close on backdrop click
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) modal.remove();
+    });
     
     // Auto-dismiss after 30 seconds
     setTimeout(() => {
@@ -251,6 +288,9 @@ function endSession() {
         setTimeout(() => sessionBar.remove(), 500);
     }
     
+    // Clear local storage
+    localStorage.removeItem('trinity_private_session');
+    
     // Show session ended notification
     showSessionEndedModal();
     
@@ -262,7 +302,7 @@ function endSession() {
 }
 
 /**
- * Show session ended modal
+ * Show session ended modal with archive reminder
  */
 function showSessionEndedModal() {
     const modal = document.createElement('div');
@@ -271,21 +311,28 @@ function showSessionEndedModal() {
     modal.innerHTML = `
         <div class="modal">
             <h3 style="margin-bottom: 12px;">Session Ended</h3>
-            <p style="font-size: 12px; color: #888; margin-bottom: 20px;">
+            <p style="font-size: 12px; color: #888; margin-bottom: 16px;">
                 Your private session has ended. You're now using the community LLM.
             </p>
             
-            <button class="btn-primary" onclick="document.getElementById('sessionEndedModal').remove()">
-                Continue with Community LLM
-            </button>
+            <div style="background: #2d2d2d; border-radius: 6px; padding: 12px; margin-bottom: 16px;">
+                <p style="font-size: 11px; color: #888;">
+                    If you didn't archive your chats, they may still be accessible in the sidebar. Use the archive button to save them permanently.
+                </p>
+            </div>
             
-            <button class="btn-secondary" onclick="window.location.reload()">
-                Start New Private Session
+            <button class="btn-primary" onclick="document.getElementById('sessionEndedModal').remove()" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #fff; border: none; padding: 12px 24px; border-radius: 6px; cursor: pointer; width: 100%;">
+                Continue with Community LLM
             </button>
         </div>
     `;
     
     document.body.appendChild(modal);
+    
+    // Close on backdrop click
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) modal.remove();
+    });
 }
 
 /**

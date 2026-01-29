@@ -169,6 +169,73 @@ const CONFIG = {
     //
     // switchModel(modelName) { ... }
     // =========================================================================
+    
+    // =========================================================================
+    // PRIVATE SESSION MANAGEMENT
+    // =========================================================================
+    
+    /**
+     * Get the effective API URL (private session if active, otherwise default)
+     * @returns {string} The API URL to use for requests
+     */
+    getEffectiveApiUrl() {
+        const session = this.getActiveSession();
+        if (session && session.endpoint) {
+            return session.endpoint;
+        }
+        return this.API_URL;
+    },
+    
+    /**
+     * Get the active private session, if any
+     * @returns {Object|null} Session data or null
+     */
+    getActiveSession() {
+        const stored = localStorage.getItem('trinity_private_session');
+        if (!stored) return null;
+        
+        try {
+            const session = JSON.parse(stored);
+            const expiry = new Date(session.expires_at);
+            
+            if (expiry > new Date()) {
+                return session;
+            } else {
+                // Session expired, clean up
+                localStorage.removeItem('trinity_private_session');
+                return null;
+            }
+        } catch (e) {
+            localStorage.removeItem('trinity_private_session');
+            return null;
+        }
+    },
+    
+    /**
+     * Check if a private session is active
+     * @returns {boolean}
+     */
+    hasActiveSession() {
+        return this.getActiveSession() !== null;
+    },
+    
+    /**
+     * Get headers for API requests (includes session header for private sessions)
+     * @returns {Object} Headers object
+     */
+    getApiHeaders() {
+        const headers = {
+            'Content-Type': 'application/json'
+        };
+        
+        const session = this.getActiveSession();
+        if (session && session.endpoint) {
+            // Tell Vercel proxy to route to private session
+            headers['X-Trinity-Session'] = session.endpoint;
+        }
+        
+        return headers;
+    }
 };
 
 export default CONFIG;

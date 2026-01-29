@@ -1007,6 +1007,98 @@ def session_request():
     })
 
 
+# Session storage file (created by payment-monitor.py)
+ACTIVE_SESSIONS_FILE = '/data/active_sessions.json'
+
+
+def load_active_sessions() -> Dict:
+    """Load active sessions from file."""
+    import json
+    from pathlib import Path
+    
+    # Try multiple paths (local dev vs container)
+    paths = [
+        Path(ACTIVE_SESSIONS_FILE),
+        Path(__file__).parent.parent / 'data' / 'active_sessions.json',
+        Path.home() / '.trinity' / 'active_sessions.json'
+    ]
+    
+    for path in paths:
+        if path.exists():
+            try:
+                with open(path) as f:
+                    return json.load(f)
+            except Exception:
+                pass
+    return {}
+
+
+@app.route('/session/check/<session_id>')
+def session_check(session_id: str):
+    """
+    Check the status of a session by ID.
+    
+    Returns:
+        - status: 'pending' | 'paid' | 'deploying' | 'active' | 'expired' | 'not_found'
+        - endpoint: URL for active sessions
+        - expires_at: ISO timestamp
+        - model: model name
+        - tier_name: tier display name
+    """
+    sessions = load_active_sessions()
+    
+    if session_id not in sessions:
+        return jsonify({
+            'session_id': session_id,
+            'status': 'pending',  # Payment not yet detected
+            'message': 'Waiting for payment confirmation...'
+        })
+    
+    session = sessions[session_id]
+    
+    # Check if expired
+    from datetime import datetime, timezone
+    try:
+        expiry = datetime.fromisoformat(session.get('expires_at', '').replace('Z', '+00:00'))
+        now = datetime.now(timezone.utc)
+        
+        if now > expiry:
+            return jsonify({
+                'session_id': session_id,
+                'status': 'expired',
+                'expired_at': session.get('expires_at'),
+                'message': 'Session has expired'
+            })
+    except Exception:
+        pass
+    
+    # Check if deployment is complete (has endpoint)
+    endpoint = session.get('endpoint') or session.get('uri')
+    if endpoint:
+        # Ensure URL format
+        if not endpoint.startswith('http'):
+            endpoint = f"http://{endpoint}"
+        
+        return jsonify({
+            'session_id': session_id,
+            'status': 'active',
+            'endpoint': endpoint,
+            'expires_at': session.get('expires_at'),
+            'model': session.get('model'),
+            'tier': session.get('tier'),
+            'tier_name': session.get('tier_name'),
+            'hours': session.get('hours'),
+            'dseq': session.get('dseq')
+        })
+    
+    # Payment detected but not yet deployed
+    return jsonify({
+        'session_id': session_id,
+        'status': 'deploying',
+        'message': 'Payment confirmed, deploying your private LLM...'
+    })
+
+
 # ===== TRINITY SYSTEM PROMPT =====
 # Concise prompt optimized for smaller models (TinyLlama, etc.)
 TRINITY_SYSTEM_PROMPT = f"""You are Trinity, a decentralized AI assistant.

@@ -15,7 +15,7 @@ version: "2.0"
 
 services:
   trinity:
-    image: gdubx/trinity-inference:v5-sessions
+    image: gdubx/trinity-inference:v6-sessions
     env:
       - PROVIDER_ID=trinity-tier3-complex
       - MODEL_NAME=qwen2.5:72b

@@ -63,15 +63,20 @@ export default async function handler(req, res) {
   }
 
   try {
+    // Check for private session override via header
+    // Frontend sends X-Trinity-Session header with private instance URL
+    const sessionUrl = req.headers['x-trinity-session'];
+    const baseUrl = sessionUrl || AKASH_BASE;
+    
     // Get the original path from the URL (rewrites send original path in req.url)
     // Remove /api/proxy if present, otherwise use the full path
     let path = req.url;
     if (path.startsWith('/api/proxy')) {
       path = path.slice('/api/proxy'.length) || '/';
     }
-    const targetUrl = `${AKASH_BASE}${path}`;
+    const targetUrl = `${baseUrl}${path}`;
     
-    console.log(`Proxying: ${req.method} ${path} -> ${targetUrl}`);
+    console.log(`Proxying: ${req.method} ${path} -> ${targetUrl}${sessionUrl ? ' (private session)' : ''}`);
 
     // Collect request body
     let body = null;

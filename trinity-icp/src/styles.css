@@ -624,6 +624,125 @@ body {
     cursor: not-allowed;
 }
 
+/* Order Summary (Step 2) */
+.order-summary {
+    background: #1a1a1a;
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 16px;
+}
+
+.order-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    padding: 6px 0;
+    color: #888;
+}
+
+.order-row.order-total {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #2d2d2d;
+    font-size: 14px;
+    font-weight: 600;
+    color: #ececec;
+}
+
+.order-label {
+    color: #888;
+}
+
+.order-value {
+    color: #ececec;
+    font-family: 'SF Mono', 'Menlo', monospace;
+}
+
+.payment-instructions {
+    background: #252525;
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 16px;
+    text-align: center;
+}
+
+.payment-instructions code {
+    background: #1a1a1a;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: 'SF Mono', 'Menlo', monospace;
+    font-size: 10px;
+    color: #a78bfa;
+}
+
+.confirm-buttons {
+    display: flex;
+    gap: 12px;
+}
+
+.back-btn {
+    flex: 1;
+    padding: 12px;
+    background: #2d2d2d;
+    border: 1px solid #3d3d3d;
+    border-radius: 8px;
+    color: #ececec;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.back-btn:hover {
+    background: #3d3d3d;
+}
+
+.confirm-buttons .launch-btn {
+    flex: 2;
+}
+
+/* Spinner */
+.spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid #3d3d3d;
+    border-top: 2px solid #a78bfa;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-right: 8px;
+}
+
+.spinner.large {
+    width: 48px;
+    height: 48px;
+    border-width: 4px;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Deploy Status */
+.deploy-status {
+    text-align: center;
+    padding: 24px 0;
+}
+
+/* Session Info (Step 5) */
+.session-info {
+    text-align: center;
+    padding: 16px 0;
+}
+
+/* Archive Reminder */
+.archive-reminder {
+    margin: 16px 0;
+    padding: 12px;
+    background: #2d2d2d;
+    border-radius: 6px;
+}
+
 /* ============ SESSION TIMER BAR ============ */
 .session-bar {
     display: flex;

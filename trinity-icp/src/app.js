@@ -98,8 +98,10 @@ import { initFunding } from './modules/funding.js';
 const API = {
     async request(endpoint, options = {}) {
         const url = `${CONFIG.API_URL}${endpoint}`;
+        
+        // Start with session-aware headers (includes X-Trinity-Session if private session active)
         const headers = {
-            'Content-Type': 'application/json',
+            ...CONFIG.getApiHeaders(),
             'Accept': 'application/json',
             ...options.headers
         };
