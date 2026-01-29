@@ -81,11 +81,17 @@ function renderFundingPanel(data) {
     const timeEl = document.getElementById('fundingTime');
     const costEl = document.getElementById('fundingCost');
     const fillEl = document.getElementById('fundingFill');
+    const privateBtn = document.getElementById('privateSessionBtn');
     
     if (!data.akash) {
         if (timeEl) timeEl.textContent = 'Status unavailable';
         if (fillEl) fillEl.style.width = '0%';
         return;
+    }
+    
+    // Show private session button if enabled
+    if (privateBtn && data.private_session?.enabled) {
+        privateBtn.style.display = 'flex';
     }
     
     const akash = data.akash;
@@ -97,8 +103,8 @@ function renderFundingPanel(data) {
             timeEl.textContent = `${akash.tier_name || 'Community'} LLM Online`;
         }
         if (costEl && data.akt_price_usd) {
-            const dailyCost = akash.daily_cost_usd || 0;
-            costEl.textContent = `$${dailyCost.toFixed(2)}/day`;
+            const hourlyCost = akash.hourly_cost_usd || 0;
+            costEl.textContent = `$${hourlyCost.toFixed(2)}/hr`;
         }
         // Show green "healthy" bar for online community LLM
         if (fillEl) {
@@ -233,8 +239,8 @@ function createDonateModal() {
             ${fundingData?.akash ? `
             <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid #3d3d3d;">
                 <p style="font-size: 11px; color: #666;">
-                    Current status: ${fundingData.akash.days_remaining?.toFixed(1) || '?'} days remaining
-                    (${fundingData.akash.escrow_akt?.toFixed(2) || '?'} AKT in escrow)
+                    Running cost: $${fundingData.akash.hourly_cost_usd?.toFixed(2) || '?'}/hr 
+                    (${fundingData.akash.hourly_cost_akt?.toFixed(2) || '?'} AKT/hr at $${fundingData.akt_price_usd?.toFixed(2) || '?'}/AKT)
                 </p>
             </div>
             ` : ''}

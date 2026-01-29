@@ -794,23 +794,108 @@ def get_akt_price_usd() -> Optional[float]:
     return None
 
 
+# Cache for lease price query
+_lease_price_cache = {'data': None, 'timestamp': 0, 'ttl': 300}  # 5 min cache
+
+def get_actual_lease_price() -> Optional[Dict]:
+    """
+    Query actual lease price from Akash blockchain via REST API.
+    Returns hourly cost in AKT based on real lease price.
+    
+    Block time is ~6.5 seconds, so:
+    - blocks_per_hour = 3600 / 6.5 ≈ 554
+    - hourly_cost_akt = (lease_price_uakt / 1_000_000) * 554
+    """
+    global _lease_price_cache
+    
+    now = time.time()
+    
+    # Return cached data if fresh
+    if _lease_price_cache['data'] and (now - _lease_price_cache['timestamp']) < _lease_price_cache['ttl']:
+        return _lease_price_cache['data']
+    
+    try:
+        # Use Akash REST API to query leases
+        # Working endpoint: https://akash-rest.publicnode.com/akash/market/v1beta5/leases/list
+        api_url = "https://akash-rest.publicnode.com/akash/market/v1beta5/leases/list"
+        params = {
+            'filters.owner': AKASH_WALLET_ADDRESS,
+            'filters.state': 'active'
+        }
+        
+        response = requests.get(api_url, params=params, timeout=15)
+        
+        if response.status_code == 200:
+            data = response.json()
+            leases = data.get('leases', [])
+            
+            if leases:
+                # Get the most recent active lease (highest dseq)
+                latest_lease = max(leases, key=lambda x: int(x.get('lease', {}).get('id', {}).get('dseq', 0)))
+                lease = latest_lease.get('lease', {})
+                price_uakt = float(lease.get('price', {}).get('amount', 0))
+                
+                # Calculate hourly rate
+                # Block time ≈ 6.5s, so ~554 blocks/hour
+                blocks_per_hour = 554
+                hourly_akt = (price_uakt / 1_000_000) * blocks_per_hour
+                daily_akt = hourly_akt * 24
+                
+                result_data = {
+                    'price_uakt_per_block': price_uakt,
+                    'hourly_cost_akt': round(hourly_akt, 4),
+                    'daily_cost_akt': round(daily_akt, 2),
+                    'dseq': lease.get('id', {}).get('dseq'),
+                    'source': 'blockchain'
+                }
+                
+                _lease_price_cache['data'] = result_data
+                _lease_price_cache['timestamp'] = now
+                logger.info(f"Fetched actual lease price: {hourly_akt:.4f} AKT/hr (${hourly_akt * 0.45:.2f}/hr) from REST API")
+                return result_data
+        else:
+            logger.warning(f"Akash REST API returned status {response.status_code}")
+                
+    except requests.exceptions.Timeout:
+        logger.warning("Timeout querying Akash lease price via REST API")
+    except Exception as e:
+        logger.warning(f"Failed to query lease price via REST API: {e}")
+    
+    # Fallback to env var pricing
+    return None
+
+
 def get_akash_deployment_info() -> Dict:
     """
-    Get deployment info from environment variables.
-    These are set during Akash deployment via YAML env vars.
+    Get deployment info from environment variables and actual blockchain query.
+    Prefers actual lease price from blockchain, falls back to env vars.
     
-    For community deployments: uses static tier pricing
+    For community deployments: uses real lease pricing when available
     For private sessions: includes session ID, expiry time, and remaining balance
     """
     now = time.time()
     
-    # Base info from env vars (always available)
+    # Try to get actual lease price from blockchain
+    lease_info = get_actual_lease_price()
+    
+    # Use actual lease price if available, otherwise fall back to env vars
+    if lease_info:
+        hourly_cost = lease_info['hourly_cost_akt']
+        daily_cost = lease_info['daily_cost_akt']
+        price_source = 'blockchain'
+    else:
+        hourly_cost = HOURLY_COST_AKT
+        daily_cost = DAILY_COST_AKT
+        price_source = 'env_var'
+    
+    # Base info
     info = {
         'tier': DEPLOYMENT_TIER,
         'tier_name': DEPLOYMENT_TIER_NAME,
         'model': MODEL_NAME,
-        'hourly_cost_akt': HOURLY_COST_AKT,
-        'daily_cost_akt': DAILY_COST_AKT,
+        'hourly_cost_akt': hourly_cost,
+        'daily_cost_akt': daily_cost,
+        'price_source': price_source,
         'session_type': SESSION_TYPE,
         'wallet': AKASH_WALLET_ADDRESS,
         'status': 'online'
