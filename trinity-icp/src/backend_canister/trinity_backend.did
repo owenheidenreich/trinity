@@ -44,17 +44,18 @@ type GenerateResponse = record {
     done : bool;
 };
 
-// Health check response from /health/icp endpoint
-// Contains only static/deterministic fields for ICP consensus
+// Health check response from /health endpoint
+// Contains deterministic fields for ICP consensus
+// Some fields are optional for backwards compatibility with older backends
 type HealthResponse = record {
     status : text;
     provider_id : text;
     model : text;
     gpu_type : text;
     ollama_connected : bool;
-    build_timestamp : text;
-    version : text;
-    icp_compatible : bool;
+    build_timestamp : opt text;
+    version : opt text;
+    icp_compatible : opt bool;
 };
 
 // Error response

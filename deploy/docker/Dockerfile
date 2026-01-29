@@ -104,7 +104,6 @@ ARG CACHEBUST=1
 
 COPY backend/inference_server.py .
 COPY backend/icp_auth.py .
-COPY backend/pickles/ ./pickles/
 COPY deploy/docker/startup.sh .
 
 # Make startup script executable (give it permission to run)
@@ -117,16 +116,13 @@ RUN chmod +x startup.sh
 RUN mkdir -p /root/.ollama
 
 # ============================================================================
-# STEP 8.5: Create directory for chat storage + ChromaDB
+# STEP 8.5: Create directory for chat storage
 # ============================================================================
-# Create persistent storage directory for chat data and vector database
-RUN mkdir -p /data/chats /data/chroma
-
-# Set ChromaDB path environment variable
-ENV CHROMA_PERSIST_DIR=/data/chroma
+# Create persistent storage directory for chat data
+RUN mkdir -p /data/chats
 
 # Declare volumes for persistent storage
-VOLUME ["/data/chats", "/data/chroma"]
+VOLUME ["/data/chats"]
 
 # ============================================================================
 # STEP 9: Expose the port

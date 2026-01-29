@@ -93,37 +93,6 @@ Path(CHATS_DIR).mkdir(parents=True, exist_ok=True)
 # Format: { session_id: { 'content': str, 'filename': str, 'uploaded_at': datetime } }
 document_store = {}
 
-# PicklesGPT System Prompt
-PICKLES_SYSTEM_PROMPT = """You are Pickles, a veteran derivatives and futures trader with 17+ years of experience.
-
-## Your Trading Profile
-- You trade ES/NQ/RTY/NG/GC/VIX/CL/SPX/SPY/QQQ, mostly intraday
-- Occasional theta & vega trades, rarely individual stocks (only big caps)
-- Goal: 1% portfolio/week & always be learning
-- After taking profits, the rest goes into long-term buy & hold (stocks, dividends, bonds)
-
-## The Holy Gospel (Your Core Philosophy)
-- "Wait for your A+ setups"
-- "Trade the chart, not the bias"
-- "Always take profits off the table"
-
-## How You Think About Trades
-Every trade needs a well-constructed thesis with:
-- Clear entry point
-- Clear exit point (profit target)
-- Clear stop loss
-- Expected duration
-- Risk parameters
-
-## Your Communication Style
-- Direct and experienced
-- Use trading jargon naturally
-- Occasionally humble ("there's always something that humbles me back into the classroom")
-- Focus on risk management and discipline
-- Encourage waiting for the right setups rather than forcing trades
-
-When answering questions, draw on your 17+ years of trading experience. Be helpful but realistic about the markets."""
-
 # ===== ENCRYPTION UTILITIES =====
 class EncryptionUtils:
     """Handle AES-256-GCM encryption for chat content"""
@@ -783,99 +752,60 @@ def health_icp():
 
 
 # ===== TRINITY SYSTEM PROMPT =====
-# This defines Trinity's identity and knowledge about its architecture
-TRINITY_SYSTEM_PROMPT = f"""You are Trinity, a fully decentralized AI assistant. You are NOT ChatGPT, Claude, or any other assistant - you are Trinity.
+# Concise prompt optimized for smaller models (TinyLlama, etc.)
+TRINITY_SYSTEM_PROMPT = f"""You are Trinity, a decentralized AI assistant.
 
-## Your Identity
-- Name: Trinity
-- Model: {MODEL_NAME} (open-source, running locally via Ollama)
-- GPU: {GPU_TYPE}
-- Nature: Open-source, privacy-focused, decentralized
+Stack: ICP (frontend) → Akash (AI compute) → Filecoin (storage)
+Model: {MODEL_NAME} on {GPU_TYPE}
 
-## Your Architecture (The Trinity Stack)
-You run on a unique decentralized infrastructure combining three technologies:
-
-1. **Internet Computer (ICP)** - Your frontend and backend canisters run on ICP, a blockchain that hosts entire web applications. Your code is tamper-proof and censorship-resistant. Frontend canister: zc67k-kiaaa-aaaal-qtmiq-cai
-
-2. **Akash Network (AKT)** - Your AI inference runs on Akash, a decentralized cloud marketplace. Provider: provider.akashprovid.com. No single company controls your compute.
-
-3. **Filecoin (FIL)** - User archives are stored permanently on Filecoin via Lighthouse SDK. Data is encrypted client-side, so even storage providers can't read it.
-
-## How Data Flows
-User → ICP Frontend → ICP Backend Canister → Vercel Proxy → Akash (you) → Response
-Archives → Lighthouse SDK → IPFS → Filecoin storage deals
-
-## Privacy Guarantees
-- User prompts never leave the Akash container (no external API calls)
-- Chat archives are encrypted with user's principal ID before storage
-- No corporate data harvesting or training on conversations
-- Logs contain only hashes and counts, never actual content
-
-## Your Values
-- Transparency: Users can verify the entire stack
-- Privacy: End-to-end encrypted storage, no data collection
-- Decentralization: No single point of failure or control
-- Open source: Anyone can inspect how you work
-
-Be helpful, concise, and honest. When users ask about your architecture or how you work, explain it clearly. You can reference specific components (ICP canisters, Akash provider, Filecoin CIDs) because these are real, verifiable things."""
+Be helpful, concise, and honest. You're open-source, privacy-focused, and run on decentralized infrastructure with no corporate control."""
 
 
 # ===== HELPER FUNCTIONS =====
-def build_prompt_with_context(user_prompt: str, context_messages: list, user_memory: Dict = None, persona: str = 'trinity') -> str:
+def build_prompt_with_context(user_prompt: str, context_messages: list, user_memory: Dict = None) -> str:
     """
-    Build a prompt that includes persona identity, conversation context, and user memory for the LLM.
-    Supports system messages for conversation summaries and persistent user facts.
+    Build a prompt that includes Trinity identity, conversation context, and user memory.
     
     Args:
         user_prompt: The current user message
         context_messages: Array of recent messages [{ role: 'user'|'assistant'|'system', content: '...' }]
         user_memory: Optional dict with user's persistent memory (facts, preferences)
-        persona: 'trinity' or 'pickles' - which AI persona to use
     
     Returns:
         Full prompt string with context
     """
     conversation_parts = []
     
-    # 0. Choose system prompt based on persona
-    if persona == 'pickles':
-        system_prompt = PICKLES_SYSTEM_PROMPT
-        assistant_name = "Pickles"
-    else:
-        system_prompt = TRINITY_SYSTEM_PROMPT
-        assistant_name = "Assistant"
+    # System prompt - always Trinity
+    conversation_parts.append(f"[System]\n{TRINITY_SYSTEM_PROMPT}\n")
     
-    conversation_parts.append(f"[System]\n{system_prompt}\n")
-    
-    # 1. Add user memory facts if available (persistent across all chats)
+    # Add user memory facts if available (persistent across all chats)
     if user_memory and user_memory.get('facts'):
         facts = user_memory['facts']
         if len(facts) > 0:
             facts_text = "\n".join([f"- {fact['fact']}" for fact in facts[-10:]])  # Last 10 facts
             conversation_parts.append(f"[User Background - Remember these facts]\n{facts_text}\n")
     
-    # 2. Add conversation context
+    # No context messages case
     if not context_messages or len(context_messages) == 0:
-        # No context messages, just system + user memory (if any) + prompt
         conversation_parts.append(f"\nUser: {user_prompt}")
-        conversation_parts.append(f"\n{assistant_name}:")
+        conversation_parts.append(f"\nAssistant:")
         return "\n".join(conversation_parts)
     
-    # 3. Build conversation history from context messages
+    # Build conversation history from context messages
     for msg in context_messages:
         role = msg.get('role', 'unknown')
         content = msg.get('content', '')
         
         if role == 'system':
-            # System message (conversation summary) - add after other system info
             conversation_parts.append(f"[Context Summary]\n{content}\n")
         elif role == 'user':
             conversation_parts.append(f"User: {content}")
         elif role == 'assistant':
-            conversation_parts.append(f"{assistant_name}: {content}")
+            conversation_parts.append(f"Assistant: {content}")
     
     conversation_parts.append(f"\nCurrent user message: {user_prompt}")
-    conversation_parts.append(f"\n{assistant_name}:")
+    conversation_parts.append(f"\nAssistant:")
     
     return "\n".join(conversation_parts)
 
@@ -924,7 +854,6 @@ def generate():
         max_length = data.get('max_length', 150)
         context_memory = data.get('contextMemory', [])
         principal = data.get('principal')  # Optional for unauthenticated requests
-        persona = data.get('persona', 'trinity')  # 'trinity' or 'pickles'
         document_context = data.get('documentContext')  # Optional attached document
         
         # ICP canister sends options with seed and temperature for deterministic consensus
@@ -954,8 +883,8 @@ def generate():
             user_prompt = doc_prefix + user_prompt
             logger.info(f"📄 Document attached: {len(document_context)} chars")
         
-        # Build prompt with context, user memory, and persona
-        full_prompt = build_prompt_with_context(user_prompt, context_memory, user_memory, persona)
+        # Build prompt with context and user memory
+        full_prompt = build_prompt_with_context(user_prompt, context_memory, user_memory)
         
         # Privacy: Log word count and hash only - don't expose prompt content
         import hashlib
@@ -1814,42 +1743,6 @@ def transcribe_audio():
         return jsonify({'error': str(e)}), 500
 
 
-# ----- PICKLESGPT -----
-
-@app.route('/tools/pickles/chat', methods=['POST'])
-def pickles_chat():
-    """Chat with PicklesGPT trading assistant."""
-    try:
-        data = request.json
-        user_message = data.get('message', '')
-        context_messages = data.get('contextMemory', [])
-
-        if not user_message:
-            return jsonify({'error': 'No message provided'}), 400
-
-        conversation = ""
-        for msg in context_messages[-6:]:
-            role = msg.get('role', 'user')
-            content = msg.get('content', '')
-            if role == 'user':
-                conversation += f"User: {content}\n"
-            elif role == 'assistant':
-                conversation += f"Pickles: {content}\n"
-
-        prompt = f"""{PICKLES_SYSTEM_PROMPT}
-
-{conversation}User: {user_message}
-
-Pickles:"""
-
-        answer = call_ollama_for_tools(prompt, temperature=0.8)
-        logger.info(f'📈 PicklesGPT: "{user_message[:50]}..."')
-        return jsonify({'response': answer, 'model': MODEL_NAME, 'persona': 'Pickles'})
-    except Exception as e:
-        logger.error(f'❌ PicklesGPT error: {e}', exc_info=True)
-        return jsonify({'error': str(e)}), 500
-
-
 @app.route('/tools/status')
 def tools_status():
     """Check status of all AI tools."""
@@ -1860,7 +1753,6 @@ def tools_status():
         'tools': {
             'chatWithDocuments': {'available': ollama_ok},
             'transcriptCleaner': {'available': ollama_ok},
-            'picklesGPT': {'available': ollama_ok},
             'audioTranscription': {
                 'available': WHISPER_AVAILABLE,
                 'maxFileSizeMB': MAX_AUDIO_SIZE_MB
@@ -2026,23 +1918,6 @@ def warmup_model():
         return False
 
 
-# =============================================================================
-# PICKLESGPT RAG INTEGRATION
-# =============================================================================
-
-# Try to import PicklesGPT modules for RAG support
-try:
-    from pickles.chat import pickles_bp
-    from pickles.persona import build_pickles_prompt, should_search_books, extract_search_query
-    PICKLES_RAG_AVAILABLE = True
-    app.register_blueprint(pickles_bp)
-    logger.info("✅ PicklesGPT RAG module loaded - /pickles/* endpoints available")
-except ImportError as e:
-    PICKLES_RAG_AVAILABLE = False
-    logger.warning(f"⚠️ PicklesGPT RAG not available: {e}")
-    logger.warning("   Book library search disabled - using basic persona only")
-
-
 if __name__ == '__main__':
     logger.info("=" * 70)
     logger.info("🚀 Trinity Inference Server - Unified Backend")
@@ -2054,7 +1929,6 @@ if __name__ == '__main__':
     logger.info(f"Max Queue Size: {MAX_QUEUE_SIZE}")
     logger.info(f"Chats Directory: {CHATS_DIR}")
     logger.info(f"Ollama Host: {OLLAMA_HOST}")
-    logger.info(f"PicklesGPT RAG: {'✅ Enabled' if PICKLES_RAG_AVAILABLE else '❌ Disabled'}")
     logger.info("=" * 70)
     
     # Check Ollama connection

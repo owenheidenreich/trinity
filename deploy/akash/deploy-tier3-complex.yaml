@@ -15,7 +15,7 @@ version: "2.0"
 
 services:
   trinity:
-    image: gdubx/trinity-inference:v2-20260126-153616
+    image: gdubx/trinity-inference:latest
     env:
       - PROVIDER_ID=trinity-tier3-complex
       - MODEL_NAME=qwen2.5:72b
@@ -45,7 +45,6 @@ profiles:
           attributes:
             vendor:
               nvidia:
-                - model: a100
 
   placement:
     akash:

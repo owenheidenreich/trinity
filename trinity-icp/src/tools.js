@@ -1,9 +1,8 @@
 // ============================================================================
-// TRINITY INTEGRATED TOOLS - Persona, File Attachments, Audio Transcription
+// TRINITY INTEGRATED TOOLS - File Attachments, Audio Transcription
 // ============================================================================
 
 import CONFIG from './config.js';
-import State from './state/store.js';
 
 // File size limits
 const MAX_TEXT_SIZE_KB = 100;
@@ -11,45 +10,9 @@ const MAX_AUDIO_SIZE_MB = 25;
 const MAX_TEXT_SIZE_BYTES = MAX_TEXT_SIZE_KB * 1024;
 const MAX_AUDIO_SIZE_BYTES = MAX_AUDIO_SIZE_MB * 1024 * 1024;
 
-// Current state - load from localStorage for persistence
-let currentPersona = localStorage.getItem('trinity_persona') || 'trinity';
+// Current state
 let attachedFile = null;
 let attachedContent = null;
-
-// ============================================================================
-// PERSONA MANAGEMENT
-// ============================================================================
-
-function getPersona() {
-    return currentPersona;
-}
-
-function setPersona(persona) {
-    currentPersona = persona;
-    
-    // Persist to localStorage
-    localStorage.setItem('trinity_persona', persona);
-    
-    // Update UI
-    const label = document.getElementById('personaLabel');
-    const title = document.getElementById('personaTitle');
-    const mainContent = document.querySelector('.main-content');
-    
-    if (label) label.textContent = persona === 'pickles' ? 'Pickles' : 'Trinity';
-    if (title) title.textContent = persona === 'pickles' ? 'PicklesGPT' : 'Trinity';
-    
-    // Update main content class for persona-specific styling
-    if (mainContent) {
-        mainContent.classList.toggle('persona-pickles', persona === 'pickles');
-    }
-    
-    // Update active state in dropdown
-    document.querySelectorAll('.persona-option').forEach(opt => {
-        opt.classList.toggle('active', opt.dataset.persona === persona);
-    });
-    
-    console.log(`Persona switched to: ${persona} (persisted)`);
-}
 
 // ============================================================================
 // FILE ATTACHMENT
@@ -174,36 +137,6 @@ function showAttachmentPreview(filename, size, type, loading = false, extra = ''
 function initTools() {
     console.log('Initializing integrated tools...');
     
-    const personaBtn = document.getElementById('personaBtn');
-    const personaDropdown = document.getElementById('personaDropdown');
-    
-    if (personaBtn && personaDropdown) {
-        personaBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            personaDropdown.classList.toggle('open');
-        });
-        
-        document.addEventListener('click', (e) => {
-            if (!personaDropdown.contains(e.target)) {
-                personaDropdown.classList.remove('open');
-            }
-        });
-        
-        document.querySelectorAll('.persona-option').forEach(opt => {
-            opt.addEventListener('click', () => {
-                setPersona(opt.dataset.persona);
-                personaDropdown.classList.remove('open');
-            });
-        });
-        
-        // Restore persisted persona on page load
-        const savedPersona = localStorage.getItem('trinity_persona');
-        if (savedPersona && (savedPersona === 'trinity' || savedPersona === 'pickles')) {
-            setPersona(savedPersona);
-            console.log(`Restored persona from localStorage: ${savedPersona}`);
-        }
-    }
-    
     const attachBtn = document.getElementById('attachBtn');
     const fileInput = document.getElementById('fileInput');
     
@@ -220,5 +153,13 @@ function initTools() {
     console.log('Integrated tools ready');
 }
 
-export { initTools, getPersona, setPersona, getAttachedContent, clearAttachment };
-export default { initTools, getPersona, setPersona, getAttachedContent, clearAttachment };
+export { 
+    initTools, 
+    getAttachedContent, 
+    clearAttachment
+};
+export default { 
+    initTools, 
+    getAttachedContent, 
+    clearAttachment
+};

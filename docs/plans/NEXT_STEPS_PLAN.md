@@ -1,8 +1,9 @@
 # Trinity Next Steps Implementation Plan
 
 > **Created:** January 25, 2026  
+> **Updated:** January 26, 2026  
 > **Status:** In Progress - Phase 2  
-> **Estimated Total Effort:** 10-12 hours  
+> **Estimated Total Effort:** 30-40 hours  
 > **Order:** Frontend-only first → Backend (Docker) updates batched at end
 
 ---
@@ -14,10 +15,16 @@ Tasks reordered to minimize Akash redeployments. **All frontend/ICP-only tasks f
 | Phase | Tasks | Docker Update? | Status |
 |-------|-------|----------------|--------|
 | **Phase 1** | About page, CID display, UI tweaks | ❌ No | ✅ COMPLETE |
-| **Phase 1.5** | trinityai.cc custom domain | ❌ No | ⏳ DNS Propagating |
+| **Phase 1.5** | trinityai.cc custom domain | ❌ No | 🟢 DNS Working, SSL Pending |
 | **Phase 2** | Security (input validation - frontend) | ❌ No | 🔄 In Progress |
 | **Phase 3** | All backend changes (batched) | ✅ Yes (once) | ⏳ Pending |
 | **Phase 4** | Memory system upgrade | ✅ Yes | ⏳ Pending |
+| **Phase 5** | Local Testing Tools | ❌ No | ⏳ Pending |
+| **Phase 6** | Document Attachments | ✅ Yes | 🟢 85% Done |
+| **Phase 7** | Audio Transcription | ✅ Yes | 🟡 60% Done |
+| **Phase 8** | Akash Provider Research | ❌ No | 🔴 Manual |
+| **Phase 9** | Scaling/Stress Testing | ❌ No | 🟡 Basic |
+| **Phase 10** | Monetization | ❌/✅ | 🔴 Not Started |
 
 ---
 
@@ -42,33 +49,42 @@ Tasks reordered to minimize Akash redeployments. **All frontend/ICP-only tasks f
 
 ---
 
-## Phase 1.5: Custom Domain Setup (Pending DNS Propagation)
+## Phase 1.5: Custom Domain Setup 🟢
 
-> **Status:** DNS configured, waiting for propagation
+> **Status:** DNS WORKING, SSL certificate pending issuance
 
-### 1.5.1 ⏳ trinityai.cc Custom Domain
+### 1.5.1 trinityai.cc Custom Domain
 **Goal:** Replace long canister URL with `https://trinityai.cc`
 
-**Completed:**
+**✅ Completed:**
 - [x] `.well-known/ic-domains` file created with `trinityai.cc` and `www.trinityai.cc`
 - [x] post-build.js updated to copy `.well-known` to dist
 - [x] ICP frontend deployed with ic-domains file
-- [x] Cloudflare DNS records configured:
-  - CNAME `@` → `trinityai.cc.icp1.io` (DNS only, no proxy)
-  - TXT `_canister-id` → `zc67k-kiaaa-aaaal-qtmiq-cai`
-  - CNAME `_acme-challenge` → `_acme-challenge.trinityai.cc.icp2.io` (DNS only)
+- [x] Cloudflare DNS records configured (all 3 records)
+- [x] Proxy OFF (grey cloud) on all records
 
-**Pending:**
-- [ ] DNS propagation (NXDOMAIN cache expiry ~15-30 min)
-- [ ] ICP custom domain registration
+**DNS Verification (January 26, 2026):**
+```
+✅ trinityai.cc → 23.142.184.129 (CNAME flattened to A)
+✅ _canister-id.trinityai.cc TXT → "zc67k-kiaaa-aaaal-qtmiq-cai"
+✅ _acme-challenge.trinityai.cc → _acme-challenge.trinityai.cc.icp2.io
+```
+
+**⏳ Pending:**
+- [ ] SSL certificate issuance by ICP (5-30 min after deploy)
+- Error: `SSL: no alternative certificate subject name matches target host name 'trinityai.cc'`
+
+**Root Cause:** ICP hasn't generated the SSL cert yet. Redeploying frontend triggers certificate issuance.
+
+**Fix Applied:** `dfx deploy --ic trinity_frontend` (January 26, 2026 6:20 PM)
 
 **Validation Commands:**
 ```bash
-# Check if DNS has propagated
-curl -sL -X GET "https://icp0.io/custom-domains/v1/trinityai.cc/validate" | jq
+# Test SSL certificate
+curl -I https://trinityai.cc
 
-# Once validation passes, register the domain
-curl -sL -X POST https://icp0.io/custom-domains/v1/trinityai.cc | jq
+# Force test with resolved IP
+curl --resolve trinityai.cc:443:23.142.184.129 -I https://trinityai.cc
 ```
 
 **Note:** ENS (trinityai.eth) was deprecated due to 30-60s IPFS gateway latency.
@@ -456,4 +472,411 @@ COLLABORATIVE - Memory System:
 - **Phase 1-2 (Frontend):** Proceed now. ICP deploy only, no Docker needed.
 - **Phase 3 (Backend):** Batch ALL backend changes, single Docker build.
 - **Phase 4 (Memory):** Stop and discuss architecture before implementing.
+
+---
+
+## Phase 5: Local Testing Tools 🧪
+
+> **Status:** 🟡 Partially Implemented
+
+**The Problem:**
+> "Any time inference_server.py is updated, we need to re-deploy. It takes 20-30 minutes each time."
+
+**What Exists:**
+- `./dev` script for local backend (Python only, no Docker)
+- `test/local/start-local.sh` with Docker compose
+
+### 5.1 Create Local Docker Test Script
+**File:** `scripts/test-docker-local.sh`
+
+```bash
+#!/bin/bash
+# Test Docker build locally before pushing to Akash
+
+set -e
+
+echo "🐳 Building Docker image for AMD64 (matching Akash)..."
+docker build --platform linux/amd64 \
+  -t trinity-test:local \
+  -f deploy/docker/Dockerfile .
+
+echo "🚀 Starting local container..."
+docker run -it --rm \
+  -p 8000:8000 \
+  -e MODEL_NAME=tinyllama:1.1b \
+  -e PROVIDER_ID=docker-local-test \
+  trinity-test:local
+```
+
+### 5.2 Create Pre-Deploy Validation Script
+**File:** `scripts/validate-before-deploy.sh`
+
+```bash
+#!/bin/bash
+# Run before Akash deployment
+
+echo "🔍 Validating before deploy..."
+
+# 1. Check Python syntax
+python3 -m py_compile backend/inference_server.py
+
+# 2. Check YAML syntax
+for yaml in deploy/akash/*.yaml; do
+  python3 -c "import yaml; yaml.safe_load(open('$yaml'))"
+done
+
+# 3. Build Docker locally
+docker build --platform linux/amd64 -t validate-test:local -f deploy/docker/Dockerfile .
+
+# 4. Quick smoke test
+docker run -d --name validate-container -p 8099:8000 validate-test:local
+sleep 10
+curl -f http://localhost:8099/health
+docker rm -f validate-container
+
+echo "✅ All validations passed!"
+```
+
+**Estimated Time:** 4-6 hrs  
+**Dependencies:** Docker Desktop
+
+---
+
+## Phase 6: Document Attachments 📄
+
+> **Status:** 🟢 85% Complete
+
+**What Already Exists:**
+- File upload handling in `trinity-icp/src/tools.js`
+- 100KB limit for text files
+- Attachment preview UI
+- Backend accepts context parameter
+
+**What Needs Improvement:**
+- PDF/DOCX parsing (currently text-only)
+- Large file chunking (>100KB)
+- Better prompts for document analysis
+
+### 6.1 Add PDF Parsing to Backend
+**File:** `backend/inference_server.py`
+
+```python
+import fitz  # PyMuPDF - already in requirements
+
+def extract_text_from_pdf(pdf_bytes):
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    text = ""
+    for page in doc:
+        text += page.get_text()
+    return text[:50000]  # Limit context size
+```
+
+### 6.2 Update Frontend File Handling
+**File:** `trinity-icp/src/tools.js`
+
+```javascript
+const ALLOWED_TYPES = ['.txt', '.md', '.json', '.pdf', '.py', '.js'];
+const MAX_SIZE = 500 * 1024;  // Increase to 500KB for PDFs
+```
+
+**Estimated Time:** 2-4 hrs  
+**Dependencies:** PyMuPDF (already installed)
+
+---
+
+## Phase 7: Audio Transcription 🎤
+
+> **Status:** 🟡 60% Complete
+
+**What Exists:**
+- Audio file detection in frontend
+- `/transcribe` endpoint skeleton
+- 25MB file limit
+
+**What's Broken:**
+- Local Whisper DISABLED (adds 3GB PyTorch)
+- No cloud API integration
+
+### 7.1 Use Groq Whisper API (FREE - 20 hrs/day)
+**File:** `backend/inference_server.py`
+
+```python
+GROQ_API_KEY = os.environ.get('GROQ_API_KEY')
+
+@app.route('/transcribe', methods=['POST'])
+def transcribe_audio():
+    if not GROQ_API_KEY:
+        return jsonify({'error': 'Transcription not configured'}), 503
+    
+    audio_file = request.files.get('audio')
+    if not audio_file:
+        return jsonify({'error': 'No audio file provided'}), 400
+    
+    response = requests.post(
+        'https://api.groq.com/openai/v1/audio/transcriptions',
+        headers={'Authorization': f'Bearer {GROQ_API_KEY}'},
+        files={'file': (audio_file.filename, audio_file.read())},
+        data={'model': 'whisper-large-v3'}
+    )
+    
+    if response.ok:
+        return jsonify({'text': response.json()['text']})
+    else:
+        return jsonify({'error': 'Transcription failed'}), 500
+```
+
+### 7.2 Add Environment Variable to Akash YAML
+```yaml
+env:
+  - GROQ_API_KEY=gsk_xxxxxxxxxxxx
+```
+
+**Estimated Time:** 4-6 hrs  
+**Dependencies:** Groq API key (free at console.groq.com)
+
+---
+
+## Phase 8: Akash Provider Research 🔍
+
+> **Status:** 🔴 Manual/Ad-hoc
+
+**The Problem:**
+> "We're throwing random YAMLs out there and seeing what works."
+
+### Known Provider Rules
+
+| Pattern | Status | Notes |
+|---------|--------|-------|
+| `*.akash.pub` | ✅ GOOD | Reliable ingress |
+| `*.akashprovid.com` | ✅ GOOD | Current production |
+| `*.akashgpu.com` | ✅ GOOD | GPU providers |
+| `*.akash-palmito.org` | ✅ GOOD | Current ingest |
+| `*.leet.haus` | ❌ AVOID | Broken networking |
+
+### 8.1 Create Provider Blacklist
+**File:** `deploy/akash/provider-blacklist.txt`
+
+```
+# Providers to avoid - broken ingress networking
+*.leet.haus
+```
+
+### 8.2 Create Deployment Rules Doc
+**File:** `docs/AKASH_DEPLOYMENT_RULES.md`
+- GPU requirements by tier
+- Provider selection criteria
+- YAML templates with comments
+- Cost optimization strategies
+
+### 8.3 Create Provider Analyzer
+**File:** `scripts/akash-provider-analyzer.py`
+- Query Akash API for provider stats
+- Score providers on reliability, price, GPU
+- Output recommended providers list
+
+**Estimated Time:** 6-8 hrs  
+**Dependencies:** Akash CLI or API access
+
+---
+
+## Phase 9: Scaling/Stress Testing 📊
+
+> **Status:** 🟡 Basic Only
+
+**What Exists:**
+- `test/integration/benchmark_models.py` - Single-user benchmarks
+
+**What's Missing:**
+- Concurrent user simulation
+- Load testing (multiple requests)
+- Stress testing (find breaking point)
+
+### 9.1 Create Load Test Suite
+**File:** `test/stress/load_test.py`
+
+```python
+#!/usr/bin/env python3
+import asyncio
+import aiohttp
+import time
+import statistics
+
+async def simulate_user(session, url, user_id, results):
+    prompts = ["Hello", "Write code", "Explain ML"]
+    
+    for prompt in prompts:
+        start = time.time()
+        try:
+            async with session.post(f"{url}/generate", json={"prompt": prompt}) as resp:
+                latency = (time.time() - start) * 1000
+                results.append({'user': user_id, 'status': resp.status, 'latency_ms': latency})
+        except Exception as e:
+            results.append({'user': user_id, 'error': str(e)})
+
+async def run_load_test(url, num_users):
+    results = []
+    async with aiohttp.ClientSession() as session:
+        tasks = [simulate_user(session, url, i, results) for i in range(num_users)]
+        await asyncio.gather(*tasks)
+    
+    latencies = [r['latency_ms'] for r in results if 'latency_ms' in r]
+    print(f"P50: {statistics.median(latencies):.0f}ms")
+    print(f"P95: {sorted(latencies)[int(len(latencies)*0.95)]:.0f}ms")
+
+# Usage: python load_test.py --users 10 --url https://api.trinityai.cc
+```
+
+**Estimated Time:** 6-8 hrs  
+**Dependencies:** aiohttp (dev dependency)
+
+---
+
+## Phase 10: Monetization 💰
+
+> **Status:** 🔴 Not Started
+
+### 10.1 Donations (2 hrs)
+```javascript
+// trinity-icp/src/ui/donate.js
+const DONATION_ADDRESSES = {
+    ICP: 'account-id-here',
+    AKT: 'akash1...address',
+    ETH: '0x...address'
+};
+```
+
+### 10.2 Usage Tracking (4-6 hrs)
+- Track queries per principal ID
+- Display usage stats in UI
+
+### 10.3 Tiered Access (16-24 hrs)
+- Free tier: TinyLlama, 100 queries/day
+- Basic ($10/mo): Llama 8B, unlimited
+- Pro ($50/mo): Llama 70B, priority
+
+**Recommendation:** Start with donations only.
+
+---
+
+## Dependencies Checklist
+
+### API Keys Needed
+- [ ] Groq API key (free) - for audio transcription
+
+### Access Required
+- [ ] Cloudflare dashboard - for DNS fixes
+- [ ] Akash Console - for deployments
+
+---
+
+## Related Documents
+
+- [CLAUDE.md](../CLAUDE.md) - Main architecture reference
+
+---
+
+## Future: Financial Library Integration
+
+**Goal:** Develop a useful way to utilize a vast library of financial media (280+ trading books) that does not exhaust all resources, cost a lot, or slow down the LLM. How can we make the library a useful tool?
+
+**Considerations:**
+- ChromaDB + sentence-transformers adds ~2.5GB to Docker image (too heavy)
+- Filecoin download on cold start adds 1-2 minutes (too slow)
+- Full RAG requires GPU memory that competes with LLM inference
+
+**Potential Approaches:**
+1. Pre-baked tips in system prompt (~2KB, zero dependencies)
+2. Lightweight keyword matching with JSON file (~100KB)
+3. External RAG service (separate container, on-demand)
+4. ICP canister for vector storage (permanent, ~$5/GB/year)
+
+---
+
+## Phase 11: Live Internet Features (Stock Data, News)
+
+> **Status:** 🔴 Not Started  
+> **Dependencies:** yfinance, feedparser (small ~5MB)  
+> **Docker Update:** Yes (once)
+
+### 11.1 Add Market Data Module
+**File:** `backend/market_data.py` (new)  
+**Time:** 2-3 hours
+
+Create caching layer for market data:
+```python
+CACHE_TTL = {
+    'quotes': 60,        # 1 minute - stock/crypto prices
+    'news': 300,         # 5 minutes - headlines
+    'calendar': 3600,    # 1 hour - economic events
+}
+
+_cache = {}
+
+def get_quote(symbols: list) -> dict:
+    """Fetch stock/crypto quotes via yfinance with caching."""
+    import yfinance as yf
+    cache_key = f"quote:{','.join(sorted(symbols))}"
+    if cache_key in _cache and time.time() - _cache[cache_key]['ts'] < CACHE_TTL['quotes']:
+        return _cache[cache_key]['data']
+    
+    data = yf.download(symbols, period='1d', progress=False)
+    # Format as dict with price, change, volume
+    result = format_quotes(data)
+    _cache[cache_key] = {'data': result, 'ts': time.time()}
+    return result
+```
+
+### 11.2 Add `/market/quote` Endpoint
+**File:** `backend/inference_server.py`  
+**Time:** 1 hour
+
+```python
+@app.route('/market/quote', methods=['GET'])
+def market_quote():
+    """Get real-time stock/crypto quotes."""
+    symbols = request.args.get('symbols', 'BTC-USD').split(',')
+    quotes = market_data.get_quote(symbols)
+    return jsonify(quotes)
+```
+
+### 11.3 Add `/market/news` Endpoint
+**File:** `backend/inference_server.py`  
+**Time:** 1 hour
+
+```python
+@app.route('/market/news', methods=['GET'])
+def market_news():
+    """Get aggregated financial news from RSS feeds."""
+    import feedparser
+    feeds = [
+        'https://feeds.finance.yahoo.com/rss/2.0/headline',
+        'https://www.coindesk.com/arc/outboundfeeds/rss/',
+    ]
+    # Aggregate and dedupe headlines
+    return jsonify(market_data.get_news(feeds))
+```
+
+### 11.4 Integrate with /generate (Tool Calling)
+**File:** `backend/inference_server.py`  
+**Time:** 2 hours
+
+When user asks about stock prices, Trinity fetches live data:
+```python
+# Detect market queries
+if any(kw in user_prompt.lower() for kw in ['price of', 'trading at', 'stock', 'btc', 'eth']):
+    # Extract symbols and fetch quotes
+    quotes = market_data.get_quote(extracted_symbols)
+    # Inject into prompt
+    prompt += f"\n[Live Market Data]\n{format_as_markdown_table(quotes)}\n"
+```
+
+### 11.5 Add Dependencies
+**File:** `backend/requirements.txt`
+
+```
+yfinance>=0.2.0
+feedparser>=6.0.0
+```
+
+**Verification:** Ask Trinity "What's Bitcoin trading at?" → Should return live price.
 

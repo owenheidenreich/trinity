@@ -191,50 +191,33 @@ dfx canister --network ic info trinity_frontend
 
 ## ☁️ Akash Backend Deployment
 
-### Step 1: Build and Push Docker Image
+### Unified Deployment (Recommended)
 ```bash
-cd deployment/prod
-./build.sh
-# Note the image tag: v2-YYYYMMDD-HHMMSS
+# Single command handles everything:
+# Local test → Docker build → Push → Akash deploy → Verify
+./scripts/trinity-deploy.sh
+
+# Prompts for tier selection:
+# 1) TinyLlama 1.1B - Testing (~$25/mo)
+# 2) Llama 3.1 8B - Balanced (~$50/mo)
+# 3) Qwen 2.5 72B - Complex (~$200/mo)
 ```
 
-### Step 2: Deploy via Akash Console
-1. Go to https://console.akash.network
-2. Click "Create Deployment" (or "Update Deployment" if updating)
-3. Select "SDL" tab
-4. Paste YAML from `deployment/prod/deploy-llama70.yaml`
-5. Update image tag to new version
-6. Click "Create Deployment"
-7. Wait for bids (~30-60 seconds)
-8. Select a bid (check price and provider)
-9. Accept bid
-10. Wait for deployment (~10-15 minutes for model download)
+### What the Script Does
+1. **Checks prerequisites** - Docker, provider-services CLI, wallet
+2. **Validates locally** - Python syntax, imports, Docker build, /health test
+3. **Pushes image** - To DockerHub with version tag
+4. **Deploys to Akash** - Creates deployment, selects provider, sends manifest
+5. **Updates Vercel proxy** - Points frontend to new backend URL
+6. **Verifies production** - Tests /health and /generate endpoints
 
-### Step 3: Copy New Akash URL
-- Format: `http://[hash].ingress.[provider].akash.pub`
-- Example: `http://hdol1m0mohfll4s4t8mhip33sg.ingress.a100.dsm.val.akash.pub`
-
-### Step 4: Update Cloudflare Worker
-1. Go to https://dash.cloudflare.com
-2. Navigate to Workers & Pages → `trinity-api-proxy`
-3. Click "Edit Code"
-4. Update `AKASH_BACKEND` constant with new URL
-5. Click "Save and Deploy"
-
-### Step 5: Update Frontend
+### Manual Verification
 ```bash
-cd trinity-icp/src
-# Edit config.js - update fallback Akash URL
-vim config.js
+# Check logs
+provider-services lease-logs --dseq <DSEQ> --provider <PROVIDER> --from trinity-wallet --keyring-backend os --node https://rpc.akashnet.net:443 --follow
 
-cd ../..
-dfx deploy --network ic trinity_frontend
-```
-
-### Step 6: Verify
-```bash
-curl https://api.trinityai.cc/health | jq .
-# Check for new build_timestamp
+# Close deployment
+provider-services tx deployment close --dseq <DSEQ> --from trinity-wallet --keyring-backend os --node https://rpc.akashnet.net:443 --chain-id akashnet-2 -y
 ```
 
 ---
@@ -296,20 +279,12 @@ curl https://api.trinityai.cc/health
 
 ### Environment Variable Update (Backend)
 ```bash
-# 1. Update YAML file
-vim deployment/prod/deploy-llama70.yaml
-# Add/modify env section
+# Use unified deploy script - handles everything:
+./scripts/trinity-deploy.sh
 
-# 2. Push with same Docker image
-# No need to rebuild - just update SDL
-
-# 3. Update Akash deployment
-# Console → Update Deployment → Paste YAML
-
-# 4. Wait for restart (~2-3 minutes)
-
-# 5. Verify
-curl https://api.trinityai.cc/health
+# Or update YAML files directly:
+# 1. Edit deploy/akash/deploy-tier*.yaml
+# 2. Run ./scripts/trinity-deploy.sh
 ```
 
 ---

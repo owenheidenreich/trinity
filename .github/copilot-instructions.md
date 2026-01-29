@@ -40,17 +40,19 @@ User Input → Frontend (ICP) → ICP Backend Canister → Vercel Proxy → Akas
 # Expect 20-30s cold start for first request
 ```
 
-### Deployment
+### Deployment (Unified Pipeline)
 ```bash
-./akash-deploy llama70b  # Build Docker image + prepare Akash YAML
-# Then manually deploy via https://console.akash.network
-cd trinity-icp && dfx deploy --ic trinity_frontend  # Deploy frontend
+./scripts/trinity-deploy.sh       # Interactive tier selection
+./scripts/trinity-deploy.sh 1     # Auto-select Tier 1 (TinyLlama ~$25/mo)
+./scripts/trinity-deploy.sh 2     # Auto-select Tier 2 (Llama 8B ~$50/mo)
+./scripts/trinity-deploy.sh 3     # Auto-select Tier 3 (Qwen 72B ~$200/mo)
+# Handles: Docker build → Push → Akash CLI deploy → Vercel update → ICP deploy → Verify
 ```
 
 ### Testing
 ```bash
-python3 test/integration/test_filecoin_integration.py  # 4/4 tests should pass
-curl https://api.trinityai.cc/health         # Backend health check
+python3 test/integration/test_filecoin_integration.py  # Integration tests
+curl https://vercel-proxy-swart-nine.vercel.app/health  # Backend health check
 ```
 
 ## Project-Specific Conventions
@@ -117,11 +119,18 @@ Reference: `trinity-icp/src/storage/autosave.js`
 ### Local vs Production
 | Feature | Local (TinyLlama) | Production (Akash) |
 |---------|-------------------|-------------------|
-| AI Inference | ✅ TinyLlama 1.1B | ✅ Llama 3.1 70B |
+| AI Inference | ✅ TinyLlama 1.1B | ✅ Tier 1/2/3 models |
 | Autosave | ❌ Not functional | ✅ Encrypted to disk |
 | Filecoin Archive | ❌ No Lighthouse config | ✅ Full archival via Lighthouse |
 | Context Memory | ⚠️ Works but not persisted | ✅ Full persistence |
-| Cost | Free | ~$50-60/month |
+| Cost | Free | ~$25-200/month (by tier) |
+
+### Model Tiers
+| Tier | Model | RAM | Cost |
+|------|-------|-----|------|
+| 1 | TinyLlama 1.1B | 4GB | ~$25/mo |
+| 2 | Llama 3.1 8B | 16GB | ~$50/mo |
+| 3 | Qwen2.5 72B | 64GB | ~$200/mo |
 
 **Testing Rule**: Storage features require Akash deployment. Local environment is for AI inference only.
 
@@ -131,7 +140,7 @@ Reference: `trinity-icp/src/storage/autosave.js`
 - **Ollama**: Model inference (local + Akash)
 - **Lighthouse SDK**: Direct IPFS + Filecoin storage with verified deals
 - **Vercel Proxy**: SSL termination for Akash (replaced Cloudflare)
-- **Akash Network**: Decentralized compute (manual deployment via console)
+- **Akash Network**: Decentralized compute (CLI deployment via `provider-services`)
 - **ICP**: Frontend + backend canister hosting (dfx deploy)
 
 ### API Endpoints

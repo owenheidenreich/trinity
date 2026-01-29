@@ -46,7 +46,7 @@ import ContextMemory from './state/contextMemory.js';
 import initRainbowBorders from './ui/rainbowBorder.js';
 import Validation from './utils/validation.js';
 import { generateViaCanister, healthCheckViaCanister, isCanisterConfigured } from './api/canister-client.js';
-import { initTools, getPersona, getAttachedContent, clearAttachment } from './tools.js';
+import { initTools, getAttachedContent, clearAttachment } from './tools.js';
 
 // ============================================================================
 // 1b. AUTHENTICATION - Imported from auth/authManager.js
@@ -153,7 +153,7 @@ const API = {
         return this.request('/health', { method: 'GET' });
     },
 
-    async generate(prompt, temperature = 0.7, skipContext = false, persona = 'trinity', documentContext = null) {
+    async generate(prompt, temperature = 0.7, skipContext = false, documentContext = null) {
         // =====================================================================
         // ROUTING: ICP Canister (decentralized) vs Direct HTTP (local dev)
         // =====================================================================
@@ -182,8 +182,6 @@ const API = {
             console.warn(`⚠️ CONTEXT DISABLED: skipContext=${skipContext}, contextMemory.length=${State.contextMemory.length}`);
         }
         
-        // Log persona and document context
-        console.log(`🎭 Persona: ${persona}`);
         if (documentContext) {
             console.log(`📄 Document attached: ${documentContext.length} chars`);
         }
@@ -192,7 +190,7 @@ const API = {
         if (CONFIG.USE_CANISTER && isCanisterConfigured()) {
             console.log('📡 Routing through ICP canister (decentralized path)');
             try {
-                const result = await generateViaCanister(sanitizedPrompt, contextMessages, persona, documentContext);
+                const result = await generateViaCanister(sanitizedPrompt, contextMessages, documentContext);
                 // Transform canister response to match legacy format
                 return {
                     generated_text: result.response,
@@ -212,8 +210,7 @@ const API = {
             prompt: sanitizedPrompt,
             max_length: -1,
             temperature,
-            principal: State.principal,
-            persona: persona
+            principal: State.principal
         };
         
         if (contextMessages.length > 0) {
@@ -462,15 +459,14 @@ const Actions = {
                 generatedText = CONFIG.TEST_RESPONSES[State.testResponseIndex % CONFIG.TEST_RESPONSES.length];
                 State.incrementTestResponseIndex();
             } else {
-                // Production - call API with persona and document context
+                // Production - call API with document context
                 console.log('📤 Sending request to:', `${CONFIG.API_URL}/generate`);
-                const currentPersona = getPersona();
                 const documentContent = getAttachedContent();
-                console.log('🎭 Using persona:', currentPersona);
+                
                 if (documentContent) {
                     console.log('📎 Including attached content:', documentContent.length, 'chars');
                 }
-                const data = await API.generate(prompt, 0.7, false, currentPersona, documentContent);
+                const data = await API.generate(prompt, 0.7, false, documentContent);
                 console.log('📥 Response data:', data);
                 
                 // Clear attachment after sending
@@ -1439,9 +1435,9 @@ async function init() {
     initRainbowBorders();
     console.log('✅ Rainbow border animations initialized');
 
-    // Initialize AI tools (Chat with Docs, Transcript Cleaner, PicklesGPT)
+    // Initialize file attachment tools
     initTools();
-    console.log('✅ AI Tools initialized');
+    console.log('✅ Tools initialized');
 
     // -------------------- Initial State --------------------
 

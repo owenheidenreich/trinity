@@ -72,8 +72,9 @@ pub struct GenerateResponse {
     pub done: bool,
 }
 
-/// Health check response from Akash backend /health/icp endpoint
-/// Contains only static/deterministic fields for ICP consensus
+/// Health check response from Akash backend /health endpoint
+/// Contains deterministic fields for ICP consensus
+/// Note: Some fields are optional for backwards compatibility with older backends
 #[derive(CandidType, Deserialize, Serialize, Clone, Debug)]
 pub struct HealthResponse {
     pub status: String,
@@ -81,9 +82,13 @@ pub struct HealthResponse {
     pub model: String,
     pub gpu_type: String,
     pub ollama_connected: bool,
-    pub build_timestamp: String,
-    pub version: String,
-    pub icp_compatible: bool,
+    // Optional fields - may not exist on older backend images
+    #[serde(default)]
+    pub build_timestamp: Option<String>,
+    #[serde(default)]
+    pub version: Option<String>,
+    #[serde(default)]
+    pub icp_compatible: Option<bool>,
 }
 
 /// Error response structure
@@ -183,12 +188,12 @@ fn generate_request_id(prefix: &str) -> String {
     format!("{}-{}-{}", prefix, canister_id, time_bucket)
 }
 
-/// Health check - forwards to Akash backend's ICP-specific endpoint
-/// Uses /health/icp which returns only deterministic data for consensus
+/// Health check - forwards to Akash backend's health endpoint
+/// Uses transform function to extract only deterministic fields for consensus
 #[ic_cdk::update]
 async fn health() -> Result<HealthResponse, ErrorResponse> {
-    // Use the ICP-specific health endpoint that returns deterministic data
-    let url = AKASH_URL.with(|u| format!("{}/health/icp", u.borrow()));
+    // Use the standard health endpoint (fallback from /health/icp)
+    let url = AKASH_URL.with(|u| format!("{}/health", u.borrow()));
     
     // Generate deterministic request ID for caching
     let request_id = generate_request_id("health");
@@ -548,10 +553,16 @@ fn transform_response(args: TransformArgs) -> HttpResponse {
             // Remove non-deterministic fields that might cause consensus failure
             // NOTE: gpu_type is deterministic (static per deployment) so we keep it
             if let Some(obj) = json.as_object_mut() {
+                // Time-varying fields
                 obj.remove("timestamp");
                 obj.remove("latency_ms");
                 obj.remove("tokens_generated");
                 obj.remove("prompt");
+                // Health endpoint specific dynamic fields
+                obj.remove("metrics");      // Contains uptime, request counts, etc.
+                obj.remove("system");       // Contains cpu_percent, memory stats
+                obj.remove("queue_size");   // Current queue length
+                obj.remove("max_queue_size"); // This is static but not needed
             }
             serde_json::to_vec(&json).unwrap_or(args.response.body)
         } else {

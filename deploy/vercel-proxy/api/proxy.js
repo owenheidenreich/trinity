@@ -9,7 +9,7 @@ import { URL } from 'url';
 // Akash backend URL from environment variable
 // Set via: vercel env add AKASH_URL production
 // Supports both http:// and https:// schemes
-const AKASH_BASE = process.env.AKASH_URL || 'https://9ibpulolihb210hu1uraei5q8o.ingress.a100.dsm.val.akash.pub';
+const AKASH_BASE = process.env.AKASH_URL || 'https://6i2rtl1m35a47bb0n47jr7c17c.ingress.a100.dsm.val.akash.pub';
 
 // Auto-detect protocol from URL
 const isHttps = AKASH_BASE.startsWith('https://');

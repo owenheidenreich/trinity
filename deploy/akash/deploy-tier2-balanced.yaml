@@ -2,7 +2,7 @@ version: "2.0"
 
 services:
   trinity:
-    image: gdubx/trinity-inference:v2-20260126-153616
+    image: gdubx/trinity-inference:latest
     env:
       - PROVIDER_ID=trinity-tier2-balanced
       - MODEL_NAME=llama3.1:8b
@@ -11,6 +11,8 @@ services:
       - MAX_QUEUE_SIZE=10
       - OLLAMA_HOST=http://localhost:11434
       - LIGHTHOUSE_API_KEY=cac651de.89f60066a4434ee98844288e220ad6dc
+      # Note: ChromaDB library not yet uploaded to Filecoin
+      # RAG will gracefully degrade - Trinity works without books
     expose:
       - port: 8000
         as: 80
@@ -32,11 +34,6 @@ profiles:
           attributes:
             vendor:
               nvidia:
-                - model: rtx3090
-                - model: rtx4090
-                - model: a10
-                - model: a40
-                - model: l40s
 
   placement:
     akash:

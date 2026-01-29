@@ -93,11 +93,9 @@ cd Trinity
 
 ### Deploy to Production
 ```bash
-# Build Docker image for Akash
-cd deploy/docker && ./build.sh
-
-# Deploy via Akash Console (manual)
-# Use deploy/akash/deploy-tinyllama-prod.yaml
+# Full automated deployment (local test → build → push → Akash → verify)
+./scripts/trinity-deploy.sh
+# Prompts for tier selection: 1=TinyLlama, 2=Llama8B, 3=Qwen72B
 
 # Deploy frontend to ICP
 cd trinity-icp && dfx deploy --ic trinity_frontend
@@ -177,7 +175,7 @@ Trinity/
 | **Compute** | Akash Network | Decentralized, cost-effective GPUs |
 | **Hosting** | ICP Canisters | Unstoppable, no servers |
 | **Storage** | Lighthouse SDK | IPFS + verified Filecoin deals |
-| **DNS** | Cloudflare (trinityai.cc) → ICP | Fast custom domain pointing to ICP |
+| **DNS** | trinityai.cc → ICP | Custom domain pointing directly to ICP |
 | **Proxy** | Vercel Edge | SSL termination for Akash |
 
 ---
@@ -221,13 +219,14 @@ Running Trinity costs real crypto:
 ## Roadmap
 
 - [x] Phase 1: Self-custody authentication (Ed25519)
-- [x] Phase 2: Encrypted autosave
-- [x] Phase 3: Filecoin archive via Lighthouse
-- [x] Phase 4: ICP backend canister (no Cloudflare)
+- [x] Phase 2: Encrypted autosave (AES-256-GCM)
+- [x] Phase 3: Filecoin archive via Lighthouse SDK
+- [x] Phase 4: ICP backend canister (HTTPS Outcalls)
 - [x] Phase 5: Custom domain (trinityai.cc → ICP)
-- [ ] Phase 6: Dynamic LLM tier routing
-- [ ] Phase 7: Donation/payment system
-- [ ] Phase 8: Open source release
+- [x] Phase 6: Unified CLI deployment pipeline
+- [ ] Phase 7: Lightweight RAG (FastEmbed + BM25)
+- [ ] Phase 8: Multi-tier LLM routing
+- [ ] Phase 9: Open source release
 
 ---
 
@@ -254,8 +253,8 @@ MIT License. Use it, fork it, improve it.
 
 - **Live App:** [trinityai.cc](https://trinityai.cc)
 - **ICP Canister:** [zc67k-kiaaa-aaaal-qtmiq-cai.icp0.io](https://zc67k-kiaaa-aaaal-qtmiq-cai.icp0.io)
-- **IPFS Mirror:** `ipfs://bafybeigylq4xs26nj23hzfrsmdw2iqutsrlgpakddebdrpqssdcboddsau`
 - **Documentation:** [docs/CLAUDE.md](docs/CLAUDE.md)
+- **Docker Hub:** [gdubx/trinity-inference](https://hub.docker.com/r/gdubx/trinity-inference)
 
 ---
 
