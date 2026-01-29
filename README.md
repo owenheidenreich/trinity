@@ -94,8 +94,13 @@ cd Trinity
 ### Deploy to Production
 ```bash
 # Full automated deployment (local test → build → push → Akash → verify)
-./scripts/trinity-deploy.sh
+./scripts/trinity-deploy-production.sh
 # Prompts for tier selection: 1=TinyLlama, 2=Llama8B, 3=Qwen72B
+
+# Or specify tier directly:
+./scripts/trinity-deploy-production.sh 1  # Tier 1: TinyLlama (~$25/mo)
+./scripts/trinity-deploy-production.sh 2  # Tier 2: Llama 8B (~$50/mo)
+./scripts/trinity-deploy-production.sh 3  # Tier 3: Qwen 72B (~$200/mo)
 
 # Deploy frontend to ICP
 cd trinity-icp && dfx deploy --ic trinity_frontend
@@ -150,6 +155,7 @@ Trinity/
 │   │   ├── auth/            # Ed25519 keypair management
 │   │   ├── state/           # Zustand store + context memory
 │   │   ├── storage/         # Autosave + Lighthouse SDK
+│   │   ├── modules/         # Archive + Funding transparency
 │   │   └── ui/              # Modular UI components
 │   └── src/backend_canister/ # Rust ICP canister
 ├── deploy/

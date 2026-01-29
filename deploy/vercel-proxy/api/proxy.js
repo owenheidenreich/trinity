@@ -1,6 +1,7 @@
 // Vercel Node.js Function - Dual-protocol proxy to Akash backend
 // Supports both HTTP and HTTPS backends with auto-detection
 // Handles SSL certificate issues by skipping cert verification for HTTPS
+// Supports SSE streaming for /generate/stream endpoint
 
 import https from 'https';
 import http from 'http';
@@ -18,6 +19,51 @@ function setCorsHeaders(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', '*');
+}
+
+// Streaming request handler - pipes chunks directly to client
+function makeStreamingRequest(url, options, body, res) {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    const protocol = parsed.protocol === 'https:' ? https : http;
+    const defaultPort = parsed.protocol === 'https:' ? 443 : 80;
+    
+    const requestOptions = {
+      hostname: parsed.hostname,
+      port: parsed.port || defaultPort,
+      path: parsed.pathname + parsed.search,
+      method: options.method || 'GET',
+      headers: options.headers || {},
+    };
+    
+    if (parsed.protocol === 'https:') {
+      requestOptions.rejectUnauthorized = false;
+    }
+    
+    const req = protocol.request(requestOptions, (response) => {
+      // Set SSE headers on client response
+      setCorsHeaders(res);
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
+      res.status(response.statusCode);
+      
+      // Pipe each chunk directly to client
+      response.on('data', chunk => {
+        res.write(chunk);
+      });
+      
+      response.on('end', () => {
+        res.end();
+        resolve();
+      });
+    });
+    
+    req.on('error', reject);
+    if (body) req.write(body);
+    req.end();
+  });
 }
 
 function makeRequest(url, options, body) {
@@ -76,7 +122,10 @@ export default async function handler(req, res) {
     }
     const targetUrl = `${baseUrl}${path}`;
     
-    console.log(`Proxying: ${req.method} ${path} -> ${targetUrl}${sessionUrl ? ' (private session)' : ''}`);
+    // Check if this is a streaming request
+    const isStreamingRequest = path.includes('/generate/stream');
+    
+    console.log(`Proxying: ${req.method} ${path} -> ${targetUrl}${isStreamingRequest ? ' (streaming)' : ''}`);
 
     // Collect request body
     let body = null;
@@ -95,6 +144,16 @@ export default async function handler(req, res) {
       forwardHeaders['content-length'] = Buffer.byteLength(body);
     }
 
+    // Use streaming handler for SSE endpoints
+    if (isStreamingRequest) {
+      await makeStreamingRequest(targetUrl, {
+        method: req.method,
+        headers: forwardHeaders,
+      }, body, res);
+      return;
+    }
+
+    // Standard request/response for non-streaming
     const response = await makeRequest(targetUrl, {
       method: req.method,
       headers: forwardHeaders,

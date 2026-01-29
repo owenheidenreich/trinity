@@ -211,7 +211,7 @@ const API = {
         console.log('☁️ Using direct HTTP path (local dev)');
         const body = {
             prompt: sanitizedPrompt,
-            max_length: -1,
+            max_length: 800,  // 800 tokens for detailed responses
             temperature,
             principal: State.principal
         };
@@ -224,10 +224,116 @@ const API = {
             body.documentContext = documentContext;
         }
 
-        return this.request('/generate', {
+        const result = await this.request('/generate', {
             method: 'POST',
             body: JSON.stringify(body)
         });
+        
+        // Transform response to include generated_text (backend returns 'response')
+        return {
+            generated_text: result.response || result.generated_text,
+            model: result.model,
+            provider_id: result.provider_id,
+            done: result.done
+        };
+    },
+
+    /**
+     * Generate with streaming - tokens appear as they're generated
+     * @param {string} prompt - User prompt
+     * @param {function} onToken - Callback for each token: (token) => void
+     * @param {function} onDone - Callback when complete: (fullText) => void
+     * @param {function} onError - Callback on error: (error) => void
+     * @param {object} options - Optional settings (temperature, skipContext, documentContext)
+     */
+    async generateStream(prompt, onToken, onDone, onError, options = {}) {
+        const { temperature = 0.7, skipContext = false, documentContext = null } = options;
+        
+        // Build context
+        let contextMessages = [];
+        if (!skipContext && State.contextMemory && State.contextMemory.length > 0) {
+            contextMessages = State.contextMemory.slice(-CONFIG.CONTEXT_WINDOW_SIZE * 2);
+        }
+        
+        const body = {
+            prompt: prompt.trim(),
+            max_length: 800,
+            temperature,
+            principal: State.principal,
+            contextMemory: contextMessages,
+        };
+        
+        if (documentContext) {
+            body.documentContext = documentContext;
+        }
+        
+        const url = `${CONFIG.API_URL}/generate/stream`;
+        console.log('🌊 Starting stream:', url);
+        
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                mode: 'cors',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(body),
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let fullText = '';
+            let buffer = '';
+            
+            while (true) {
+                const { done, value } = await reader.read();
+                
+                if (done) {
+                    console.log('🌊 Stream complete:', fullText.length, 'chars');
+                    onDone(fullText);
+                    break;
+                }
+                
+                // Decode chunk and add to buffer
+                buffer += decoder.decode(value, { stream: true });
+                
+                // Process complete SSE messages from buffer
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || ''; // Keep incomplete line in buffer
+                
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const data = JSON.parse(line.slice(6));
+                            
+                            if (data.token) {
+                                fullText += data.token;
+                                onToken(data.token, fullText);
+                            }
+                            
+                            if (data.done) {
+                                console.log('🌊 Stream done signal received');
+                            }
+                            
+                            if (data.error) {
+                                throw new Error(data.error);
+                            }
+                        } catch (e) {
+                            if (e.message !== 'Unexpected end of JSON input') {
+                                console.warn('SSE parse error:', e);
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('🌊 Stream error:', error);
+            onError(error);
+        }
     },
 
     // NEW ENDPOINTS FOR AUTOSAVE, ARCHIVE, ETC
@@ -445,13 +551,20 @@ const Actions = {
 
         // Debug: Log current context
         console.log('📝 Current context memory:', State.contextMemory.length, 'messages');
-        console.log('📝 Context:', State.contextMemory.map(m => `${m.role}: ${m.content.substring(0, 50)}...`));
 
-        // Show loading indicator
-        const loadingId = UI.showMessage('ai', '<div class="loading-dots"><span></span><span></span><span></span></div>');
+        // Create AI message div immediately for streaming
+        const { messagesContainer, chatArea } = UI.elements;
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'message ai';
+        messageDiv.id = 'msg-' + Date.now();
+        messagesContainer.appendChild(messageDiv);
+        
+        // Show cursor while waiting for first token
+        messageDiv.innerHTML = '<span class="streaming-cursor">▊</span>';
+        chatArea.scrollTop = chatArea.scrollHeight;
 
         try {
-            let generatedText;
+            let generatedText = '';
 
             console.log('🔍 TEST_MODE:', CONFIG.TEST_MODE, 'API_URL:', CONFIG.API_URL);
 
@@ -461,44 +574,51 @@ const Actions = {
                 await new Promise(r => setTimeout(r, 1000));
                 generatedText = CONFIG.TEST_RESPONSES[State.testResponseIndex % CONFIG.TEST_RESPONSES.length];
                 State.incrementTestResponseIndex();
+                messageDiv.innerHTML = DOMPurify.sanitize(marked.parse(generatedText));
             } else {
-                // Production - call API with document context
-                console.log('📤 Sending request to:', `${CONFIG.API_URL}/generate`);
+                // Production - use streaming API
+                console.log('🌊 Using streaming API:', `${CONFIG.API_URL}/generate/stream`);
                 const documentContent = getAttachedContent();
                 
                 if (documentContent) {
                     console.log('📎 Including attached content:', documentContent.length, 'chars');
                 }
-                const data = await API.generate(prompt, 0.7, false, documentContent);
-                console.log('📥 Response data:', data);
+                
+                // Stream tokens in real-time
+                await new Promise((resolve, reject) => {
+                    API.generateStream(
+                        prompt,
+                        // onToken - update message with each token
+                        (token, fullText) => {
+                            generatedText = fullText;
+                            // Re-render full content with markdown (Option A)
+                            messageDiv.innerHTML = DOMPurify.sanitize(marked.parse(fullText)) + 
+                                '<span class="streaming-cursor">▊</span>';
+                            chatArea.scrollTop = chatArea.scrollHeight;
+                        },
+                        // onDone - finalize message
+                        (fullText) => {
+                            generatedText = fullText;
+                            messageDiv.innerHTML = DOMPurify.sanitize(marked.parse(fullText));
+                            chatArea.scrollTop = chatArea.scrollHeight;
+                            resolve();
+                        },
+                        // onError - handle failures
+                        (error) => {
+                            reject(error);
+                        },
+                        { documentContext: documentContent }
+                    );
+                });
                 
                 // Clear attachment after sending
                 clearAttachment();
-
-                generatedText = data.generated_text;
-                console.log('✅ Generated text length:', generatedText ? generatedText.length : 0);
-
-                if (data.error) {
-                    throw new Error(data.error);
-                }
+                console.log('✅ Streamed text length:', generatedText.length);
             }
 
-            UI.removeMessage(loadingId);
-            UI.setLoading(false, State); // Ensure loading state is cleared
-
             if (generatedText) {
-                console.log('💬 Displaying message...');
+                console.log('💬 Adding to state...');
                 State.addMessage('assistant', generatedText);
-
-                // Create message div and append it, then animate
-                const { messagesContainer } = UI.elements;
-                const messageDiv = document.createElement('div');
-                messageDiv.className = 'message ai';
-                messageDiv.id = 'msg-' + Date.now();
-                messagesContainer.appendChild(messageDiv);
-
-                // Animate the typing
-                await UI.typeMessage(messageDiv, generatedText);
 
                 // Check if summarization is needed (after successful response)
                 if (State.chatHistory.length >= State.SUMMARY_INTERVAL && 
@@ -526,12 +646,11 @@ const Actions = {
                 }
             } else {
                 console.error('❌ No generated text received');
-                UI.showMessage('ai', '❌ No response generated');
+                messageDiv.innerHTML = '❌ No response generated';
             }
         } catch (error) {
             console.error('❌ Generate error:', error);
-            UI.removeMessage(loadingId);
-            UI.showMessage('ai', `❌ Request failed: ${error.message}`);
+            messageDiv.innerHTML = `❌ Request failed: ${error.message}`;
         } finally {
             UI.setGenerating(false, State);
         }

@@ -2,9 +2,9 @@
 
 > **Purpose:** Comprehensive documentation for AI assistants to quickly understand the Trinity project  
 > **Last Updated:** January 29, 2026  
-> **Last Verified:** January 29, 2026 - Full production deployment verified ✅  
-> **Status:** Production - Fully Decentralized Stack Operational  
-> **Version:** v3.1.0 (Lean Architecture - Unified CLI Deployment)
+> **Last Verified:** January 29, 2026 - Backend temporarily down for maintenance  
+> **Status:** Development - Streaming + UI Improvements Complete  
+> **Version:** v3.3.0 (Streaming Responses + Compact UI)
 
 ---
 
@@ -17,7 +17,7 @@
 | **Primary URL** | https://trinityai.cc |
 | **Canister URL** | https://zc67k-kiaaa-aaaal-qtmiq-cai.icp0.io |
 | **Vercel Proxy** | https://vercel-proxy-swart-nine.vercel.app |
-| **Docker Image** | `gdubx/trinity-inference:v2-YYYYMMDD-HHMMSS` (or `v3-fresh`) |
+| **Docker Image** | `gdubx/trinity-inference:v10-streaming` |
 | **Akash Wallet** | `akash155hphg6qyy3vtr584p38wlngtqxzdr0l6jutmp` |
 
 ---
@@ -25,13 +25,13 @@
 ## 🚀 Deployment (Single Command)
 
 ```bash
-./scripts/trinity-deploy.sh [tier]
+./scripts/trinity-deploy-production.sh [tier]
 
 # Examples:
-./scripts/trinity-deploy.sh      # Interactive tier selection
-./scripts/trinity-deploy.sh 1    # TinyLlama 1.1B (~$25/mo)
-./scripts/trinity-deploy.sh 2    # Llama 3.1 8B (~$50/mo)
-./scripts/trinity-deploy.sh 3    # Qwen 2.5 72B (~$200/mo)
+./scripts/trinity-deploy-production.sh      # Interactive tier selection
+./scripts/trinity-deploy-production.sh 1    # TinyLlama 1.1B (~$25/mo)
+./scripts/trinity-deploy-production.sh 2    # Llama 3.1 8B (~$50/mo)
+./scripts/trinity-deploy-production.sh 3    # Qwen 2.5 72B (~$200/mo)
 ```
 
 **The script handles EVERYTHING:**
@@ -78,11 +78,12 @@ Trinity/
 │       └── package.json         # Dependencies
 │
 ├── scripts/                     # 📜 AUTOMATION SCRIPTS
-│   ├── trinity-deploy.sh        # ⭐ MAIN DEPLOYMENT SCRIPT
+│   ├── trinity-deploy-production.sh  # ⭐ MAIN DEPLOYMENT SCRIPT
 │   ├── akash_deploy.py          # Akash CLI helper (Python)
 │   ├── dev.sh                   # Start local development
 │   ├── test-prod.sh             # Test production backend
 │   ├── switch-provider.sh       # Update Vercel proxy URL
+│   ├── trinity-test-local.sh    # Local testing script
 │   └── docker-cleanup.sh        # Clean Docker cache
 │
 ├── trinity-icp/                 # 🎨 FRONTEND (ICP)
@@ -120,7 +121,8 @@ Trinity/
 │       │   ├── notifications.js # Toast notifications
 │       │   └── rainbowBorder.js # Rainbow effects
 │       ├── modules/
-│       │   └── archive.js       # Filecoin archival
+│       │   ├── archive.js       # Filecoin archival
+│       │   └── funding.js       # Funding transparency panel
 │       ├── utils/
 │       │   └── validation.js    # Input validation
 │       └── backend_canister/    # ICP Backend (Rust)
@@ -350,7 +352,9 @@ docker build -t image:tag .
 
 ### Deploy Everything
 ```bash
-./scripts/trinity-deploy.sh 1  # Tier 1
+./scripts/trinity-deploy-production.sh 1  # Tier 1
+./scripts/trinity-deploy-production.sh 2  # Tier 2
+./scripts/trinity-deploy-production.sh 3  # Tier 3
 ```
 
 ### Frontend Only
@@ -403,6 +407,7 @@ dfx canister --network ic call au5zq-2qaaa-aaaal-qtowa-cai health
 | `/health/icp` | GET | No | ICP consensus health |
 | `/generate` | POST | No | LLM generation |
 | `/stats` | GET | No | Performance stats |
+| `/funding/status` | GET | No | Escrow balance + time remaining |
 | `/chat/autosave` | POST | ✅ | Save encrypted chat |
 | `/chat/list` | GET | ✅ | List user's chats |
 | `/chat/<id>` | GET | ✅ | Load specific chat |
@@ -454,11 +459,12 @@ Hard refresh: `Cmd+Shift+R` (Mac) or `Ctrl+Shift+R` (Windows/Linux)
 | Change auth flow | `trinity-icp/src/auth/authManager.js` |
 | Change autosave | `trinity-icp/src/storage/autosave.js` |
 | Change Filecoin archive | `trinity-icp/src/modules/archive.js` |
+| Change funding panel | `trinity-icp/src/modules/funding.js` |
 | Change environment config | `trinity-icp/src/config.js` |
 | Change Vercel proxy | `deploy/vercel-proxy/api/proxy.js` |
 | Change Akash deployment | `deploy/akash/deploy-tier*.yaml` |
 | Change Docker build | `deploy/docker/Dockerfile` |
-| Change deployment script | `scripts/trinity-deploy.sh` |
+| Change deployment script | `scripts/trinity-deploy-production.sh` |
 | Change ICP canister | `trinity-icp/src/backend_canister/src/lib.rs` |
 
 ---
@@ -473,8 +479,9 @@ Hard refresh: `Cmd+Shift+R` (Mac) or `Ctrl+Shift+R` (Windows/Linux)
 - Modular frontend architecture (Zustand)
 - ICP backend canister (HTTPS Outcalls)
 - Vercel SSL proxy
-- Unified CLI deployment pipeline (`trinity-deploy.sh`)
+- Unified CLI deployment pipeline (`trinity-deploy-production.sh`)
 - Custom domain (trinityai.cc)
+- Funding transparency (Akash escrow balance + ICP cycles)
 
 ### ⏳ Planned
 - Lightweight RAG (FastEmbed + BM25)
@@ -513,4 +520,4 @@ Hard refresh: `Cmd+Shift+R` (Mac) or `Ctrl+Shift+R` (Windows/Linux)
 
 ---
 
-*This document is maintained for AI assistants to quickly understand Trinity without re-exploring files. Last updated January 29, 2026.*
+*This document is maintained for AI assistants to quickly understand Trinity without re-exploring files. Last updated January 30, 2026.*

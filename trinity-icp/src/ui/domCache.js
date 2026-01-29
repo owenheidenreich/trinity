@@ -18,7 +18,6 @@ const DOMCache = {
             // New status panel elements
             statusPanel: document.getElementById('statusPanel'),
             infraStack: document.getElementById('infraStack'),
-            akashProvider: document.getElementById('akashProvider'),
             akashIndicator: document.getElementById('akashIndicator'),
             icpIndicator: document.getElementById('icpIndicator'),
             filecoinIndicator: document.getElementById('filecoinIndicator'),

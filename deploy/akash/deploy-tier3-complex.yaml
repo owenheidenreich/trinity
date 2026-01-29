@@ -35,6 +35,10 @@ services:
         as: 80
         to:
           - global: true
+        http_options:
+          read_timeout: 180000
+          send_timeout: 180000
+          max_body_size: 10485760
 
 profiles:
   compute:
@@ -43,9 +47,9 @@ profiles:
         cpu:
           units: 16
         memory:
-          size: 128Gi
+          size: 64Gi
         storage:
-          size: 200Gi
+          size: 150Gi
         gpu:
           units: 1
           attributes:
@@ -57,7 +61,7 @@ profiles:
       pricing:
         trinity:
           denom: uakt
-          amount: 100000
+          amount: 50000
 
 deployment:
   trinity:

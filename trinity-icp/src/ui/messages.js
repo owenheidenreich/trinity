@@ -160,7 +160,7 @@ const Messages = {
     updateConnectionStatus(connected, healthData, errorDetail) {
         const { 
             statusDot, statusText, 
-            akashProvider, akashIndicator, icpIndicator, filecoinIndicator,
+            akashIndicator, icpIndicator, filecoinIndicator,
             modelName, modelBadge,
             providerInfo, modelInfo // Legacy fallback
         } = this.elements;
@@ -170,19 +170,47 @@ const Messages = {
             return;
         }
 
+        // Always attach infrastructure modal handlers (regardless of connection state)
+        const gpuType = healthData?.gpu_type || 'GPU';
+        const model = healthData?.model || 'Unknown';
+        
+        const akashStatus = document.getElementById('akashStatus');
+        if (akashStatus && !akashStatus._handlerAttached) {
+            akashStatus._handlerAttached = true;
+            akashStatus.onclick = (e) => {
+                e.preventDefault();
+                import('./modals.js').then(({ default: Modals }) => {
+                    Modals.showAkashProviderModal('provider.akashprovid.com', gpuType, model);
+                });
+            };
+        }
+        
+        const icpStatus = document.getElementById('icpStatus');
+        if (icpStatus && !icpStatus._handlerAttached) {
+            icpStatus._handlerAttached = true;
+            icpStatus.onclick = (e) => {
+                e.preventDefault();
+                import('./modals.js').then(({ default: Modals }) => {
+                    Modals.showICPModal('zc67k-kiaaa-aaaal-qtmiq-cai');
+                });
+            };
+        }
+        
+        const filecoinStatus = document.getElementById('filecoinStatus');
+        if (filecoinStatus && !filecoinStatus._handlerAttached) {
+            filecoinStatus._handlerAttached = true;
+            filecoinStatus.onclick = (e) => {
+                e.preventDefault();
+                import('./modals.js').then(({ default: Modals }) => {
+                    Modals.showFilecoinStorageModal();
+                });
+            };
+        }
+
         if (connected && healthData) {
             statusDot.classList.remove('disconnected');
             statusDot.classList.add('connected');
             statusText.textContent = 'Connected';
-            
-            // Extract info from health data
-            const gpuType = healthData.gpu_type || 'GPU';
-            const model = healthData.model || 'Unknown';
-            
-            // Update Akash provider display - show GPU type, not deployment name
-            if (akashProvider) {
-                akashProvider.textContent = `provider.akashprovid.com (${gpuType})`;
-            }
             
             // Update status indicators
             if (icpIndicator) icpIndicator.textContent = '●';
@@ -192,42 +220,6 @@ const Messages = {
             // Update model name
             if (modelName) {
                 modelName.textContent = model;
-            }
-            
-            // Set up click handlers for all infrastructure modals
-            const akashStatus = document.getElementById('akashStatus');
-            if (akashStatus && !akashStatus._handlerAttached) {
-                akashStatus._handlerAttached = true;
-                akashStatus.onclick = (e) => {
-                    e.preventDefault();
-                    import('./modals.js').then(({ default: Modals }) => {
-                        Modals.showAkashProviderModal('provider.akashprovid.com', gpuType, model);
-                    });
-                };
-            }
-            
-            // ICP modal handler
-            const icpStatus = document.getElementById('icpStatus');
-            if (icpStatus && !icpStatus._handlerAttached) {
-                icpStatus._handlerAttached = true;
-                icpStatus.onclick = (e) => {
-                    e.preventDefault();
-                    import('./modals.js').then(({ default: Modals }) => {
-                        Modals.showICPModal('zc67k-kiaaa-aaaal-qtmiq-cai');
-                    });
-                };
-            }
-            
-            // Filecoin modal handler
-            const filecoinStatus = document.getElementById('filecoinStatus');
-            if (filecoinStatus && !filecoinStatus._handlerAttached) {
-                filecoinStatus._handlerAttached = true;
-                filecoinStatus.onclick = (e) => {
-                    e.preventDefault();
-                    import('./modals.js').then(({ default: Modals }) => {
-                        Modals.showFilecoinStorageModal();
-                    });
-                };
             }
             
             // Model modal handler
@@ -259,7 +251,6 @@ const Messages = {
             if (filecoinIndicator) filecoinIndicator.textContent = '○';
             
             if (modelName) modelName.textContent = 'Offline';
-            if (akashProvider) akashProvider.textContent = errorDetail || 'Connection failed';
             
             // Legacy support
             if (providerInfo) providerInfo.textContent = errorDetail || 'Check Akash deployment';

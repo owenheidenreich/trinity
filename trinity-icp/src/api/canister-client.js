@@ -112,6 +112,8 @@ const idlFactory = ({ IDL }) => {
         set_akash_url: IDL.Func([IDL.Text], [Result_Unit], []),
         get_akash_url: IDL.Func([], [IDL.Text], ['query']),
         get_canister_info: IDL.Func([], [IDL.Text], ['query']),
+        get_cycle_balance: IDL.Func([], [IDL.Nat], ['query']),
+        get_funding_info: IDL.Func([], [IDL.Text], ['query']),
         health: IDL.Func([], [Result_Health], []),
         generate: IDL.Func([GenerateRequest, AuthHeaders, IDL.Text], [Result_Generate], []),
     });
@@ -300,6 +302,22 @@ export async function getAkashUrl() {
 export async function getCanisterInfo() {
     const actor = await getActor();
     return await actor.get_canister_info();
+}
+
+/**
+ * Get ICP cycle balance and funding info
+ * 
+ * @returns {Promise<Object>} Funding info with cycles, USD estimate, etc.
+ */
+export async function getFundingInfo() {
+    try {
+        const actor = await getActor();
+        const infoStr = await actor.get_funding_info();
+        return JSON.parse(infoStr);
+    } catch (error) {
+        console.warn('Failed to get funding info:', error);
+        return null;
+    }
 }
 
 /**

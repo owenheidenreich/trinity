@@ -794,6 +794,64 @@ def get_akt_price_usd() -> Optional[float]:
     return None
 
 
+# Cache for escrow balance query
+_escrow_cache = {'data': None, 'timestamp': 0, 'ttl': 300}  # 5 min cache
+
+
+def get_escrow_balance() -> Optional[Dict]:
+    """
+    Query deployment escrow balance from Akash blockchain.
+    Returns escrow balance in AKT and calculated time remaining.
+    """
+    global _escrow_cache
+    
+    now = time.time()
+    
+    # Return cached data if fresh
+    if _escrow_cache['data'] and (now - _escrow_cache['timestamp']) < _escrow_cache['ttl']:
+        return _escrow_cache['data']
+    
+    try:
+        api_url = "https://akash-rest.publicnode.com/akash/escrow/v1beta3/accounts/list"
+        params = {
+            'filters.owner': AKASH_WALLET_ADDRESS,
+            'filters.state': 'open'
+        }
+        
+        response = requests.get(api_url, params=params, timeout=15)
+        
+        if response.status_code == 200:
+            data = response.json()
+            accounts = data.get('accounts', [])
+            
+            if accounts:
+                total_uakt = 0
+                for account in accounts:
+                    balance = account.get('balance', {})
+                    total_uakt += int(balance.get('amount', 0))
+                
+                escrow_akt = total_uakt / 1_000_000
+                
+                result_data = {
+                    'escrow_balance_akt': round(escrow_akt, 4),
+                    'active_deployments': len(accounts),
+                    'source': 'blockchain'
+                }
+                
+                _escrow_cache['data'] = result_data
+                _escrow_cache['timestamp'] = now
+                logger.info(f"Fetched escrow balance: {escrow_akt:.4f} AKT from {len(accounts)} deployment(s)")
+                return result_data
+        else:
+            logger.warning(f"Akash escrow API returned status {response.status_code}")
+    except requests.exceptions.Timeout:
+        logger.warning("Timeout querying Akash escrow balance")
+    except Exception as e:
+        logger.warning(f"Failed to query escrow balance: {e}")
+    
+    return None
+
+
 # Cache for lease price query
 _lease_price_cache = {'data': None, 'timestamp': 0, 'ttl': 300}  # 5 min cache
 
@@ -945,11 +1003,27 @@ def funding_status():
     # Fetch fresh data
     akt_price = get_akt_price_usd()
     akash_info = get_akash_deployment_info()
+    escrow_info = get_escrow_balance()
+    
+    # Add escrow balance and calculate hours remaining
+    if escrow_info:
+        escrow_akt = escrow_info.get('escrow_balance_akt', 0)
+        akash_info['escrow_balance_akt'] = escrow_akt
+        akash_info['active_deployments'] = escrow_info.get('active_deployments', 0)
+        
+        # Calculate hours remaining from escrow ÷ hourly cost
+        hourly_cost = akash_info.get('hourly_cost_akt', 0.15)
+        if hourly_cost > 0 and escrow_akt > 0:
+            hours_remaining = escrow_akt / hourly_cost
+            akash_info['hours_remaining'] = round(hours_remaining, 1)
+            akash_info['days_remaining'] = round(hours_remaining / 24, 1)
     
     # Calculate USD values if we have AKT price
     if akt_price:
         akash_info['hourly_cost_usd'] = round(akash_info.get('hourly_cost_akt', 0) * akt_price, 4)
         akash_info['daily_cost_usd'] = round(akash_info.get('daily_cost_akt', 0) * akt_price, 2)
+        if 'escrow_balance_akt' in akash_info:
+            akash_info['escrow_balance_usd'] = round(akash_info['escrow_balance_akt'] * akt_price, 2)
     
     funding_data = {
         'timestamp': int(now * 1000),
@@ -1284,7 +1358,7 @@ def generate():
             raise ValueError("No JSON data provided")
         
         user_prompt = data.get('prompt', '')
-        max_length = data.get('max_length', 150)
+        max_length = data.get('max_length', 800)  # Default to 800 tokens for longer responses
         context_memory = data.get('contextMemory', [])
         principal = data.get('principal')  # Optional for unauthenticated requests
         document_context = data.get('documentContext')  # Optional attached document
@@ -1349,7 +1423,7 @@ def generate():
                 "stream": False,
                 "options": ollama_options
             },
-            timeout=120
+            timeout=300  # 5 minutes for large models like Qwen 72B
         )
         
         if response.status_code != 200:
@@ -1408,6 +1482,123 @@ def generate():
         
     finally:
         metrics.end_request()
+
+
+# ============================================================================
+# STREAMING GENERATE ENDPOINT
+# ============================================================================
+
+@app.route('/generate/stream', methods=['POST'])
+def generate_stream():
+    """
+    Generate text using AI model with Server-Sent Events (SSE) streaming.
+    Tokens are sent as they're generated for real-time display.
+    
+    Request JSON: Same as /generate
+    Response: SSE stream with data: {"token": "..."} events
+    """
+    from flask import Response, stream_with_context
+    
+    # Check capacity
+    if metrics.active_requests >= MAX_QUEUE_SIZE:
+        return jsonify({'error': 'Server at capacity'}), 503
+    
+    metrics.start_request()
+    
+    try:
+        data = request.json
+        if not data:
+            raise ValueError("No JSON data provided")
+        
+        user_prompt = data.get('prompt', '')
+        max_length = data.get('max_length', 800)
+        context_memory = data.get('contextMemory', [])
+        principal = data.get('principal')
+        document_context = data.get('documentContext')
+        temperature = data.get('temperature', 0.7)
+        
+        # Load user memory if principal provided
+        user_memory = None
+        if principal:
+            try:
+                user_memory = load_user_memory(principal)
+            except Exception:
+                pass
+        
+        # Prepend document context if attached
+        if document_context:
+            doc_prefix = f"[Attached Document]\n{document_context[:30000]}\n[End Document]\n\nBased on the above document, "
+            user_prompt = doc_prefix + user_prompt
+        
+        # Build full prompt
+        full_prompt = build_prompt_with_context(user_prompt, context_memory, user_memory)
+        
+        logger.info(f"🌊 Streaming request: {len(user_prompt.split())} words, {len(context_memory)} ctx")
+        
+        def generate_sse():
+            """Generator that yields SSE-formatted chunks"""
+            try:
+                # Call Ollama with streaming enabled
+                response = requests.post(
+                    f"{OLLAMA_HOST}/api/generate",
+                    json={
+                        "model": MODEL_NAME,
+                        "prompt": full_prompt,
+                        "stream": True,
+                        "options": {
+                            "num_predict": max_length,
+                            "temperature": temperature,
+                        }
+                    },
+                    stream=True,
+                    timeout=300
+                )
+                
+                if response.status_code != 200:
+                    yield f"data: {json.dumps({'error': 'Ollama error'})}\n\n"
+                    return
+                
+                full_response = ""
+                for line in response.iter_lines():
+                    if line:
+                        try:
+                            chunk = json.loads(line)
+                            token = chunk.get('response', '')
+                            full_response += token
+                            
+                            # Send token to client
+                            yield f"data: {json.dumps({'token': token})}\n\n"
+                            
+                            # Check if done
+                            if chunk.get('done', False):
+                                yield f"data: {json.dumps({'done': True, 'model': MODEL_NAME})}\n\n"
+                                break
+                        except json.JSONDecodeError:
+                            continue
+                
+                metrics.record_request(True, len(full_response.split()), 0)
+                
+            except Exception as e:
+                logger.error(f"Streaming error: {e}")
+                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            finally:
+                metrics.end_request()
+        
+        return Response(
+            stream_with_context(generate_sse()),
+            mimetype='text/event-stream',
+            headers={
+                'Cache-Control': 'no-cache',
+                'Connection': 'keep-alive',
+                'X-Accel-Buffering': 'no',  # Disable nginx buffering
+            }
+        )
+        
+    except Exception as e:
+        metrics.end_request()
+        logger.error(f"Stream setup error: {e}")
+        return jsonify({'error': str(e)}), 500
+
 
 # ============================================================================
 # NEW ENDPOINTS: CHAT PERSISTENCE & ARCHIVE
@@ -1991,7 +2182,7 @@ def call_ollama_for_tools(prompt: str, temperature: float = 0.7) -> str:
                 "stream": False,
                 "options": {"temperature": temperature}
             },
-            timeout=120
+            timeout=300  # 5 minutes for large models
         )
         response.raise_for_status()
         return response.json().get('response', '')

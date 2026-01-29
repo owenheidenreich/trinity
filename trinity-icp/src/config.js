@@ -11,11 +11,25 @@
 // ============================================================================
 
 // Current app version - increment to force cache clear on updates
-const APP_VERSION = '2.6.1';
+const APP_VERSION = '2.6.2';
 
 // Default production API URL (Vercel Proxy → Akash)
 // Note: Akash URLs change on each deployment, Vercel proxy abstracts this
-const DEFAULT_API_URL = 'https://vercel-proxy-swart-nine.vercel.app';
+const PRODUCTION_API_URL = 'https://vercel-proxy-swart-nine.vercel.app';
+const MOCK_API_URL = 'http://localhost:8000';
+
+// Auto-detect mock mode: use localhost if mock server is running or if explicitly set
+const isMockMode = () => {
+    // Check for explicit override
+    if (typeof window !== 'undefined' && window.TRINITY_MOCK_MODE) return true;
+    if (typeof window !== 'undefined' && window.TRINITY_API_URL) return false;
+    // Check if we're on localhost with mock server
+    if (typeof window !== 'undefined' && window.location.protocol === 'file:') return true;
+    if (typeof window !== 'undefined' && window.location.hostname === 'localhost' && window.location.port !== '5173') return true;
+    return false;
+};
+
+const DEFAULT_API_URL = isMockMode() ? MOCK_API_URL : PRODUCTION_API_URL;
 
 // ICP Backend Canister ID
 const BACKEND_CANISTER_ID = 'au5zq-2qaaa-aaaal-qtowa-cai';
@@ -29,7 +43,9 @@ const CONFIG = {
     API_URL: DEFAULT_API_URL,
     
     // ICP Canister settings
-    USE_CANISTER: true,  // Route through ICP backend canister for decentralization
+    // DISABLED: ICP HTTPS outcalls have ~20s timeout, Tier 3 (72B) needs 60s+
+    // Direct HTTP path via Vercel proxy works without timeout issues
+    USE_CANISTER: false,  // Route through ICP backend canister for decentralization
     BACKEND_CANISTER_ID: BACKEND_CANISTER_ID,
     
     // Test mode - when true, uses mock responses instead of real API
@@ -170,71 +186,14 @@ const CONFIG = {
     // switchModel(modelName) { ... }
     // =========================================================================
     
-    // =========================================================================
-    // PRIVATE SESSION MANAGEMENT
-    // =========================================================================
-    
     /**
-     * Get the effective API URL (private session if active, otherwise default)
-     * @returns {string} The API URL to use for requests
-     */
-    getEffectiveApiUrl() {
-        const session = this.getActiveSession();
-        if (session && session.endpoint) {
-            return session.endpoint;
-        }
-        return this.API_URL;
-    },
-    
-    /**
-     * Get the active private session, if any
-     * @returns {Object|null} Session data or null
-     */
-    getActiveSession() {
-        const stored = localStorage.getItem('trinity_private_session');
-        if (!stored) return null;
-        
-        try {
-            const session = JSON.parse(stored);
-            const expiry = new Date(session.expires_at);
-            
-            if (expiry > new Date()) {
-                return session;
-            } else {
-                // Session expired, clean up
-                localStorage.removeItem('trinity_private_session');
-                return null;
-            }
-        } catch (e) {
-            localStorage.removeItem('trinity_private_session');
-            return null;
-        }
-    },
-    
-    /**
-     * Check if a private session is active
-     * @returns {boolean}
-     */
-    hasActiveSession() {
-        return this.getActiveSession() !== null;
-    },
-    
-    /**
-     * Get headers for API requests (includes session header for private sessions)
+     * Get headers for API requests
      * @returns {Object} Headers object
      */
     getApiHeaders() {
-        const headers = {
+        return {
             'Content-Type': 'application/json'
         };
-        
-        const session = this.getActiveSession();
-        if (session && session.endpoint) {
-            // Tell Vercel proxy to route to private session
-            headers['X-Trinity-Session'] = session.endpoint;
-        }
-        
-        return headers;
     }
 };
 

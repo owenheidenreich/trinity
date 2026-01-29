@@ -42,10 +42,10 @@ User Input → Frontend (ICP) → ICP Backend Canister → Vercel Proxy → Akas
 
 ### Deployment (Unified Pipeline)
 ```bash
-./scripts/trinity-deploy.sh       # Interactive tier selection
-./scripts/trinity-deploy.sh 1     # Auto-select Tier 1 (TinyLlama ~$25/mo)
-./scripts/trinity-deploy.sh 2     # Auto-select Tier 2 (Llama 8B ~$50/mo)
-./scripts/trinity-deploy.sh 3     # Auto-select Tier 3 (Qwen 72B ~$200/mo)
+./scripts/trinity-deploy-production.sh       # Interactive tier selection
+./scripts/trinity-deploy-production.sh 1     # Auto-select Tier 1 (TinyLlama ~$25/mo)
+./scripts/trinity-deploy-production.sh 2     # Auto-select Tier 2 (Llama 8B ~$50/mo)
+./scripts/trinity-deploy-production.sh 3     # Auto-select Tier 3 (Qwen 72B ~$200/mo)
 # Handles: Docker build → Push → Akash CLI deploy → Vercel update → ICP deploy → Verify
 ```
 
@@ -146,6 +146,7 @@ Reference: `trinity-icp/src/storage/autosave.js`
 ### API Endpoints
 - `/health`: Status check (no auth)
 - `/generate`: AI inference (no auth)
+- `/funding/status`: Escrow balance + time remaining (no auth)
 - `/chat/autosave`: Save encrypted chat (Ed25519 required)
 - `/chat/list`: List user's chats (Ed25519 required)
 - `/chat/<id>`: Load specific chat (Ed25519 required)

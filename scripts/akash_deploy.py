@@ -31,6 +31,24 @@ TIERS = {
     3: {"yaml": "deploy-tier3-complex.yaml", "desc": "Qwen 2.5 72B (Intelligence)", "cost": "~$200/mo"},
 }
 
+# Preferred providers - known for reliability, SSL certs, high uptime
+# Priority order: Providers with verified GPU infrastructure
+# Note: These were selected based on successful deployments and response times
+PREFERRED_PROVIDERS = [
+    # Praetor providers - generally reliable with good SSL
+    "akash1qf0l5wacr507ujzpdchw3q3u39sa9e2r9eh9xs",  # vp70.praetor.dev
+    "akash1qtur5t9znz2majyhs4vyqg7sqw7xrgncjl6qc5",  # provider-b41.praetorapp.com
+    "akash1q00m6pm5y58mzdhxavra26j8g9l904dz29g98e",  # vp10.praetorapp.com
+    "akash1q4h9a3wznpmtt0rd6jk7fzhu6tv2gph23x7u9f",  # k3s-insider.praetorapp.com
+    # NextGen GPUs - enterprise grade
+    "akash1q8gxtdmtudp96g5yuywj65m5sk36szfh3u7gac",  # nextgengpus.akash.pub
+]
+
+# Providers to AVOID - known issues with timeouts, SSL, or reliability
+BLOCKED_PROVIDERS = [
+    # Add any problematic providers here after testing
+]
+
 def run_cmd(cmd, capture=True, timeout=120):
     """Run a shell command and return output"""
     try:
@@ -203,7 +221,7 @@ def create_deployment(yaml_path, image_tag):
         os.unlink(temp_yaml)
 
 def get_bids(wallet_addr, dseq):
-    """Get bids for a deployment, sorted by price (cheapest first)"""
+    """Get bids for a deployment, prioritizing preferred providers then by price"""
     stdout, stderr, code = run_cmd(
         f"provider-services query market bid list "
         f"--owner {wallet_addr} --dseq {dseq} "
@@ -217,23 +235,48 @@ def get_bids(wallet_addr, dseq):
         data = json.loads(stdout)
         bids = data.get("bids", [])
         
-        # Extract and sort by price
+        # Extract providers with prices
         provider_prices = []
         for bid in bids:
             # Structure is bid.id.provider (not bid.bid_id.provider)
             provider = bid.get("bid", {}).get("id", {}).get("provider", "")
             price_str = bid.get("bid", {}).get("price", {}).get("amount", "999999999")
             if provider:
+                # Skip blocked providers
+                if provider in BLOCKED_PROVIDERS:
+                    print(f"  ⚠️  Skipping blocked provider: {provider[:20]}...")
+                    continue
+                    
                 # Price can be a decimal string like "424.781000000000000000"
                 try:
                     price = float(price_str)
                 except:
                     price = 999999999.0
-                provider_prices.append((provider, price))
+                    
+                # Check if preferred
+                is_preferred = provider in PREFERRED_PROVIDERS
+                preferred_rank = PREFERRED_PROVIDERS.index(provider) if is_preferred else 999
+                
+                provider_prices.append((provider, price, is_preferred, preferred_rank))
         
-        # Sort by price ascending
-        provider_prices.sort(key=lambda x: x[1])
-        return provider_prices
+        # Sort by: 1) preferred first, 2) within preferred by rank, 3) by price
+        # This gives preference to known-good providers even if slightly more expensive
+        provider_prices.sort(key=lambda x: (
+            0 if x[2] else 1,  # Preferred providers first
+            x[3],              # Within preferred, by rank order
+            x[1]               # Then by price
+        ))
+        
+        # Log sorting result
+        if provider_prices:
+            top = provider_prices[0]
+            if top[2]:
+                print(f"  ⭐ Preferred provider available: {top[0][:30]}...")
+            else:
+                print(f"  ℹ️  No preferred providers bidding, using cheapest")
+        
+        # Return just provider and price (for compatibility)
+        return [(p[0], p[1]) for p in provider_prices]
     except Exception as e:
         print(f"  Error parsing bids: {e}")
         return []
@@ -469,11 +512,28 @@ def main():
             continue
         print("OK")
         
-        # Wait for container
-        print("  Waiting for container", end="", flush=True)
+        # Wait for container - much longer timeout for Tier 3 (72B model)
+        # Tier 3 can take 15-20+ minutes to pull the model on first deploy
+        if selected_tier == 1:
+            max_wait = 120   # 2 min for TinyLlama
+        elif selected_tier == 2:
+            max_wait = 300   # 5 min for Llama 8B  
+        else:
+            max_wait = 900   # 15 min for Qwen 72B (it's huge!)
+        
+        print(f"  Waiting for container (up to {max_wait//60} min for Tier {selected_tier})...")
         uri = None
-        for i in range(30):
-            time.sleep(5)
+        start_time = time.time()
+        check_count = 0
+        for i in range(max_wait // 10):  # Check every 10 seconds
+            time.sleep(10)
+            check_count += 1
+            elapsed = int(time.time() - start_time)
+            
+            # Show progress every 30 seconds
+            if elapsed % 30 == 0:
+                print(f"    [{elapsed//60}m {elapsed%60}s] Still waiting for container...")
+            
             status = get_lease_status(dseq, provider)
             if status:
                 # Try to find URI in forwarded_ports
@@ -489,7 +549,11 @@ def main():
                 
                 if uri:
                     break
-            print(".", end="", flush=True)
+            # Print progress every 30 seconds
+            if check_count % 6 == 0:
+                print(f" [{elapsed}s]", end="", flush=True)
+            else:
+                print(".", end="", flush=True)
         
         if uri:
             print(f" READY!")
