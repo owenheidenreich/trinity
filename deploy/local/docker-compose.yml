@@ -1,24 +1,24 @@
 services:
   trinity:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      platforms:
-        - linux/amd64
-    
-    image: gdubx/trinity-inference:latest
+    # Use production image for consistency
+    image: gdubx/trinity-inference:v3-fresh
     platform: linux/amd64
-    container_name: trinity-inference-local
+    container_name: trinity-local-test
     
     ports:
       - "8000:8000"
     
     environment:
       - PROVIDER_ID=docker-local-test
-      - MODEL_NAME=phi3
+      - MODEL_NAME=tinyllama
       - GPU_TYPE=CPU
       - MAX_QUEUE_SIZE=10
       - OLLAMA_HOST=http://localhost:11434
+      - TRINITY_TEST_MODE=true
+      - CHATS_DIR=/var/lib/trinity/chats
+    
+    volumes:
+      - trinity-test-data:/var/lib/trinity/chats
     
     deploy:
       resources:
@@ -36,3 +36,6 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+volumes:
+  trinity-test-data:
