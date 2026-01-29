@@ -11,8 +11,6 @@ services:
       - MAX_QUEUE_SIZE=10
       - OLLAMA_HOST=http://localhost:11434
       - LIGHTHOUSE_API_KEY=cac651de.89f60066a4434ee98844288e220ad6dc
-      # Note: ChromaDB library not yet uploaded to Filecoin
-      # RAG will gracefully degrade - Trinity works without books
     expose:
       - port: 8000
         as: 80
