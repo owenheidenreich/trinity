@@ -47,10 +47,10 @@
                         <span class="infra-label">Akash</span>
                         <span class="infra-status" id="akashIndicator">●</span>
                     </a>
-                    <a href="#" class="infra-btn" id="filecoinStatus" title="Storage · Filecoin&#10;Lighthouse SDK → IPFS">
+                    <a href="#" class="infra-btn" id="ipfsStatus" title="Storage · IPFS&#10;Lighthouse SDK → Permanent Storage">
                         <span class="infra-icon">◉</span>
-                        <span class="infra-label">Filecoin</span>
-                        <span class="infra-status" id="filecoinIndicator">●</span>
+                        <span class="infra-label">IPFS</span>
+                        <span class="infra-status" id="ipfsIndicator">●</span>
                     </a>
                 </div>
                 
@@ -111,8 +111,8 @@
                         <input type="file" id="fileInput" accept=".txt,.md,.json,.pdf,.doc,.docx,.py,.js,.ts,.html,.css" style="display: none;">
                         
                         <textarea id="promptInput" placeholder="Ask anything..." rows="1"
-                            onkeydown="handleKeyDown(event)" oninput="autoResize(this)"></textarea>
-                        <button class="send-btn" id="sendBtn" onclick="generate()" disabled>➤</button>
+                            oninput="autoResize(this)"></textarea>
+                        <button class="send-btn" id="sendBtn" disabled>➤</button>
                     </div>
                     <div class="input-hint" id="inputHint">
                         <span id="fileLimitHint">Files: up to 100KB</span>

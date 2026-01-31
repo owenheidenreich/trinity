@@ -3,8 +3,8 @@
 > **Purpose:** Comprehensive documentation for AI assistants to quickly understand the Trinity project  
 > **Last Updated:** January 31, 2026  
 > **Last Verified:** January 31, 2026  
-> **Status:** Development - Security hardening complete  
-> **Version:** v3.5.0 (Backend Validation + Rate Limiting)
+> **Status:** Production - Agentic Pipeline verified working  
+> **Version:** v3.6.0 (Agentic Multi-Pass Reasoning Pipeline)
 
 ---
 
@@ -17,7 +17,7 @@
 | **Primary URL** | https://trinityai.cc |
 | **Canister URL** | https://zc67k-kiaaa-aaaal-qtmiq-cai.icp0.io |
 | **Vercel Proxy** | https://vercel-proxy-swart-nine.vercel.app |
-| **Docker Image** | `gdubx/trinity-inference:v10-streaming` |
+| **Docker Image** | `gdubx/trinity-inference:v3-agent` |
 | **Akash Wallet** | `akash155hphg6qyy3vtr584p38wlngtqxzdr0l6jutmp` |
 
 ---
@@ -33,6 +33,12 @@
 ./scripts/trinity-deploy-production.sh 2    # Llama 3.1 8B (~$50/mo)
 ./scripts/trinity-deploy-production.sh 3    # Qwen 2.5 72B (~$200/mo)
 ```
+
+**⚠️ IMPORTANT FOR AI ASSISTANTS:**
+- **DO NOT run the deployment script and then run other commands** - this will interrupt/cancel the deployment
+- If the user says they are running the deployment, **wait for them to report the result**
+- The deployment script takes 5-10 minutes to complete - do not run `sleep` or other commands that would interrupt it
+- Only check terminal output if the user asks or reports an issue
 
 **The script handles EVERYTHING:**
 1. Prerequisites check (Docker, provider-services CLI, wallet)
@@ -55,9 +61,30 @@ Trinity/
 ├── README.md                    # Project overview
 │
 ├── backend/                     # 🖥️ FLASK BACKEND
-│   ├── inference_server.py      # Main server (endpoints, auth, encryption)
+│   ├── inference_server.py      # Main server (endpoints, Flask app)
 │   ├── icp_auth.py              # Ed25519 signature verification
-│   └── requirements.txt         # Python dependencies
+│   ├── config.py                # Environment configuration
+│   ├── encryption.py            # AES-256-GCM encryption
+│   ├── storage.py               # File storage operations
+│   ├── lighthouse.py            # IPFS/Filecoin uploads
+│   ├── validation.py            # Input validation
+│   ├── requirements.txt         # Python dependencies
+│   ├── middleware/              # Request middleware
+│   │   ├── __init__.py
+│   │   ├── rate_limit.py        # Rate limiting
+│   │   └── icp_cache.py         # ICP caching
+│   ├── services/                # Business logic
+│   │   ├── __init__.py
+│   │   ├── prompts.py           # System prompts
+│   │   ├── metrics.py           # Stats collection
+│   │   ├── akash.py             # Akash blockchain API
+│   │   ├── agent.py             # 🆕 Agentic pipeline orchestrator
+│   │   ├── agent_prompts.py     # 🆕 Multi-pass prompts + XML parsing
+│   │   ├── complexity.py        # 🆕 Question complexity classifier
+│   │   ├── search.py            # 🆕 Brave web search integration
+│   │   └── loading_messages.py  # 🆕 Whimsical loading phrases
+│   └── routes/                  # (Reserved for future)
+│       └── __init__.py
 │
 ├── deploy/                      # 🚀 DEPLOYMENT CONFIGS
 │   ├── akash/                   # Akash SDL manifests
@@ -119,7 +146,8 @@ Trinity/
 │       │   ├── sidebar.js       # Chat list
 │       │   ├── modals.js        # Dialog boxes
 │       │   ├── notifications.js # Toast notifications
-│       │   └── rainbowBorder.js # Rainbow effects
+│       │   ├── rainbowBorder.js # Rainbow effects
+│       │   └── loadingMessages.js # 🆕 Whimsical loading phrases
 │       ├── modules/
 │       │   ├── archive.js       # Filecoin archival
 │       │   └── funding.js       # Funding transparency panel
@@ -130,19 +158,6 @@ Trinity/
 │           ├── Cargo.toml       # Rust dependencies
 │           └── trinity_backend.did  # Candid interface
 │
-├── test/                        # 🧪 TESTING
-│   ├── integration/             # Integration tests
-│   │   ├── test_filecoin_integration.py
-│   │   ├── test_auth_backend.py
-│   │   ├── test_autosave_integration.py
-│   │   ├── test_context_memory.py
-│   │   ├── test_llm_response.py
-│   │   ├── test_signature_verification.py
-│   │   └── benchmark_models.py
-│   └── local/                   # Local test configs
-│       ├── docker-compose.local.yml
-│       └── start-local.sh
-│
 └── docs/                        # 📚 DOCUMENTATION
     ├── CLAUDE.md                # This file
     ├── diagrams/
@@ -150,6 +165,59 @@ Trinity/
     └── user/
         └── quickstart.md
 ```
+
+---
+
+## 🧠 Agentic Pipeline (v3.6.0)
+
+Trinity uses a multi-pass reasoning pipeline that routes questions by complexity:
+
+### Complexity Routing
+| Complexity | Passes | Pipeline |
+|------------|--------|----------|
+| **Simple** | 1 | Direct answer |
+| **Medium** | 3 | Understand → Execute → Critique |
+| **Complex** | 5 | Understand → Plan → Execute → Critique → Refine |
+
+### Automatic Detection
+- **Complexity**: Word count, question marks, technical terms
+- **Web Search**: Keywords like "current", "today", "price", "bitcoin", "latest"
+
+### Pass Timeouts
+| Pass | Timeout | Token Limit |
+|------|---------|-------------|
+| Understand | 120s | 1000 |
+| Plan | 120s | 1000 |
+| Execute | 300s (5 min) | 4000 |
+| Critique | 120s | 1000 |
+| Refine | 300s (5 min) | 4000 |
+| Search | 30s | N/A |
+
+### Data Persistence
+| Data | Saved | Where |
+|------|-------|-------|
+| User messages | ✅ | Encrypted autosave |
+| Final AI answer | ✅ | Encrypted autosave |
+| Understanding | ❌ | Ephemeral (internal) |
+| Planning | ❌ | Ephemeral (internal) |
+| Critique | ❌ | Ephemeral (internal) |
+| Search results | ❌ | Ephemeral (in prompt) |
+| Phase messages | ❌ | UI only |
+
+### Key Files
+- `backend/services/agent.py` - Pipeline orchestrator
+- `backend/services/agent_prompts.py` - Pass prompts + XML parsing
+- `backend/services/complexity.py` - Question classifier
+- `backend/services/search.py` - Brave web search
+- `backend/services/loading_messages.py` - Whimsical phrases
+- `trinity-icp/src/app.js` - `generateAgent()` function
+
+### Tier Requirements
+| Tier | Model | Agentic Support |
+|------|-------|-----------------|
+| 1 | TinyLlama 1.1B | ❌ Too small for XML parsing |
+| 2 | Llama 8B | ✅ Works well |
+| 3 | Qwen 32B | ✅ Best results |
 
 ---
 
@@ -409,14 +477,22 @@ cd trinity-icp && npm run build && dfx deploy --ic trinity_frontend
 ## 🧪 Testing
 
 ```bash
-# Integration tests
-python3 test/integration/test_filecoin_integration.py
-
 # Health check
 curl https://vercel-proxy-swart-nine.vercel.app/health
 
+# Test LLM response
+curl -X POST https://vercel-proxy-swart-nine.vercel.app/generate \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "What is 2+2?", "max_length": 50}'
+
 # ICP canister health
 dfx canister --network ic call au5zq-2qaaa-aaaal-qtowa-cai health
+
+# Local development
+./dev
+
+# Test against production (stops local backend first)
+./test-prod
 ```
 
 ---
@@ -492,6 +568,253 @@ Hard refresh: `Cmd+Shift+R` (Mac) or `Ctrl+Shift+R` (Windows/Linux)
 | Change Docker build | `deploy/docker/Dockerfile` |
 | Change deployment script | `scripts/trinity-deploy-production.sh` |
 | Change ICP canister | `trinity-icp/src/backend_canister/src/lib.rs` |
+
+---
+
+## 🔄 Workflow Checklists (CRITICAL)
+
+> **AI ASSISTANT RULE:** Before making ANY change, identify which section(s) are affected and complete the FULL checklist for each. This prevents broken deployments and missed dependencies.
+
+### Section Dependency Map
+
+```
+Frontend ←→ Config ←→ Backend ←→ Docker ←→ Akash
+   ↓           ↓          ↓
+  UI         ICP      Services
+   ↓                     ↓
+  CSS              Middleware
+```
+
+---
+
+### 🐳 DOCKER Workflow Checklist
+
+**When to use:** Any change to `backend/*.py`, `backend/**/`, or `deploy/docker/*`
+
+| Step | Check | Files |
+|------|-------|-------|
+| 1 | ☐ All Python files have valid syntax | `python3 -m py_compile backend/*.py` |
+| 2 | ☐ All imports exist and are correct | Check `import` statements in changed files |
+| 3 | ☐ Dockerfile COPY includes all needed files/dirs | `deploy/docker/Dockerfile` |
+| 4 | ☐ requirements.txt includes all dependencies | `backend/requirements.txt` |
+| 5 | ☐ Build passes locally | `docker build --platform linux/amd64 -t test .` |
+| 6 | ☐ Container starts without import errors | Check startup logs |
+| 7 | ☐ Push to Docker Hub | `docker push gdubx/trinity-inference:tag` |
+| 8 | ☐ Update Akash YAML with new image tag | `deploy/akash/deploy-tier*.yaml` |
+
+**Files that MUST be in Dockerfile COPY:**
+```dockerfile
+COPY backend/inference_server.py .
+COPY backend/icp_auth.py .
+COPY backend/config.py .
+COPY backend/encryption.py .
+COPY backend/storage.py .
+COPY backend/lighthouse.py .
+COPY backend/validation.py .
+COPY backend/middleware/ ./middleware/
+COPY backend/services/ ./services/
+COPY backend/routes/ ./routes/
+COPY deploy/docker/startup.sh .
+```
+
+**Common Docker Failures:**
+- `ModuleNotFoundError` → Missing directory in COPY
+- Container exits immediately → Check startup.sh permissions
+- Port not accessible → EXPOSE 8000 missing
+
+---
+
+### 🖥️ BACKEND Workflow Checklist
+
+**When to use:** Any change to `backend/inference_server.py` or `backend/services/*`
+
+| Step | Check | Files |
+|------|-------|-------|
+| 1 | ☐ Python syntax valid | `python3 -m py_compile backend/inference_server.py` |
+| 2 | ☐ All imports exist | Check import statements |
+| 3 | ☐ All decorators applied correctly | `@require_auth`, `@rate_limit` |
+| 4 | ☐ Route paths match frontend expectations | Compare with `trinity-icp/src/app.js` API calls |
+| 5 | ☐ Request/response format matches frontend | JSON field names must match |
+| 6 | ☐ Config variables used consistently | Check `backend/config.py` |
+| 7 | ☐ Docker workflow completed | See Docker checklist above |
+
+**Backend Module Structure:**
+```
+backend/
+├── inference_server.py   # Main routes, Flask app
+├── icp_auth.py           # Auth decorators, signature verification
+├── config.py             # Environment config
+├── encryption.py         # AES-256-GCM encryption
+├── storage.py            # File storage operations
+├── lighthouse.py         # IPFS/Filecoin uploads
+├── validation.py         # Input validation functions
+├── middleware/           # Rate limiting, caching
+│   ├── __init__.py
+│   ├── rate_limit.py
+│   └── icp_cache.py
+├── services/             # Business logic
+│   ├── __init__.py
+│   ├── prompts.py        # System prompts
+│   ├── metrics.py        # Stats collection
+│   └── akash.py          # Akash blockchain API
+└── routes/               # (Reserved for future)
+    └── __init__.py
+```
+
+---
+
+### 🎨 FRONTEND Workflow Checklist
+
+**When to use:** Any change to `trinity-icp/src/*`
+
+| Step | Check | Files |
+|------|-------|-------|
+| 1 | ☐ JavaScript syntax valid | Vite build will catch errors |
+| 2 | ☐ All imports exist | Check import paths |
+| 3 | ☐ API endpoints match backend | Compare with `backend/inference_server.py` |
+| 4 | ☐ Zustand state uses setter methods | Never `State.prop = value` |
+| 5 | ☐ Build succeeds | `cd trinity-icp && npm run build` |
+| 6 | ☐ Test in browser | Check console for errors |
+| 7 | ☐ Deploy to ICP | `dfx deploy --ic trinity_frontend` |
+
+**Frontend Module Structure:**
+```
+trinity-icp/src/
+├── app.js              # Main application entry
+├── config.js           # Environment detection
+├── index.html          # HTML template
+├── styles.css          # All CSS
+├── tools.js            # Tools dropdown
+├── api/
+│   └── canister-client.js  # ICP backend client
+├── auth/
+│   ├── authManager.js      # Keypair management
+│   └── keyExportModal.js   # Key display modal
+├── state/
+│   ├── store.js            # Zustand store
+│   └── contextMemory.js    # Memory compression
+├── storage/
+│   ├── autosave.js         # Debounced save
+│   └── lighthouse.js       # Filecoin client
+├── ui/
+│   ├── domCache.js         # DOM element refs
+│   ├── messages.js         # Message rendering
+│   ├── sidebar.js          # Chat list
+│   ├── modals.js           # Dialog boxes
+│   ├── notifications.js    # Toasts
+│   └── rainbowBorder.js    # Effects
+└── modules/
+    ├── archive.js          # Filecoin archival
+    └── funding.js          # Funding panel
+```
+
+---
+
+### 🌐 AKASH Workflow Checklist
+
+**When to use:** Deploying to Akash or changing `deploy/akash/*`
+
+| Step | Check | Files |
+|------|-------|-------|
+| 1 | ☐ Docker image pushed to Docker Hub | `docker push gdubx/trinity-inference:tag` |
+| 2 | ☐ YAML has correct image tag | `deploy/akash/deploy-tier*.yaml` |
+| 3 | ☐ YAML has correct environment variables | Check `env:` section |
+| 4 | ☐ Deployment created successfully | Check for DSEQ |
+| 5 | ☐ Bid accepted from reliable provider | Avoid `*.leet.haus` |
+| 6 | ☐ Lease status shows URI | Note the ingress URL |
+| 7 | ☐ Logs show "Server ready" | `provider-services lease-logs ...` |
+| 8 | ☐ Health endpoint responds | `curl https://<url>/health` |
+| 9 | ☐ Vercel proxy updated with new URL | `./scripts/switch-provider.sh` |
+| 10 | ☐ Frontend ICP canister redeployed | `dfx deploy --ic trinity_frontend` |
+
+**Provider Reliability:**
+- ✅ GOOD: `*.pcgameservers.com`, `*.akash.pub`
+- ❌ AVOID: `*.leet.haus`, `*.quanglong.org`
+
+---
+
+### 🔵 ICP Workflow Checklist
+
+**When to use:** Changes to ICP canisters or frontend deployment
+
+| Step | Check | Files |
+|------|-------|-------|
+| 1 | ☐ dfx.json has correct canister IDs | `trinity-icp/dfx.json` |
+| 2 | ☐ canister_ids.json matches | `trinity-icp/canister_ids.json` |
+| 3 | ☐ Frontend builds successfully | `npm run build` |
+| 4 | ☐ For backend canister: Rust compiles | `cargo build --target wasm32-unknown-unknown` |
+| 5 | ☐ Deploy command succeeds | `dfx deploy --ic <canister>` |
+| 6 | ☐ Verify canister accessible | Test in browser |
+
+**Canister IDs:**
+- Frontend: `zc67k-kiaaa-aaaal-qtmiq-cai`
+- Backend: `au5zq-2qaaa-aaaal-qtowa-cai`
+
+---
+
+### 🎭 CSS/UI Workflow Checklist
+
+**When to use:** Visual changes to `styles.css` or UI components
+
+| Step | Check | Files |
+|------|-------|-------|
+| 1 | ☐ CSS syntax valid | Browser dev tools will show errors |
+| 2 | ☐ Colors match design system | See UI/UX section |
+| 3 | ☐ Mobile responsive | Test at 375px width |
+| 4 | ☐ Dark theme consistency | No jarring light elements |
+| 5 | ☐ No console errors | Check browser console |
+| 6 | ☐ Build and deploy | Frontend workflow |
+
+**Design System:**
+- Background: `#1a1a1a`, Surfaces: `#2d2d2d`
+- Text: `#ffffff`, Secondary: `#bbb`
+- Borders: `#3d3d3d`
+- Border radius: 6px buttons, 8px modals
+
+---
+
+### 🧠 MEMORY Workflow Checklist
+
+**When to use:** Changes to context memory or user memory
+
+| Step | Check | Files |
+|------|-------|-------|
+| 1 | ☐ Frontend contextMemory.js logic correct | `trinity-icp/src/state/contextMemory.js` |
+| 2 | ☐ Backend prompt builder matches | `backend/services/prompts.py` |
+| 3 | ☐ Memory window size consistent | 6 messages frontend, matches backend |
+| 4 | ☐ Summarization triggers correctly | Every 15 messages |
+| 5 | ☐ User memory endpoint works | `/user/memory` GET/POST |
+| 6 | ☐ Test multi-turn conversation | Verify context is maintained |
+
+---
+
+### 💾 STORAGE Workflow Checklist
+
+**When to use:** Changes to autosave, encryption, or Lighthouse
+
+| Step | Check | Files |
+|------|-------|-------|
+| 1 | ☐ Frontend autosave.js correct | `trinity-icp/src/storage/autosave.js` |
+| 2 | ☐ Backend storage.py matches | `backend/storage.py` |
+| 3 | ☐ Encryption uses AES-256-GCM | `backend/encryption.py` |
+| 4 | ☐ Lighthouse API key configured | `LIGHTHOUSE_API_KEY` env var |
+| 5 | ☐ IPFS upload/download works | Test with real data |
+| 6 | ☐ Debounce timing correct | 2-second debounce |
+
+---
+
+### 🤖 MODEL Workflow Checklist
+
+**When to use:** Changes to prompts, model config, or reasoning
+
+| Step | Check | Files |
+|------|-------|-------|
+| 1 | ☐ System prompt is clear | `backend/services/prompts.py` |
+| 2 | ☐ Model name matches tier | `deploy/akash/deploy-tier*.yaml` |
+| 3 | ☐ Token limits appropriate | Check `max_length` in frontend |
+| 4 | ☐ Reasoning prompt forces thinking | `/think` command works |
+| 5 | ☐ Prompt doesn't confuse small models | No role markers for TinyLlama |
+| 6 | ☐ Test actual responses | Chat in production |
 
 ---
 

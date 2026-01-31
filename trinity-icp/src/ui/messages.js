@@ -160,7 +160,7 @@ const Messages = {
     updateConnectionStatus(connected, healthData, errorDetail) {
         const { 
             statusDot, statusText, 
-            akashIndicator, icpIndicator, filecoinIndicator,
+            akashIndicator, icpIndicator, ipfsIndicator,
             modelName, modelBadge,
             providerInfo, modelInfo // Legacy fallback
         } = this.elements;
@@ -196,13 +196,13 @@ const Messages = {
             };
         }
         
-        const filecoinStatus = document.getElementById('filecoinStatus');
-        if (filecoinStatus && !filecoinStatus._handlerAttached) {
-            filecoinStatus._handlerAttached = true;
-            filecoinStatus.onclick = (e) => {
+        const ipfsStatus = document.getElementById('ipfsStatus');
+        if (ipfsStatus && !ipfsStatus._handlerAttached) {
+            ipfsStatus._handlerAttached = true;
+            ipfsStatus.onclick = (e) => {
                 e.preventDefault();
                 import('./modals.js').then(({ default: Modals }) => {
-                    Modals.showFilecoinStorageModal();
+                    Modals.showIPFSStorageModal();
                 });
             };
         }
@@ -215,7 +215,7 @@ const Messages = {
             // Update status indicators
             if (icpIndicator) icpIndicator.textContent = '●';
             if (akashIndicator) akashIndicator.textContent = '●';
-            if (filecoinIndicator) filecoinIndicator.textContent = '●';
+            if (ipfsIndicator) ipfsIndicator.textContent = '●';
             
             // Update model name
             if (modelName) {

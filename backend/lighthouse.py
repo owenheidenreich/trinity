@@ -1,6 +1,6 @@
 """
-Trinity Backend - Lighthouse/Filecoin Module
-IPFS pinning + Filecoin verified storage via Lighthouse
+Trinity Backend - IPFS Storage Module
+IPFS pinning via Lighthouse (free 1GB tier)
 """
 
 import logging
@@ -12,12 +12,12 @@ from config import LIGHTHOUSE_API_KEY, LIGHTHOUSE_NODE, LIGHTHOUSE_API, LIGHTHOU
 logger = logging.getLogger(__name__)
 
 
-def upload_to_filecoin(file_data: bytes, filename: str, principal_id: str = None, is_master_bundle: bool = False) -> Optional[str]:
+def upload_to_ipfs(file_data: bytes, filename: str, principal_id: str = None, is_master_bundle: bool = False) -> Optional[str]:
     """
-    Upload file to IPFS + Filecoin via Lighthouse.
+    Upload file to IPFS via Lighthouse.
     
-    Lighthouse automatically queues uploaded content for Filecoin verified deals.
-    The CID is available immediately via IPFS; Filecoin deal seals in 1-24 hours.
+    Lighthouse provides free IPFS pinning (1GB). Content is available
+    immediately via IPFS gateways.
 
     Args:
         file_data: The encrypted data to upload
@@ -120,59 +120,7 @@ def get_lighthouse_uploads(principal_id: str = None, file_type: str = None) -> l
         return []
 
 
-def get_filecoin_deal_status(cid: str) -> dict:
-    """
-    Check Filecoin deal status for a CID.
-    
-    Filecoin deals typically take 1-24 hours to be created and sealed.
-
-    Args:
-        cid: IPFS content identifier
-
-    Returns:
-        Dict with deal status information
-    """
-    if not cid:
-        return {'status': 'error', 'message': 'No CID provided'}
-
-    try:
-        response = requests.get(
-            f'{LIGHTHOUSE_API}/api/lighthouse/deal_status?cid={cid}',
-            timeout=30
-        )
-
-        if response.status_code == 200:
-            deals = response.json()
-            
-            if not deals or len(deals) == 0:
-                return {
-                    'status': 'pending',
-                    'message': 'Filecoin deal not yet created (can take 1-24 hours)',
-                    'deals': []
-                }
-            
-            return {
-                'status': 'active',
-                'message': 'Stored on Filecoin',
-                'deals': deals
-            }
-        else:
-            return {
-                'status': 'unknown',
-                'message': f'Could not check deal status: {response.status_code}',
-                'deals': []
-            }
-
-    except Exception as e:
-        logger.error(f'Deal status check failed: {e}')
-        return {
-            'status': 'error',
-            'message': str(e),
-            'deals': []
-        }
-
-
-def download_from_filecoin(cid: str) -> Optional[bytes]:
+def download_from_ipfs(cid: str) -> Optional[bytes]:
     """
     Download file from IPFS via multiple gateways for redundancy.
     

@@ -51,9 +51,34 @@ User Input → Frontend (ICP) → ICP Backend Canister → Vercel Proxy → Akas
 
 ### Testing
 ```bash
-python3 test/integration/test_filecoin_integration.py  # Integration tests
 curl https://vercel-proxy-swart-nine.vercel.app/health  # Backend health check
+./test-prod  # Test production in browser
 ```
+
+## 🔄 MANDATORY: Workflow Checklists
+
+**BEFORE making ANY change, identify which section is affected and complete the FULL checklist.**
+
+See `docs/CLAUDE.md#workflow-checklists-critical` for complete checklists:
+- **DOCKER**: Any backend Python file or `deploy/docker/*` change
+- **BACKEND**: Any `backend/inference_server.py` or `backend/services/*` change
+- **FRONTEND**: Any `trinity-icp/src/*` change
+- **AKASH**: Any deployment or `deploy/akash/*` change
+- **ICP**: Any canister deployment
+- **CSS/UI**: Any `styles.css` or UI component change
+- **MEMORY**: Any context or user memory change
+- **STORAGE**: Any autosave or encryption change
+- **MODEL**: Any prompt or model config change
+
+**Example: Changing backend code**
+1. ☐ Python syntax valid
+2. ☐ All imports exist
+3. ☐ Dockerfile COPY includes all files/dirs
+4. ☐ Docker build passes
+5. ☐ Container starts without errors
+6. ☐ Push to Docker Hub
+7. ☐ Update Akash YAML
+8. ☐ Redeploy
 
 ## Project-Specific Conventions
 
@@ -154,10 +179,9 @@ Reference: `trinity-icp/src/storage/autosave.js`
 
 ### File Structure Conventions
 - Frontend modules: `trinity-icp/src/` with clear separation (auth/, state/, storage/, ui/)
-- Backend: `backend/` for Python production code
+- Backend: `backend/` with modular structure (services/, middleware/, routes/)
 - Deploy configs: `deploy/` with docker/, akash/, local/ subfolders
-- Tests: `test/` with integration/ and local/ subdirs
-- Docs: `docs/` with authoritative CLAUDE.md reference
+- Docs: `docs/` with authoritative CLAUDE.md reference (includes workflow checklists)
 
 ## Common Pitfalls
 

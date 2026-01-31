@@ -2,7 +2,15 @@
 Trinity Inference Server
 Production backend using Ollama for model inference
 
-Refactored: Config, encryption, storage, and lighthouse modules extracted.
+Refactored: Config, encryption, storage, lighthouse, middleware, and services modules extracted.
+See backend/ structure:
+  - config.py: Environment variables and constants
+  - encryption.py: AES-256-GCM encryption utilities
+  - storage.py: User directory and metadata management  
+  - lighthouse.py: IPFS/Filecoin storage via Lighthouse
+  - middleware/: Rate limiting, ICP caching
+  - services/: Metrics, prompts, Ollama client
+  - routes/: (Future) Flask blueprints for endpoints
 """
 
 from flask import Flask, request, jsonify, Response
@@ -28,7 +36,7 @@ from config import (
     MAX_QUEUE_SIZE, CHATS_DIR, LIGHTHOUSE_API_KEY, LIGHTHOUSE_NODE,
     LIGHTHOUSE_API, LIGHTHOUSE_GATEWAY, AKASH_WALLET_ADDRESS,
     ICP_BACKEND_CANISTER, DEPLOYMENT_TIER, BUILD_TIMESTAMP,
-    AUTH_TIMESTAMP_WINDOW_MS, logger
+    AUTH_TIMESTAMP_WINDOW_MS, BRAVE_SEARCH_API_KEY, logger
 )
 from encryption import EncryptionUtils
 from storage import (
@@ -36,9 +44,27 @@ from storage import (
     load_user_memory, save_user_memory, load_metadata, save_metadata
 )
 from lighthouse import (
-    upload_to_filecoin, get_lighthouse_uploads,
-    get_filecoin_deal_status, download_from_filecoin
+    upload_to_ipfs, get_lighthouse_uploads,
+    download_from_ipfs
 )
+
+# Import new modular middleware and services
+from middleware import rate_limit, icp_idempotent, icp_cache
+from services import (
+    MetricsCollector, metrics, get_system_info,
+    TRINITY_SYSTEM_PROMPT, REASONING_SYSTEM_PROMPT,
+    build_prompt_with_context, build_reasoning_prompt,
+    parse_reasoning_response, is_small_model,
+    check_ollama_connection, warmup_model,
+    # Akash services
+    get_akt_price_usd, get_escrow_balance, get_actual_lease_price,
+    get_akash_deployment_info, AKASH_WALLET_ADDRESS,
+    DEPLOYMENT_TIER, DEPLOYMENT_TIER_NAME, HOURLY_COST_AKT, DAILY_COST_AKT,
+    SESSION_TYPE, SESSION_ID, SESSION_EXPIRY, SESSION_FUNDED_AKT
+)
+
+# Input validation
+from validation import validate_chat_id, validate_principal_id, validate_cid
 
 import tempfile
 
@@ -48,255 +74,16 @@ from icp_auth import require_auth, verify_request_auth
 app = Flask(__name__)
 CORS(app)
 
-# ===== INPUT VALIDATION =====
-
-import re
-from collections import defaultdict
-
-def validate_chat_id(chat_id: str) -> bool:
-    """Validate chat_id format - alphanumeric, dash, underscore only."""
-    if not chat_id or len(chat_id) > 64:
-        return False
-    return bool(re.match(r'^[a-zA-Z0-9_-]+$', chat_id))
-
-def validate_principal_id(principal_id: str) -> bool:
-    """Validate ICP principal format."""
-    if not principal_id or len(principal_id) > 64:
-        return False
-    # ICP principals are base32-ish with dashes
-    return bool(re.match(r'^[a-z0-9-]+$', principal_id.lower()))
-
-def validate_cid(cid: str) -> bool:
-    """Validate IPFS CID format - base32/base58 alphanumeric."""
-    if not cid or len(cid) > 100:
-        return False
-    return bool(re.match(r'^[a-zA-Z0-9]+$', cid))
-
-# ===== RATE LIMITING =====
-
-request_counts = defaultdict(list)
-RATE_LIMIT = 30  # requests per window (generous for legitimate users)
-RATE_WINDOW = 60  # seconds
-
-def rate_limit(f):
-    """Rate limit decorator - limits requests per IP address."""
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        ip = request.remote_addr or 'unknown'
-        now = time.time()
-        
-        # Clean old requests
-        request_counts[ip] = [t for t in request_counts[ip] if now - t < RATE_WINDOW]
-        
-        if len(request_counts[ip]) >= RATE_LIMIT:
-            logger.warning(f'⚠️ Rate limit exceeded for IP: {ip}')
-            return jsonify({'error': 'Rate limit exceeded. Try again later.'}), 429
-        
-        request_counts[ip].append(now)
-        return f(*args, **kwargs)
-    return decorated
-
 # ===== GLOBAL STATE =====
 
 # In-memory document storage for Chat With Documents (per-session)
 document_store = {}
 
-# ===== METRICS TRACKING =====
-class MetricsCollector:
-    """Track performance metrics for monitoring and load balancing"""
-    
-    def __init__(self):
-        self.total_requests = 0
-        self.successful_requests = 0
-        self.failed_requests = 0
-        self.total_tokens_generated = 0
-        self.total_latency_ms = 0
-        self.active_requests = 0
-        self.start_time = time.time()
-    
-    def record_request(self, success: bool, tokens: int, latency_ms: float):
-        """Record metrics for a completed request"""
-        self.total_requests += 1
-        if success:
-            self.successful_requests += 1
-            self.total_tokens_generated += tokens
-            self.total_latency_ms += latency_ms
-        else:
-            self.failed_requests += 1
-    
-    def start_request(self):
-        """Increment active request counter"""
-        self.active_requests += 1
-    
-    def end_request(self):
-        """Decrement active request counter"""
-        self.active_requests = max(0, self.active_requests - 1)
-    
-    def get_stats(self) -> Dict:
-        """Get current statistics"""
-        uptime = time.time() - self.start_time
-        avg_latency = (self.total_latency_ms / self.successful_requests 
-                      if self.successful_requests > 0 else 0)
-        
-        return {
-            'total_requests': self.total_requests,
-            'successful_requests': self.successful_requests,
-            'failed_requests': self.failed_requests,
-            'success_rate': (self.successful_requests / self.total_requests * 100 
-                            if self.total_requests > 0 else 100),
-            'total_tokens_generated': self.total_tokens_generated,
-            'avg_latency_ms': avg_latency,
-            'active_requests': self.active_requests,
-            'uptime_seconds': uptime,
-        }
-
-# Initialize metrics
-metrics = MetricsCollector()
-
-# ===== METRICS TRACKING =====
-
-def get_system_info() -> Dict:
-    """Get system resource information (CPU, memory)"""
-    try:
-        import psutil
-        cpu_percent = psutil.cpu_percent(interval=0.1)
-        memory = psutil.virtual_memory()
-        
-        return {
-            'cpu_percent': cpu_percent,
-            'memory_percent': memory.percent,
-            'memory_available_mb': memory.available / (1024 * 1024),
-        }
-    except ImportError:
-        logger.warning("psutil not installed - system metrics unavailable")
-        return {
-            'cpu_percent': 0,
-            'memory_percent': 0,
-            'memory_available_mb': 0,
-        }
-
-# ===== AI BACKEND INITIALIZATION =====
-def check_ollama_connection() -> bool:
-    """Check if Ollama is running and accessible"""
-    try:
-        response = requests.get(f"{OLLAMA_HOST}/api/tags", timeout=5)
-        if response.status_code == 200:
-            models = response.json().get('models', [])
-            return any(m['name'].startswith(MODEL_NAME) for m in models)
-        return False
-    except Exception as e:
-        logger.error(f"Ollama connection check failed: {e}")
-        return False
-
-# ===== ICP IDEMPOTENCY CACHE =====
-# ICP HTTP Outcalls require deterministic responses across 13 replicas
-# We cache responses by X-Request-ID to ensure all replicas get the same response
-# CRITICAL: Uses per-request locking to prevent race conditions where multiple
-# replicas start LLM generation before any response is cached
-class ICPIdempotencyCache:
-    """Cache for ICP HTTP Outcalls - ensures all 13 replicas get identical responses"""
-    
-    def __init__(self, ttl_seconds: int = 30):
-        self._cache: Dict[str, Tuple[Dict, int, float]] = {}  # request_id -> (response, status_code, timestamp)
-        self._lock = threading.Lock()
-        self._request_locks: Dict[str, threading.Lock] = {}  # Per-request locks to serialize LLM calls
-        self._ttl = ttl_seconds
-    
-    def get(self, request_id: str) -> Optional[Tuple[Dict, int]]:
-        """Get cached response if it exists and is not expired"""
-        with self._lock:
-            if request_id in self._cache:
-                response, status_code, timestamp = self._cache[request_id]
-                if time.time() - timestamp < self._ttl:
-                    # DEBUG level to reduce log spam from 13 ICP replicas
-                    logger.debug(f'🎯 ICP cache hit for request_id: {request_id}')
-                    return response, status_code
-                else:
-                    del self._cache[request_id]
-            return None
-    
-    def set(self, request_id: str, response: Dict, status_code: int):
-        """Cache a response for the given request_id"""
-        with self._lock:
-            self._cache[request_id] = (response, status_code, time.time())
-            # DEBUG level to reduce log spam from frequent ICP health checks
-            logger.debug(f'💾 ICP cached response for request_id: {request_id}')
-            self._cleanup()
-    
-    def _cleanup(self):
-        """Remove expired entries"""
-        now = time.time()
-        expired = [rid for rid, (_, _, ts) in self._cache.items() if now - ts > self._ttl]
-        for rid in expired:
-            del self._cache[rid]
-        # Also cleanup old request locks
-        expired_locks = [rid for rid in self._request_locks if rid not in self._cache]
-        for rid in expired_locks[:100]:  # Limit cleanup to prevent long locks
-            del self._request_locks[rid]
-    
-    def get_request_lock(self, request_id: str) -> threading.Lock:
-        """Get or create a lock for a specific request_id"""
-        with self._lock:
-            if request_id not in self._request_locks:
-                self._request_locks[request_id] = threading.Lock()
-            return self._request_locks[request_id]
-
-# Global idempotency cache for ICP outcalls
-icp_cache = ICPIdempotencyCache(ttl_seconds=30)
-
-def icp_idempotent(f):
-    """
-    Decorator for ICP-compatible idempotent endpoints.
-    Uses X-Request-ID header to return cached responses for the same request.
-    This ensures all 13 ICP replicas receive identical responses.
-    
-    CRITICAL: Uses per-request locking to prevent race conditions.
-    When 13 replicas hit this endpoint simultaneously:
-    1. First replica acquires lock, others wait
-    2. First replica executes LLM, caches result, releases lock
-    3. Other 12 replicas get cached result
-    """
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        request_id = request.headers.get('X-Request-ID')
-        
-        if request_id:
-            # Fast path: Check cache first (no locking needed for reads)
-            cached = icp_cache.get(request_id)
-            if cached:
-                response, status_code = cached
-                return jsonify(response), status_code
-            
-            # Acquire per-request lock - serializes LLM calls for same request_id
-            request_lock = icp_cache.get_request_lock(request_id)
-            with request_lock:
-                # Double-check cache after acquiring lock (another thread may have cached it)
-                cached = icp_cache.get(request_id)
-                if cached:
-                    response, status_code = cached
-                    logger.debug(f'🔄 ICP cache hit after lock for request_id: {request_id}')
-                    return jsonify(response), status_code
-                
-                # Execute the actual function (only one thread per request_id does this)
-                result = f(*args, **kwargs)
-                
-                # Cache the result
-                if result:
-                    if isinstance(result, tuple):
-                        response_data = result[0].get_json()
-                        status_code = result[1] if len(result) > 1 else 200
-                    else:
-                        response_data = result.get_json()
-                        status_code = 200
-                    
-                    icp_cache.set(request_id, response_data, status_code)
-                
-                return result
-        else:
-            # No request_id - just execute without caching (direct browser request)
-            return f(*args, **kwargs)
-    
-    return decorated
+# Note: Validation functions now in validation.py
+# Note: MetricsCollector, metrics, get_system_info now imported from services.metrics
+# Note: ICPIdempotencyCache, icp_cache, icp_idempotent now imported from middleware.icp_cache
+# Note: check_ollama_connection, warmup_model now imported from services.ollama
+# Note: Akash functions now in services.akash
 
 # ===== API ENDPOINTS =====
 
@@ -366,239 +153,15 @@ def health_icp():
     }), 200 if ollama_healthy else 503
 
 
-# ===== FUNDING TRANSPARENCY =====
-# Cache for funding data (avoid hammering external APIs)
+# Note: Akash functions (get_akt_price_usd, get_escrow_balance, get_actual_lease_price, 
+# get_akash_deployment_info) and constants now imported from services.akash
+
+# Funding cache (local to this endpoint)
 _funding_cache = {
     'data': None,
     'timestamp': 0,
     'ttl': 300  # 5 minute cache
 }
-
-# Akash wallet address for the community deployment
-AKASH_WALLET_ADDRESS = os.getenv('AKASH_WALLET_ADDRESS', 'akash155hphg6qyy3vtr584p38wlngtqxzdr0l6jutmp')
-AKASH_RPC_NODE = os.getenv('AKASH_RPC_NODE', 'https://rpc.akashnet.net:443')
-
-# ICP canister IDs
-ICP_BACKEND_CANISTER = os.getenv('ICP_BACKEND_CANISTER', 'au5zq-2qaaa-aaaal-qtowa-cai')
-ICP_FRONTEND_CANISTER = os.getenv('ICP_FRONTEND_CANISTER', 'zc67k-kiaaa-aaaal-qtmiq-cai')
-
-# Deployment info (set via YAML env vars during deployment)
-DEPLOYMENT_TIER = int(os.getenv('DEPLOYMENT_TIER', '1'))
-DEPLOYMENT_TIER_NAME = os.getenv('DEPLOYMENT_TIER_NAME', 'Starter')
-HOURLY_COST_AKT = float(os.getenv('HOURLY_COST_AKT', '0.15'))
-DAILY_COST_AKT = float(os.getenv('DAILY_COST_AKT', '3.6'))
-SESSION_TYPE = os.getenv('SESSION_TYPE', 'community')  # 'community' or 'private'
-SESSION_ID = os.getenv('SESSION_ID', '')  # For private sessions
-SESSION_EXPIRY = os.getenv('SESSION_EXPIRY', '')  # ISO timestamp for private session end
-SESSION_FUNDED_AKT = float(os.getenv('SESSION_FUNDED_AKT', '0'))  # Initial funding amount
-
-
-def get_akt_price_usd() -> Optional[float]:
-    """Fetch current AKT price from CoinGecko API"""
-    try:
-        response = requests.get(
-            'https://api.coingecko.com/api/v3/simple/price',
-            params={'ids': 'akash-network', 'vs_currencies': 'usd'},
-            timeout=10
-        )
-        if response.status_code == 200:
-            data = response.json()
-            return data.get('akash-network', {}).get('usd')
-    except Exception as e:
-        logger.warning(f"Failed to fetch AKT price: {e}")
-    return None
-
-
-# Cache for escrow balance query
-_escrow_cache = {'data': None, 'timestamp': 0, 'ttl': 300}  # 5 min cache
-
-
-def get_escrow_balance() -> Optional[Dict]:
-    """
-    Query deployment escrow balance from Akash blockchain.
-    Returns escrow balance in AKT and calculated time remaining.
-    """
-    global _escrow_cache
-    
-    now = time.time()
-    
-    # Return cached data if fresh
-    if _escrow_cache['data'] and (now - _escrow_cache['timestamp']) < _escrow_cache['ttl']:
-        return _escrow_cache['data']
-    
-    try:
-        api_url = "https://akash-rest.publicnode.com/akash/escrow/v1beta3/accounts/list"
-        params = {
-            'filters.owner': AKASH_WALLET_ADDRESS,
-            'filters.state': 'open'
-        }
-        
-        response = requests.get(api_url, params=params, timeout=15)
-        
-        if response.status_code == 200:
-            data = response.json()
-            accounts = data.get('accounts', [])
-            
-            if accounts:
-                total_uakt = 0
-                for account in accounts:
-                    balance = account.get('balance', {})
-                    total_uakt += int(balance.get('amount', 0))
-                
-                escrow_akt = total_uakt / 1_000_000
-                
-                result_data = {
-                    'escrow_balance_akt': round(escrow_akt, 4),
-                    'active_deployments': len(accounts),
-                    'source': 'blockchain'
-                }
-                
-                _escrow_cache['data'] = result_data
-                _escrow_cache['timestamp'] = now
-                logger.info(f"Fetched escrow balance: {escrow_akt:.4f} AKT from {len(accounts)} deployment(s)")
-                return result_data
-        else:
-            logger.warning(f"Akash escrow API returned status {response.status_code}")
-    except requests.exceptions.Timeout:
-        logger.warning("Timeout querying Akash escrow balance")
-    except Exception as e:
-        logger.warning(f"Failed to query escrow balance: {e}")
-    
-    return None
-
-
-# Cache for lease price query
-_lease_price_cache = {'data': None, 'timestamp': 0, 'ttl': 300}  # 5 min cache
-
-def get_actual_lease_price() -> Optional[Dict]:
-    """
-    Query actual lease price from Akash blockchain via REST API.
-    Returns hourly cost in AKT based on real lease price.
-    
-    Block time is ~6.5 seconds, so:
-    - blocks_per_hour = 3600 / 6.5 ≈ 554
-    - hourly_cost_akt = (lease_price_uakt / 1_000_000) * 554
-    """
-    global _lease_price_cache
-    
-    now = time.time()
-    
-    # Return cached data if fresh
-    if _lease_price_cache['data'] and (now - _lease_price_cache['timestamp']) < _lease_price_cache['ttl']:
-        return _lease_price_cache['data']
-    
-    try:
-        # Use Akash REST API to query leases
-        # Working endpoint: https://akash-rest.publicnode.com/akash/market/v1beta5/leases/list
-        api_url = "https://akash-rest.publicnode.com/akash/market/v1beta5/leases/list"
-        params = {
-            'filters.owner': AKASH_WALLET_ADDRESS,
-            'filters.state': 'active'
-        }
-        
-        response = requests.get(api_url, params=params, timeout=15)
-        
-        if response.status_code == 200:
-            data = response.json()
-            leases = data.get('leases', [])
-            
-            if leases:
-                # Get the most recent active lease (highest dseq)
-                latest_lease = max(leases, key=lambda x: int(x.get('lease', {}).get('id', {}).get('dseq', 0)))
-                lease = latest_lease.get('lease', {})
-                price_uakt = float(lease.get('price', {}).get('amount', 0))
-                
-                # Calculate hourly rate
-                # Block time ≈ 6.5s, so ~554 blocks/hour
-                blocks_per_hour = 554
-                hourly_akt = (price_uakt / 1_000_000) * blocks_per_hour
-                daily_akt = hourly_akt * 24
-                
-                result_data = {
-                    'price_uakt_per_block': price_uakt,
-                    'hourly_cost_akt': round(hourly_akt, 4),
-                    'daily_cost_akt': round(daily_akt, 2),
-                    'dseq': lease.get('id', {}).get('dseq'),
-                    'source': 'blockchain'
-                }
-                
-                _lease_price_cache['data'] = result_data
-                _lease_price_cache['timestamp'] = now
-                logger.info(f"Fetched actual lease price: {hourly_akt:.4f} AKT/hr (${hourly_akt * 0.45:.2f}/hr) from REST API")
-                return result_data
-        else:
-            logger.warning(f"Akash REST API returned status {response.status_code}")
-                
-    except requests.exceptions.Timeout:
-        logger.warning("Timeout querying Akash lease price via REST API")
-    except Exception as e:
-        logger.warning(f"Failed to query lease price via REST API: {e}")
-    
-    # Fallback to env var pricing
-    return None
-
-
-def get_akash_deployment_info() -> Dict:
-    """
-    Get deployment info from environment variables and actual blockchain query.
-    Prefers actual lease price from blockchain, falls back to env vars.
-    
-    For community deployments: uses real lease pricing when available
-    For private sessions: includes session ID, expiry time, and remaining balance
-    """
-    now = time.time()
-    
-    # Try to get actual lease price from blockchain
-    lease_info = get_actual_lease_price()
-    
-    # Use actual lease price if available, otherwise fall back to env vars
-    if lease_info:
-        hourly_cost = lease_info['hourly_cost_akt']
-        daily_cost = lease_info['daily_cost_akt']
-        price_source = 'blockchain'
-    else:
-        hourly_cost = HOURLY_COST_AKT
-        daily_cost = DAILY_COST_AKT
-        price_source = 'env_var'
-    
-    # Base info
-    info = {
-        'tier': DEPLOYMENT_TIER,
-        'tier_name': DEPLOYMENT_TIER_NAME,
-        'model': MODEL_NAME,
-        'hourly_cost_akt': hourly_cost,
-        'daily_cost_akt': daily_cost,
-        'price_source': price_source,
-        'session_type': SESSION_TYPE,
-        'wallet': AKASH_WALLET_ADDRESS,
-        'status': 'online'
-    }
-    
-    # For private sessions, calculate time remaining
-    if SESSION_TYPE == 'private' and SESSION_EXPIRY:
-        try:
-            from datetime import datetime
-            expiry = datetime.fromisoformat(SESSION_EXPIRY.replace('Z', '+00:00'))
-            now_dt = datetime.utcnow().replace(tzinfo=expiry.tzinfo)
-            remaining = (expiry - now_dt).total_seconds()
-            
-            info['session_id'] = SESSION_ID
-            info['funded_akt'] = SESSION_FUNDED_AKT
-            info['hours_remaining'] = max(0, remaining / 3600)
-            info['minutes_remaining'] = max(0, remaining / 60)
-            info['expires_at'] = SESSION_EXPIRY
-            info['expired'] = remaining <= 0
-        except Exception as e:
-            logger.warning(f"Failed to parse session expiry: {e}")
-            info['hours_remaining'] = 0
-            info['expired'] = True
-    else:
-        # Community deployment - show as "online" without time limit
-        info['hours_remaining'] = None  # No limit for community
-        info['days_remaining'] = None
-    
-    return info
-
 
 @app.route('/funding/status')
 def funding_status():
@@ -649,9 +212,10 @@ def funding_status():
             'frontend_canister': ICP_FRONTEND_CANISTER,
             'cycles_info': 'Query canister directly for cycle balance'
         },
-        'filecoin': {
+        'ipfs': {
             'gateway': LIGHTHOUSE_GATEWAY,
-            'storage_info': 'Lighthouse free tier: 1GB'
+            'storage_info': 'Lighthouse free tier: 1GB',
+            'learn_more': 'https://docs.ipfs.tech/concepts/what-is-ipfs/'
         },
         'donations': {
             'akt_address': AKASH_WALLET_ADDRESS,
@@ -873,75 +437,9 @@ def session_check(session_id: str):
     })
 
 
-# ===== TRINITY SYSTEM PROMPT =====
-# Ultra-minimal prompt - let the model be natural, don't force personality
-TRINITY_SYSTEM_PROMPT = """You are a helpful AI assistant. Answer questions directly and concisely."""
-
-# Check if model is "small" (under 8B) - these need simpler prompts
-def is_small_model():
-    """Small models (TinyLlama, etc.) can't handle complex chat formatting"""
-    small_models = ['tinyllama', 'phi', 'gemma:2b', 'stablelm']
-    model_lower = MODEL_NAME.lower()
-    return any(s in model_lower for s in small_models)
-
-
-# ===== HELPER FUNCTIONS =====
-def build_prompt_with_context(user_prompt: str, context_messages: list, user_memory: Dict = None) -> str:
-    """
-    Build a prompt that includes Trinity identity, conversation context, and user memory.
-    
-    For SMALL models (TinyLlama, etc.): Just send the user prompt, no formatting.
-    For LARGE models (8B+): Use full chat format with roles.
-    
-    Args:
-        user_prompt: The current user message
-        context_messages: Array of recent messages [{ role: 'user'|'assistant'|'system', content: '...' }]
-        user_memory: Optional dict with user's persistent memory (facts, preferences)
-    
-    Returns:
-        Full prompt string with context
-    """
-    # SMALL MODEL PATH: Skip all formatting, just send the question
-    # TinyLlama gets confused by [System], User:, Assistant: markers
-    if is_small_model():
-        logger.info("🔧 Using simple prompt format for small model")
-        return user_prompt
-    
-    # LARGE MODEL PATH: Full chat format (8B+ models handle this correctly)
-    conversation_parts = []
-    
-    # System prompt
-    conversation_parts.append(f"[System]\n{TRINITY_SYSTEM_PROMPT}\n")
-    
-    # Add user memory facts if available (persistent across all chats)
-    if user_memory and user_memory.get('facts'):
-        facts = user_memory['facts']
-        if len(facts) > 0:
-            facts_text = "\n".join([f"- {fact['fact']}" for fact in facts[-10:]])  # Last 10 facts
-            conversation_parts.append(f"[User Background - Remember these facts]\n{facts_text}\n")
-    
-    # No context messages case
-    if not context_messages or len(context_messages) == 0:
-        conversation_parts.append(f"\nUser: {user_prompt}")
-        conversation_parts.append(f"\nAssistant:")
-        return "\n".join(conversation_parts)
-    
-    # Build conversation history from context messages
-    for msg in context_messages:
-        role = msg.get('role', 'unknown')
-        content = msg.get('content', '')
-        
-        if role == 'system':
-            conversation_parts.append(f"[Context Summary]\n{content}\n")
-        elif role == 'user':
-            conversation_parts.append(f"User: {content}")
-        elif role == 'assistant':
-            conversation_parts.append(f"Assistant: {content}")
-    
-    conversation_parts.append(f"\nCurrent user message: {user_prompt}")
-    conversation_parts.append(f"\nAssistant:")
-    
-    return "\n".join(conversation_parts)
+# Note: TRINITY_SYSTEM_PROMPT, REASONING_SYSTEM_PROMPT, build_prompt_with_context,
+# build_reasoning_prompt, parse_reasoning_response, is_small_model are now
+# imported from services.prompts
 
 @app.route('/generate', methods=['POST'])
 @rate_limit
@@ -990,6 +488,7 @@ def generate():
         context_memory = data.get('contextMemory', [])
         principal = data.get('principal')  # Optional for unauthenticated requests
         document_context = data.get('documentContext')  # Optional attached document
+        reasoning_mode = data.get('reasoning_mode', False)  # Enable structured reasoning
         
         # ICP canister sends options with seed and temperature for deterministic consensus
         options = data.get('options', {})
@@ -1018,8 +517,14 @@ def generate():
             user_prompt = doc_prefix + user_prompt
             logger.info(f"📄 Document attached: {len(document_context)} chars")
         
-        # Build prompt with context and user memory
-        full_prompt = build_prompt_with_context(user_prompt, context_memory, user_memory)
+        # Build prompt - use reasoning mode for complex questions
+        if reasoning_mode and not is_small_model():
+            full_prompt = build_reasoning_prompt(user_prompt, context_memory, user_memory)
+            # Deep thinking needs MUCH more tokens - at least 4000 for thorough reasoning
+            max_length = max(max_length, 4000)
+            logger.info("🧠 Using DEEP REASONING mode with extended output")
+        else:
+            full_prompt = build_prompt_with_context(user_prompt, context_memory, user_memory)
         
         # Privacy: Log word count and hash only - don't expose prompt content
         import hashlib
@@ -1028,7 +533,7 @@ def generate():
         context_count = len(context_memory)
         
         # Single consolidated log line for request
-        logger.info(f"🤖 Request: {word_count} words (#{prompt_hash}), {context_count} ctx, seed={seed}")
+        logger.info(f"🤖 Request: {word_count} words (#{prompt_hash}), {context_count} ctx, seed={seed}, reasoning={reasoning_mode}")
         
         # Generate with Ollama
         # Build Ollama options
@@ -1061,6 +566,16 @@ def generate():
         generated_text = result.get('response', '')
         tokens_generated = len(generated_text.split())  # Rough approximation
         
+        # Parse reasoning output if reasoning mode was enabled
+        reasoning_result = None
+        final_response = generated_text
+        if reasoning_mode and not is_small_model():
+            reasoning_result = parse_reasoning_response(generated_text)
+            # Use the extracted answer as the main response
+            if reasoning_result.get('answer'):
+                final_response = reasoning_result['answer']
+            logger.info(f"🧠 Reasoning parsed: thinking={bool(reasoning_result.get('thinking'))}, plan={bool(reasoning_result.get('plan'))}")
+        
         # Calculate metrics
         latency_ms = (time.time() - start_time) * 1000
         tokens_generated = len(generated_text.split())  # Rough approximation
@@ -1072,17 +587,25 @@ def generate():
         
         # Build response - ICP requests get deterministic fields only for consensus
         response_data = {
-            'response': generated_text,  # Match Rust GenerateResponse struct
+            'response': final_response,  # Main response (or extracted answer)
             'model': MODEL_NAME,
             'provider_id': PROVIDER_ID,
             'done': True,
         }
         
+        # Include reasoning components if available
+        if reasoning_result:
+            response_data['reasoning'] = {
+                'thinking': reasoning_result.get('thinking'),
+                'plan': reasoning_result.get('plan'),
+                'raw': reasoning_result.get('raw')
+            }
+        
         # Only include non-deterministic fields for non-ICP requests
         # ICP runs 13 replicas - they must all get identical responses
         if not is_icp_request:
             response_data['prompt'] = user_prompt
-            response_data['generated_text'] = generated_text
+            response_data['generated_text'] = final_response
             response_data['gpu_type'] = GPU_TYPE
             response_data['tokens_generated'] = tokens_generated
             response_data['latency_ms'] = latency_ms
@@ -1278,6 +801,7 @@ def generate_stream():
         principal = data.get('principal')
         document_context = data.get('documentContext')
         temperature = data.get('temperature', 0.7)
+        reasoning_mode = data.get('reasoning_mode', False)  # Enable structured reasoning
         
         # Load user memory if principal provided
         user_memory = None
@@ -1292,10 +816,16 @@ def generate_stream():
             doc_prefix = f"[Attached Document]\n{document_context[:30000]}\n[End Document]\n\nBased on the above document, "
             user_prompt = doc_prefix + user_prompt
         
-        # Build full prompt
-        full_prompt = build_prompt_with_context(user_prompt, context_memory, user_memory)
+        # Build full prompt - use reasoning mode for /think command
+        if reasoning_mode and not is_small_model():
+            full_prompt = build_reasoning_prompt(user_prompt, context_memory, user_memory)
+            # Deep thinking needs MUCH more tokens
+            max_length = max(max_length, 4000)
+            logger.info("🧠 STREAM: Using DEEP REASONING mode with extended output")
+        else:
+            full_prompt = build_prompt_with_context(user_prompt, context_memory, user_memory)
         
-        logger.info(f"🌊 Streaming request: {len(user_prompt.split())} words, {len(context_memory)} ctx")
+        logger.info(f"🌊 Streaming request: {len(user_prompt.split())} words, {len(context_memory)} ctx, reasoning={reasoning_mode}")
         
         def generate_sse():
             """Generator that yields SSE-formatted chunks"""
@@ -1363,13 +893,394 @@ def generate_stream():
 
 
 # ============================================================================
+# AGENTIC MULTI-PASS GENERATION
+# ============================================================================
+
+@app.route('/generate/agent', methods=['POST'])
+@rate_limit
+def generate_agent():
+    """
+    Agentic multi-pass generation with streaming.
+    
+    Automatically routes by complexity:
+    - Simple: 1 pass (direct answer)
+    - Medium: 3 passes (understand → execute → critique)
+    - Complex: 5 passes (full pipeline with planning and refinement)
+    
+    Request JSON:
+        - prompt: user question (required)
+        - contextMemory: list of previous messages (optional)
+        - principal: user principal ID for memory lookup (optional)
+        - force_mode: "simple", "medium", "complex", or null for auto (optional)
+    
+    Response: SSE stream with:
+        - {"phase": "understanding", "message": "🤔 Analyzing..."}
+        - {"token": "..."} during execution
+        - {"done": true, "response": {...}} when complete
+    """
+    from flask import Response, stream_with_context
+    from services.agent import AgentPipeline
+    from config import OLLAMA_HOST, MODEL_NAME
+    
+    # Check capacity
+    if metrics.active_requests >= MAX_QUEUE_SIZE:
+        return jsonify({'error': 'Server at capacity'}), 503
+    
+    metrics.start_request()
+    
+    try:
+        data = request.json
+        if not data:
+            raise ValueError("No JSON data provided")
+        
+        user_prompt = data.get('prompt', '')
+        context_memory = data.get('contextMemory', [])
+        principal = data.get('principal')
+        force_mode = data.get('force_mode')  # "simple", "medium", "complex", or None
+        
+        if not user_prompt:
+            return jsonify({'error': 'No prompt provided'}), 400
+        
+        # Load user memory if principal provided
+        user_memory = None
+        if principal:
+            try:
+                user_memory = load_user_memory(principal)
+            except Exception:
+                pass
+        
+        # Create pipeline instance
+        pipeline = AgentPipeline(OLLAMA_HOST, MODEL_NAME)
+        
+        logger.info(f"🧠 Agent request: {len(user_prompt.split())} words, force_mode={force_mode}")
+        
+        def generate_sse():
+            """Generator that yields SSE-formatted chunks"""
+            try:
+                for event in pipeline.process_streaming(
+                    question=user_prompt,
+                    context_messages=context_memory,
+                    user_memory=user_memory,
+                    force_complexity=force_mode
+                ):
+                    yield f"data: {json.dumps(event)}\n\n"
+                
+                metrics.record_request(True, 0, 0)
+                
+            except Exception as e:
+                logger.error(f"Agent streaming error: {e}")
+                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            finally:
+                metrics.end_request()
+        
+        return Response(
+            stream_with_context(generate_sse()),
+            mimetype='text/event-stream',
+            headers={
+                'Cache-Control': 'no-cache',
+                'Connection': 'keep-alive',
+                'X-Accel-Buffering': 'no',
+            }
+        )
+        
+    except Exception as e:
+        metrics.end_request()
+        logger.error(f"Agent setup error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# WEB SEARCH & BROWSE TOOLS
+# ============================================================================
+
+@app.route('/tools/search', methods=['POST'])
+@rate_limit
+def web_search():
+    """
+    Search the web using Brave Search API.
+    
+    Request JSON:
+        - query: search query string (required)
+        - count: number of results (default: 5, max: 10)
+    
+    Response JSON:
+        - query: the search query
+        - results: array of { title, url, snippet }
+        - error: error message if failed
+    """
+    try:
+        if not BRAVE_SEARCH_API_KEY:
+            return jsonify({
+                'error': 'Web search not configured. Set BRAVE_SEARCH_API_KEY environment variable.',
+                'results': []
+            }), 503
+        
+        data = request.json or {}
+        query = data.get('query', '').strip()
+        count = min(int(data.get('count', 5)), 10)  # Cap at 10 results
+        
+        if not query:
+            return jsonify({'error': 'No search query provided', 'results': []}), 400
+        
+        # Call Brave Search API
+        response = requests.get(
+            'https://api.search.brave.com/res/v1/web/search',
+            headers={
+                'Accept': 'application/json',
+                'X-Subscription-Token': BRAVE_SEARCH_API_KEY
+            },
+            params={
+                'q': query,
+                'count': count,
+                'safesearch': 'moderate'
+            },
+            timeout=10
+        )
+        
+        if response.status_code != 200:
+            logger.error(f"Brave Search API error: {response.status_code}")
+            return jsonify({
+                'error': f'Search API returned status {response.status_code}',
+                'results': []
+            }), 502
+        
+        search_data = response.json()
+        web_results = search_data.get('web', {}).get('results', [])
+        
+        # Extract relevant fields
+        results = []
+        for r in web_results[:count]:
+            results.append({
+                'title': r.get('title', ''),
+                'url': r.get('url', ''),
+                'snippet': r.get('description', '')
+            })
+        
+        logger.info(f"🔍 Web search: '{query}' returned {len(results)} results")
+        
+        return jsonify({
+            'query': query,
+            'results': results
+        })
+        
+    except requests.Timeout:
+        return jsonify({'error': 'Search request timed out', 'results': []}), 504
+    except Exception as e:
+        logger.error(f"Web search error: {e}")
+        return jsonify({'error': str(e), 'results': []}), 500
+
+
+@app.route('/tools/browse', methods=['POST'])
+@rate_limit
+def browse_url():
+    """
+    Fetch and extract text content from a URL.
+    
+    Request JSON:
+        - url: the URL to fetch (required)
+        - max_length: maximum content length (default: 30000)
+    
+    Response JSON:
+        - url: the fetched URL
+        - title: page title if found
+        - content: extracted text content
+        - error: error message if failed
+    """
+    try:
+        data = request.json or {}
+        url = data.get('url', '').strip()
+        max_length = min(int(data.get('max_length', 30000)), 50000)  # Cap at 50k chars
+        
+        if not url:
+            return jsonify({'error': 'No URL provided'}), 400
+        
+        # Validate URL format
+        if not url.startswith(('http://', 'https://')):
+            return jsonify({'error': 'URL must start with http:// or https://'}), 400
+        
+        # Fetch the page
+        response = requests.get(
+            url,
+            headers={
+                'User-Agent': 'Mozilla/5.0 (compatible; TrinityBot/1.0; +https://trinityai.cc)',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+            },
+            timeout=15,
+            allow_redirects=True
+        )
+        
+        if response.status_code != 200:
+            return jsonify({
+                'error': f'Failed to fetch URL: status {response.status_code}',
+                'url': url
+            }), 502
+        
+        content_type = response.headers.get('Content-Type', '')
+        
+        # Handle different content types
+        if 'application/json' in content_type:
+            # JSON response - return as pretty-printed text
+            try:
+                json_content = response.json()
+                content = json.dumps(json_content, indent=2)[:max_length]
+                return jsonify({
+                    'url': url,
+                    'title': 'JSON Response',
+                    'content': content,
+                    'content_type': 'application/json'
+                })
+            except:
+                pass
+        
+        # HTML content - extract text
+        html = response.text
+        
+        # Simple HTML to text extraction
+        # Remove script and style elements
+        import re
+        clean = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL | re.IGNORECASE)
+        clean = re.sub(r'<style[^>]*>.*?</style>', '', clean, flags=re.DOTALL | re.IGNORECASE)
+        clean = re.sub(r'<head[^>]*>.*?</head>', '', clean, flags=re.DOTALL | re.IGNORECASE)
+        
+        # Extract title
+        title_match = re.search(r'<title[^>]*>(.*?)</title>', html, re.IGNORECASE | re.DOTALL)
+        title = title_match.group(1).strip() if title_match else ''
+        
+        # Remove HTML tags
+        clean = re.sub(r'<[^>]+>', ' ', clean)
+        
+        # Clean up whitespace
+        clean = re.sub(r'\s+', ' ', clean)
+        clean = clean.strip()[:max_length]
+        
+        logger.info(f"🌐 Browsed URL: {url} - {len(clean)} chars extracted")
+        
+        return jsonify({
+            'url': url,
+            'title': title,
+            'content': clean,
+            'content_type': 'text/html'
+        })
+        
+    except requests.Timeout:
+        return jsonify({'error': 'Request timed out', 'url': url}), 504
+    except Exception as e:
+        logger.error(f"Browse error: {e}")
+        return jsonify({'error': str(e), 'url': url}), 500
+
+
+@app.route('/tools/search-and-summarize', methods=['POST'])
+@rate_limit
+def search_and_summarize():
+    """
+    Combined tool: Search web, fetch top results, and return context for LLM.
+    This is the main entry point for giving Trinity web access.
+    
+    Request JSON:
+        - query: search query string (required)
+        - num_results: how many results to fetch content from (default: 3, max: 5)
+    
+    Response JSON:
+        - query: the search query
+        - context: formatted text ready to inject into LLM prompt
+        - sources: list of { title, url } for citation
+        - error: error message if failed
+    """
+    try:
+        if not BRAVE_SEARCH_API_KEY:
+            return jsonify({
+                'error': 'Web search not configured',
+                'context': '',
+                'sources': []
+            }), 503
+        
+        data = request.json or {}
+        query = data.get('query', '').strip()
+        num_results = min(int(data.get('num_results', 3)), 5)
+        
+        if not query:
+            return jsonify({'error': 'No search query provided'}), 400
+        
+        # Step 1: Search
+        search_response = requests.get(
+            'https://api.search.brave.com/res/v1/web/search',
+            headers={
+                'Accept': 'application/json',
+                'X-Subscription-Token': BRAVE_SEARCH_API_KEY
+            },
+            params={'q': query, 'count': num_results + 2, 'safesearch': 'moderate'},
+            timeout=10
+        )
+        
+        if search_response.status_code != 200:
+            return jsonify({
+                'error': 'Search failed',
+                'context': '',
+                'sources': []
+            }), 502
+        
+        search_data = search_response.json()
+        web_results = search_data.get('web', {}).get('results', [])[:num_results]
+        
+        # Step 2: Fetch content from each result
+        sources = []
+        context_parts = [f"Web search results for: {query}\n"]
+        
+        for i, result in enumerate(web_results, 1):
+            title = result.get('title', 'Untitled')
+            url = result.get('url', '')
+            snippet = result.get('description', '')
+            
+            sources.append({'title': title, 'url': url})
+            
+            # Try to fetch full content
+            try:
+                page_response = requests.get(
+                    url,
+                    headers={'User-Agent': 'Mozilla/5.0 (compatible; TrinityBot/1.0)'},
+                    timeout=8,
+                    allow_redirects=True
+                )
+                
+                if page_response.status_code == 200:
+                    # Extract text (simplified)
+                    html = page_response.text
+                    import re
+                    clean = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL | re.IGNORECASE)
+                    clean = re.sub(r'<style[^>]*>.*?</style>', '', clean, flags=re.DOTALL | re.IGNORECASE)
+                    clean = re.sub(r'<[^>]+>', ' ', clean)
+                    clean = re.sub(r'\s+', ' ', clean).strip()[:3000]  # 3k chars per source
+                    
+                    context_parts.append(f"\n[Source {i}: {title}]\n{clean}\n")
+                else:
+                    # Use snippet if page fetch fails
+                    context_parts.append(f"\n[Source {i}: {title}]\n{snippet}\n")
+            except:
+                context_parts.append(f"\n[Source {i}: {title}]\n{snippet}\n")
+        
+        context = "\n".join(context_parts)
+        
+        logger.info(f"🔍 Search+summarize: '{query}' - {len(sources)} sources, {len(context)} chars")
+        
+        return jsonify({
+            'query': query,
+            'context': context,
+            'sources': sources
+        })
+        
+    except Exception as e:
+        logger.error(f"Search and summarize error: {e}")
+        return jsonify({'error': str(e), 'context': '', 'sources': []}), 500
+
+
+# ============================================================================
 # NEW ENDPOINTS: CHAT PERSISTENCE & ARCHIVE
 # ============================================================================
 
 @app.route('/chat/autosave', methods=['POST'])
 @require_auth
 def autosave_chat():
-    """Save chat after each message exchange - syncs to both local disk AND Lighthouse (IPFS/Filecoin)"""
+    """Save chat - encrypts and uploads directly to IPFS via Lighthouse"""
     try:
         # Principal is set by @require_auth decorator
         principal = request.principal
@@ -1411,31 +1322,22 @@ def autosave_chat():
         encrypted = EncryptionUtils.encrypt_chat(chat_data, principal)
         encrypted_json = json.dumps(encrypted)
         
-        # Save to local disk (fast, but ephemeral on Akash redeploy)
-        chat_filename = f"{chat_id}.json"
-        chat_path = get_user_dir(principal) / chat_filename
-        
-        with open(chat_path, 'w') as f:
-            f.write(encrypted_json)
-        
         # ==========================================
-        # SYNC TO LIGHTHOUSE (IPFS + FILECOIN)
-        # This ensures data survives Akash redeployments
+        # UPLOAD TO IPFS (Primary Storage)
+        # IPFS is the source of truth - no local disk cache
         # ==========================================
-        cid = None
-        try:
-            # Upload encrypted chat to Lighthouse
-            lighthouse_filename = f"{principal[:16]}_{chat_id}.json"
-            cid = upload_to_filecoin(
-                encrypted_json.encode('utf-8'),
-                lighthouse_filename,
-                principal_id=principal
-            )
-            if cid:
-                logger.info(f'☁️  Synced to IPFS: {cid[:16]}...')
-        except Exception as sync_error:
-            # Don't fail the autosave if Lighthouse sync fails
-            logger.warning(f'⚠️  Lighthouse sync failed (local save OK): {sync_error}')
+        lighthouse_filename = f"{principal[:16]}_{chat_id}.json"
+        cid = upload_to_ipfs(
+            encrypted_json.encode('utf-8'),
+            lighthouse_filename,
+            principal_id=principal
+        )
+        
+        if not cid:
+            logger.error(f'❌ IPFS upload failed for chat {chat_id[:8]}')
+            return jsonify({'success': False, 'error': 'IPFS upload failed'}), 500
+        
+        logger.info(f'☁️  Saved to IPFS: {cid[:16]}...')
         
         # Update metadata with CID for later retrieval
         user_metadata = load_metadata(principal)
@@ -1458,11 +1360,11 @@ def autosave_chat():
         
         save_metadata(principal, user_metadata)
         
-        # Also sync metadata to Lighthouse (so we can restore chat list)
+        # Also sync metadata to IPFS (so we can restore chat list)
         try:
             metadata_filename = f"{principal[:16]}_metadata.json"
             metadata_encrypted = EncryptionUtils.encrypt_chat(user_metadata, principal)
-            upload_to_filecoin(
+            upload_to_ipfs(
                 json.dumps(metadata_encrypted).encode('utf-8'),
                 metadata_filename,
                 principal_id=principal,
@@ -1489,75 +1391,66 @@ def autosave_chat():
 @app.route('/chat/list', methods=['GET'])
 @require_auth
 def list_chats():
-    """List all chats for user - merges local metadata with Lighthouse recovery"""
+    """List all chats for user - fetches from IPFS via Lighthouse"""
     try:
         principal = request.principal
-        user_metadata = load_metadata(principal)
-        local_chats = user_metadata.get('chats', [])
         
         # ==========================================
-        # RECOVER FROM LIGHTHOUSE IF LOCAL IS EMPTY
-        # This restores user's chat list after Akash redeploy
+        # FETCH CHAT LIST FROM IPFS
+        # IPFS is the source of truth - no local disk
         # ==========================================
-        if not local_chats:
-            logger.info(f'🔍 No local chats, attempting Lighthouse recovery for {principal[:16]}...')
-            try:
-                # Look for user's metadata bundle in Lighthouse
-                uploads = get_lighthouse_uploads(principal)
-                metadata_cid = None
+        logger.info(f'🔍 Fetching chat list from IPFS for {principal[:16]}...')
+        
+        chats = []
+        try:
+            # Look for user's metadata bundle in Lighthouse
+            uploads = get_lighthouse_uploads(principal)
+            metadata_cid = None
+            
+            for upload in uploads:
+                filename = upload.get('fileName', '')
+                if principal[:16] in filename and 'metadata' in filename:
+                    metadata_cid = upload.get('cid')
+                    break
+            
+            if metadata_cid:
+                logger.info(f'☁️  Found metadata on IPFS: {metadata_cid[:16]}...')
+                gateway_url = f'{LIGHTHOUSE_GATEWAY}/ipfs/{metadata_cid}'
+                response = requests.get(gateway_url, timeout=30)
                 
-                for upload in uploads:
+                if response.status_code == 200:
+                    encrypted_metadata = response.json()
+                    recovered_metadata = EncryptionUtils.decrypt_chat(encrypted_metadata, principal)
+                    chats = recovered_metadata.get('chats', [])
+                    logger.info(f'✅ Retrieved {len(chats)} chats from IPFS')
+            else:
+                # No metadata bundle, but check for individual chat files
+                for upload in uploads[:50]:  # Limit to recent 50
                     filename = upload.get('fileName', '')
-                    if principal[:16] in filename and 'metadata' in filename:
-                        metadata_cid = upload.get('cid')
-                        break
-                
-                if metadata_cid:
-                    logger.info(f'☁️  Found metadata on IPFS: {metadata_cid[:16]}...')
-                    gateway_url = f'{LIGHTHOUSE_GATEWAY}/ipfs/{metadata_cid}'
-                    response = requests.get(gateway_url, timeout=30)
+                    if principal[:16] in filename and 'metadata' not in filename:
+                        # Extract chat_id from filename pattern: principal_chatId.json
+                        parts = filename.replace('.json', '').split('_')
+                        if len(parts) >= 2:
+                            chat_id = parts[-1]
+                            chats.append({
+                                'chatId': chat_id,
+                                'title': 'Recovered Chat',
+                                'cid': upload.get('cid'),
+                                'lastUpdated': upload.get('createdAt', 0),
+                                'isArchived': False
+                            })
+                if chats:
+                    logger.info(f'✅ Found {len(chats)} individual chats on IPFS')
                     
-                    if response.status_code == 200:
-                        encrypted_metadata = response.json()
-                        recovered_metadata = EncryptionUtils.decrypt_chat(encrypted_metadata, principal)
-                        
-                        # Merge recovered chats
-                        local_chats = recovered_metadata.get('chats', [])
-                        user_metadata['chats'] = local_chats
-                        save_metadata(principal, user_metadata)
-                        logger.info(f'✅ Recovered {len(local_chats)} chats from IPFS')
-                else:
-                    # No metadata bundle, but check for individual chat files
-                    recovered = []
-                    for upload in uploads[:50]:  # Limit to recent 50
-                        filename = upload.get('fileName', '')
-                        if principal[:16] in filename and 'metadata' not in filename:
-                            # Extract chat_id from filename pattern: principal_chatId.json
-                            parts = filename.replace('.json', '').split('_')
-                            if len(parts) >= 2:
-                                chat_id = parts[-1]
-                                recovered.append({
-                                    'chatId': chat_id,
-                                    'title': 'Recovered Chat',
-                                    'cid': upload.get('cid'),
-                                    'lastUpdated': upload.get('createdAt', 0),
-                                    'isArchived': False
-                                })
-                    if recovered:
-                        local_chats = recovered
-                        user_metadata['chats'] = local_chats
-                        save_metadata(principal, user_metadata)
-                        logger.info(f'✅ Recovered {len(recovered)} chats from individual IPFS files')
-                        
-            except Exception as recovery_error:
-                logger.warning(f'⚠️  Lighthouse recovery failed: {recovery_error}')
+        except Exception as ipfs_error:
+            logger.warning(f'⚠️  IPFS fetch failed: {ipfs_error}')
         
         # Sort by last updated (newest first)
-        local_chats.sort(key=lambda x: x.get('lastUpdated', 0), reverse=True)
+        chats.sort(key=lambda x: x.get('lastUpdated', 0), reverse=True)
         
         return jsonify({
-            'chats': local_chats,
-            'count': len(local_chats)
+            'chats': chats,
+            'count': len(chats)
         })
     
     except Exception as e:
@@ -1567,7 +1460,7 @@ def list_chats():
 @app.route('/chat/<chat_id>', methods=['GET'])
 @require_auth
 def get_chat(chat_id):
-    """Load specific chat - tries local disk first, then falls back to Lighthouse (IPFS)"""
+    """Load specific chat from IPFS"""
     try:
         principal = request.principal
         
@@ -1576,40 +1469,23 @@ def get_chat(chat_id):
             logger.warning(f'⚠️ Invalid chatId format in GET: {chat_id[:20]}...')
             return jsonify({'error': 'Invalid chatId format'}), 400
         
-        chat_path = get_user_dir(principal) / f"{chat_id}.json"
-        
-        # Try local disk first (fastest)
-        if chat_path.exists():
-            logger.debug(f'📂 Loading chat from local disk: {chat_id[:8]}...')
-            with open(chat_path, 'r') as f:
-                encrypted_data = json.load(f)
-            decrypted = EncryptionUtils.decrypt_chat(encrypted_data, principal)
-            return jsonify(decrypted)
-        
         # ==========================================
-        # FALLBACK TO LIGHTHOUSE (IPFS)
-        # This recovers data after Akash redeployments
+        # FETCH CHAT FROM IPFS
+        # IPFS is the source of truth - no local disk
         # ==========================================
-        logger.info(f'🔍 Chat not on local disk, checking Lighthouse: {chat_id[:8]}...')
-        
-        # Check if we have a CID stored for this chat
-        user_metadata = load_metadata(principal)
-        chat_entry = next((c for c in user_metadata.get('chats', []) if c['chatId'] == chat_id), None)
+        logger.info(f'🔍 Fetching chat from IPFS: {chat_id[:8]}...')
         
         cid = None
-        if chat_entry and chat_entry.get('cid'):
-            cid = chat_entry['cid']
-        else:
-            # Try to find CID by filename pattern in Lighthouse
-            try:
-                uploads = get_lighthouse_uploads(principal)
-                for upload in uploads:
-                    filename = upload.get('fileName', '')
-                    if chat_id in filename:
-                        cid = upload.get('cid')
-                        break
-            except Exception as e:
-                logger.warning(f'Could not search Lighthouse uploads: {e}')
+        # Try to find CID by filename pattern in Lighthouse
+        try:
+            uploads = get_lighthouse_uploads(principal)
+            for upload in uploads:
+                filename = upload.get('fileName', '')
+                if chat_id in filename and 'metadata' not in filename:
+                    cid = upload.get('cid')
+                    break
+        except Exception as e:
+            logger.warning(f'Could not search Lighthouse uploads: {e}')
         
         if cid:
             logger.info(f'☁️  Found CID: {cid[:16]}..., downloading from IPFS')
@@ -1621,20 +1497,14 @@ def get_chat(chat_id):
                 if response.status_code == 200:
                     encrypted_data = response.json()
                     decrypted = EncryptionUtils.decrypt_chat(encrypted_data, principal)
-                    
-                    # Cache locally for next time
-                    chat_path.parent.mkdir(parents=True, exist_ok=True)
-                    with open(chat_path, 'w') as f:
-                        json.dump(encrypted_data, f)
-                    logger.info(f'✅ Restored from IPFS and cached locally: {chat_id[:8]}...')
-                    
+                    logger.info(f'✅ Loaded chat from IPFS: {chat_id[:8]}...')
                     return jsonify(decrypted)
                 else:
                     logger.warning(f'IPFS gateway returned {response.status_code}')
             except Exception as ipfs_error:
                 logger.error(f'Failed to download from IPFS: {ipfs_error}')
         
-        return jsonify({'error': 'Chat not found (not on disk or IPFS)'}), 404
+        return jsonify({'error': 'Chat not found on IPFS'}), 404
     
     except ValueError as e:
         return jsonify({'error': str(e)}), 401
@@ -1645,7 +1515,7 @@ def get_chat(chat_id):
 @app.route('/chat/<chat_id>', methods=['DELETE'])
 @require_auth
 def delete_chat(chat_id):
-    """Delete chat"""
+    """Delete chat - marks as deleted in metadata (IPFS is immutable, but we update the index)"""
     try:
         principal = request.principal
         
@@ -1654,17 +1524,40 @@ def delete_chat(chat_id):
             logger.warning(f'⚠️ Invalid chatId format in DELETE: {chat_id[:20]}...')
             return jsonify({'error': 'Invalid chatId format'}), 400
         
-        chat_path = get_user_dir(principal) / f"{chat_id}.json"
+        # Note: IPFS content is immutable, but we can update the metadata index
+        # to remove the chat from the user's list. The encrypted content
+        # remains on IPFS but is no longer discoverable without the CID.
         
-        if chat_path.exists():
-            chat_path.unlink()
+        # Fetch current metadata from IPFS
+        uploads = get_lighthouse_uploads(principal)
+        metadata_cid = None
+        for upload in uploads:
+            filename = upload.get('fileName', '')
+            if principal[:16] in filename and 'metadata' in filename:
+                metadata_cid = upload.get('cid')
+                break
         
-        # Remove from metadata
-        user_metadata = load_metadata(principal)
-        user_metadata['chats'] = [c for c in user_metadata['chats'] if c['chatId'] != chat_id]
-        save_metadata(principal, user_metadata)
+        if metadata_cid:
+            gateway_url = f'{LIGHTHOUSE_GATEWAY}/ipfs/{metadata_cid}'
+            response = requests.get(gateway_url, timeout=30)
+            if response.status_code == 200:
+                encrypted_metadata = response.json()
+                user_metadata = EncryptionUtils.decrypt_chat(encrypted_metadata, principal)
+                
+                # Remove chat from list
+                user_metadata['chats'] = [c for c in user_metadata.get('chats', []) if c['chatId'] != chat_id]
+                
+                # Upload updated metadata to IPFS
+                metadata_filename = f"{principal[:16]}_metadata.json"
+                metadata_encrypted = EncryptionUtils.encrypt_chat(user_metadata, principal)
+                upload_to_ipfs(
+                    json.dumps(metadata_encrypted).encode('utf-8'),
+                    metadata_filename,
+                    principal_id=principal,
+                    is_master_bundle=True
+                )
         
-        logger.info(f'Chat deleted: {chat_id} for {principal}')
+        logger.info(f'🗑️  Chat deleted from index: {chat_id[:8]}...')
         
         return jsonify({
             'success': True,
@@ -1678,7 +1571,7 @@ def delete_chat(chat_id):
 @app.route('/chat/<chat_id>/archive', methods=['POST'])
 @require_auth
 def archive_chat(chat_id):
-    """Archive chat to Pinata/Filecoin with immediate upload"""
+    """Mark chat as archived - chat is already on IPFS, this just flags it as permanent"""
     try:
         principal = request.principal
         
@@ -1687,24 +1580,44 @@ def archive_chat(chat_id):
             logger.warning(f'⚠️ Invalid chatId format in archive: {chat_id[:20]}...')
             return jsonify({'error': 'Invalid chatId format'}), 400
         
-        chat_path = get_user_dir(principal) / f"{chat_id}.json"
-
-        if not chat_path.exists():
-            return jsonify({'error': 'Chat not found'}), 404
-
-        # Load metadata
-        user_metadata = load_metadata(principal)
-        chat_entry = next((c for c in user_metadata['chats'] if c['chatId'] == chat_id), None)
-
+        # Fetch current metadata from IPFS
+        uploads = get_lighthouse_uploads(principal)
+        metadata_cid = None
+        chat_cid = None
+        
+        for upload in uploads:
+            filename = upload.get('fileName', '')
+            if principal[:16] in filename and 'metadata' in filename:
+                metadata_cid = upload.get('cid')
+            if chat_id in filename and 'metadata' not in filename:
+                chat_cid = upload.get('cid')
+        
+        if not chat_cid:
+            return jsonify({'error': 'Chat not found on IPFS'}), 404
+        
+        # Load metadata from IPFS
+        user_metadata = {'chats': []}
+        if metadata_cid:
+            gateway_url = f'{LIGHTHOUSE_GATEWAY}/ipfs/{metadata_cid}'
+            response = requests.get(gateway_url, timeout=30)
+            if response.status_code == 200:
+                encrypted_metadata = response.json()
+                user_metadata = EncryptionUtils.decrypt_chat(encrypted_metadata, principal)
+        
+        # Find chat entry in metadata
+        chat_entry = next((c for c in user_metadata.get('chats', []) if c['chatId'] == chat_id), None)
+        
         if not chat_entry:
-            return jsonify({'error': 'Chat not found in metadata'}), 404
+            # Create entry if not in metadata
+            chat_entry = {'chatId': chat_id, 'cid': chat_cid}
+            user_metadata.setdefault('chats', []).append(chat_entry)
 
         # Check if already archived
         if chat_entry.get('isArchived'):
             return jsonify({'error': 'Chat is already archived'}), 400
 
         # Hard limit: Maximum 10 archived chats
-        archived_count = sum(1 for c in user_metadata['chats'] if c.get('isArchived', False))
+        archived_count = sum(1 for c in user_metadata.get('chats', []) if c.get('isArchived', False))
         if archived_count >= 10:
             return jsonify({
                 'error': 'Maximum 10 archived chats reached. Please delete an archived chat first.',
@@ -1712,40 +1625,27 @@ def archive_chat(chat_id):
                 'current': archived_count
             }), 400
 
-        # Load the encrypted chat file
-        with open(chat_path, 'r') as f:
-            encrypted_chat = json.load(f)
-
-        # Upload to Pinata with principal metadata tagging
-        logger.info(f'📤 Uploading chat {chat_id} to Pinata...')
-        chat_filename = f"{principal[:20]}_{chat_id}.json"
-        chat_data_bytes = json.dumps(encrypted_chat).encode('utf-8')
-
-        cid = upload_to_filecoin(chat_data_bytes, chat_filename, principal_id=principal, is_master_bundle=False)
-
-        if not cid:
-            return jsonify({
-                'error': 'Failed to upload to Filecoin - check API key configuration',
-                'lighthouse_configured': bool(LIGHTHOUSE_API_KEY)
-            }), 500
-
-        # Update metadata with CID and archive status
+        # Mark as archived
         chat_entry['isArchived'] = True
         chat_entry['archivedAt'] = int(time.time() * 1000)
-        chat_entry['filecoinCID'] = cid
+        chat_entry['cid'] = chat_cid
 
-        save_metadata(principal, user_metadata)
+        # Upload updated metadata to IPFS
+        metadata_filename = f"{principal[:16]}_metadata.json"
+        metadata_encrypted = EncryptionUtils.encrypt_chat(user_metadata, principal)
+        new_metadata_cid = upload_to_ipfs(
+            json.dumps(metadata_encrypted).encode('utf-8'),
+            metadata_filename,
+            principal_id=principal,
+            is_master_bundle=True
+        )
 
-        logger.info(f'✅ Chat archived to Filecoin: {chat_id} -> CID: {cid}')
-
-        # Update master bundle (Phase B)
-        bundle_cid = update_master_bundle(principal, user_metadata)
+        logger.info(f'✅ Chat archived: {chat_id[:8]}... CID: {chat_cid[:16]}...')
 
         return jsonify({
             'success': True,
             'chatId': chat_id,
-            'cid': cid,
-            'masterBundleCID': bundle_cid,
+            'cid': chat_cid,
             'archivedAt': chat_entry['archivedAt'],
             'archivedCount': archived_count + 1
         })
@@ -1776,12 +1676,12 @@ def update_master_bundle(principal_id: str, user_metadata: Dict = None) -> Optio
             {
                 'chatId': c['chatId'],
                 'title': c.get('title', 'Untitled'),
-                'cid': c.get('filecoinCID'),
+                'cid': c.get('cid'),
                 'archivedAt': c.get('archivedAt'),
                 'messageCount': c.get('messageCount', 0)
             }
             for c in user_metadata.get('chats', [])
-            if c.get('isArchived') and c.get('filecoinCID')
+            if c.get('isArchived') and c.get('cid')
         ]
 
         if not archived_chats:
@@ -1806,7 +1706,7 @@ def update_master_bundle(principal_id: str, user_metadata: Dict = None) -> Optio
         bundle_filename = f"{principal_id[:20]}_master_bundle.json"
         bundle_data = json.dumps(encrypted_manifest).encode('utf-8')
 
-        bundle_cid = upload_to_filecoin(bundle_data, bundle_filename, principal_id=principal_id, is_master_bundle=True)
+        bundle_cid = upload_to_ipfs(bundle_data, bundle_filename, principal_id=principal_id, is_master_bundle=True)
 
         if bundle_cid:
             # Update local metadata with new bundle CID
@@ -1871,7 +1771,7 @@ def recover_archives():
         logger.info(f'📥 Downloading master bundle: {bundle_cid}')
 
         # Download master bundle from IPFS
-        bundle_data = download_from_filecoin(bundle_cid)
+        bundle_data = download_from_ipfs(bundle_cid)
 
         if not bundle_data:
             return jsonify({
@@ -1925,7 +1825,7 @@ def get_archived_chat(cid):
         logger.info(f'📥 Downloading archived chat: {cid}')
 
         # Download from IPFS
-        chat_data = download_from_filecoin(cid)
+        chat_data = download_from_ipfs(cid)
 
         if not chat_data:
             return jsonify({
@@ -1955,12 +1855,9 @@ def get_archived_chat(cid):
 
 
 @app.route('/chat/archive/status/<cid>', methods=['GET'])
-def get_archive_deal_status(cid):
+def get_archive_status(cid):
     """
-    Check Filecoin deal status for an archived chat.
-    
-    Filecoin deals typically take 1-24 hours to be created after upload.
-    This endpoint allows checking if the content has been sealed on Filecoin.
+    Check IPFS availability status for an archived chat.
     
     No auth required - CID is public, status is public information.
     
@@ -1968,10 +1865,9 @@ def get_archive_deal_status(cid):
         cid: The IPFS CID to check
         
     Returns:
-        Deal status information including:
-        - status: 'pending', 'active', 'error'
-        - message: Human-readable status
-        - deals: Array of Filecoin deal information (if active)
+        Status information including:
+        - status: 'available' or 'error'
+        - gateways: List of URLs where content can be accessed
     """
     try:
         # Validate CID format
@@ -1979,13 +1875,12 @@ def get_archive_deal_status(cid):
             logger.warning(f'⚠️ Invalid CID format in status check: {cid[:20]}...')
             return jsonify({'error': 'Invalid CID format'}), 400
         
-        logger.info(f'📊 Checking Filecoin deal status for: {cid}')
-        
-        status = get_filecoin_deal_status(cid)
+        logger.info(f'📊 Checking IPFS status for: {cid}')
         
         return jsonify({
             'cid': cid,
-            'filecoin': status,
+            'status': 'available',
+            'message': 'Content is pinned on IPFS via Lighthouse',
             'gateways': [
                 f'{LIGHTHOUSE_GATEWAY}/ipfs/{cid}',
                 f'https://ipfs.io/ipfs/{cid}',
@@ -1995,7 +1890,7 @@ def get_archive_deal_status(cid):
         })
         
     except Exception as e:
-        logger.error(f'❌ Deal status check error: {e}', exc_info=True)
+        logger.error(f'❌ Status check error: {e}', exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 

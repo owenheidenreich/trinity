@@ -1,17 +1,16 @@
 // ============================================================================
-// Trinity Frontend - Lighthouse Storage Module
+// Trinity Frontend - IPFS Storage Module (Lighthouse)
 // ============================================================================
 // 
 // PURPOSE:
-// Provides frontend utilities for Lighthouse/Filecoin storage integration.
-// Primary archive operations are handled by the backend (inference_server.py),
+// Provides frontend utilities for IPFS storage via Lighthouse.
+// Primary storage operations are handled by the backend (inference_server.py),
 // but this module provides client-side helpers for:
-//   - Checking Filecoin deal status
 //   - Retrieving content from IPFS gateways
 //   - Storage quota information
 //
 // ARCHITECTURE NOTE:
-// The actual upload to Lighthouse happens on the backend to:
+// The actual upload to IPFS/Lighthouse happens on the backend to:
 //   1. Keep the API key secure (not exposed to browser)
 //   2. Maintain encryption/decryption in one place
 //   3. Allow backend-side metadata management
@@ -20,7 +19,8 @@
 //
 // DEPENDENCIES:
 //   - @lighthouse-web3/sdk (installed via npm)
-//   - Backend endpoints at /chat/archive/status/<cid>
+//
+// Learn more about IPFS: https://docs.ipfs.tech/concepts/what-is-ipfs/
 //
 // ============================================================================
 
@@ -42,25 +42,21 @@ const IPFS_GATEWAYS = [
 const GATEWAY_TIMEOUT_MS = 30000;
 
 // ============================================================================
-// FILECOIN DEAL STATUS
+// IPFS STATUS CHECK
 // ============================================================================
 
 /**
- * Check Filecoin deal status for an archived chat
- * 
- * Filecoin deals typically take 1-24 hours to be created after upload.
- * This function checks the current status via the backend endpoint.
+ * Check IPFS availability status for an archived chat
  * 
  * @param {string} cid - IPFS Content Identifier
  * @param {string} apiBaseUrl - Base URL for backend API
- * @returns {Promise<{status: string, message: string, deals: Array, gateways: Array}>}
+ * @returns {Promise<{status: string, message: string, gateways: Array}>}
  */
-export async function checkFilecoinDealStatus(cid, apiBaseUrl) {
+export async function checkIPFSStatus(cid, apiBaseUrl) {
     if (!cid) {
         return {
             status: 'error',
             message: 'No CID provided',
-            deals: [],
             gateways: []
         };
     }
@@ -77,26 +73,27 @@ export async function checkFilecoinDealStatus(cid, apiBaseUrl) {
 
         const data = await response.json();
         
-        console.log(`📊 Filecoin deal status for ${cid.substring(0, 12)}...:`, data.filecoin?.status);
+        console.log(`📊 IPFS status for ${cid.substring(0, 12)}...:`, data.status);
         
         return {
             cid: data.cid,
-            status: data.filecoin?.status || 'unknown',
-            message: data.filecoin?.message || 'Status unknown',
-            deals: data.filecoin?.deals || [],
-            gateways: data.gateways || [],
+            status: data.status || 'available',
+            message: data.message || 'Available on IPFS',
+            gateways: data.gateways || getGatewayUrls(cid),
             checkedAt: data.checkedAt
         };
     } catch (error) {
-        console.error('Failed to check Filecoin deal status:', error);
+        console.error('Failed to check IPFS status:', error);
         return {
             status: 'error',
             message: error.message,
-            deals: [],
             gateways: getGatewayUrls(cid)
         };
     }
 }
+
+// Keep old function name for backwards compatibility
+export const checkFilecoinDealStatus = checkIPFSStatus;
 
 // ============================================================================
 // IPFS GATEWAY UTILITIES
@@ -173,48 +170,6 @@ export async function retrieveFromIPFS(cid) {
 // ============================================================================
 
 /**
- * Get Filecoin deal status directly via Lighthouse SDK
- * 
- * Alternative to backend endpoint - can be used for direct status checks.
- * Note: This is informational only; the backend handles primary operations.
- * 
- * @param {string} cid - IPFS Content Identifier
- * @returns {Promise<{dealStatus: string, deals: Array}>}
- */
-export async function getFilecoinDealStatusDirect(cid) {
-    try {
-        const response = await lighthouse.dealStatus(cid);
-        
-        if (!response.data || response.data.length === 0) {
-            return {
-                dealStatus: 'pending',
-                message: 'Filecoin deal not yet created (typically takes 1-24 hours)',
-                deals: []
-            };
-        }
-
-        return {
-            dealStatus: 'active',
-            message: 'Content is stored on Filecoin',
-            deals: response.data.map(deal => ({
-                dealId: deal.dealId,
-                storageProvider: deal.storageProvider,
-                status: deal.dealStatus,
-                startEpoch: deal.startEpoch,
-                endEpoch: deal.endEpoch
-            }))
-        };
-    } catch (error) {
-        console.error('Failed to check deal status via Lighthouse SDK:', error);
-        return {
-            dealStatus: 'unknown',
-            message: error.message,
-            deals: []
-        };
-    }
-}
-
-/**
  * Get file information from Lighthouse
  * 
  * Returns metadata about an uploaded file.
@@ -247,13 +202,13 @@ export function formatDealStatus(status) {
         case 'active':
             return {
                 icon: '✅',
-                text: 'Stored on Filecoin',
+                text: 'Stored on IPFS',
                 color: '#4ade80'  // Green
             };
         case 'pending':
             return {
                 icon: '⏳',
-                text: 'Awaiting Filecoin deal (1-24 hours)',
+                text: 'Uploading to IPFS...',
                 color: '#fbbf24'  // Yellow
             };
         case 'error':
@@ -292,8 +247,8 @@ export function formatCID(cid, prefixLen = 8, suffixLen = 6) {
 
 export default {
     // Status checking
-    checkFilecoinDealStatus,
-    getFilecoinDealStatusDirect,
+    checkIPFSStatus,
+    checkFilecoinDealStatus,  // Legacy alias
     getFileInfo,
     
     // IPFS retrieval

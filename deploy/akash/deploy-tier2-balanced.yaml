@@ -2,7 +2,7 @@ version: "2.0"
 
 services:
   trinity:
-    image: gdubx/trinity-inference:v6-sessions
+    image: gdubx/trinity-inference:v2-reasoning
     env:
       - PROVIDER_ID=trinity-tier2-balanced
       - MODEL_NAME=llama3.1:8b
@@ -11,6 +11,7 @@ services:
       - MAX_QUEUE_SIZE=10
       - OLLAMA_HOST=http://localhost:11434
       - LIGHTHOUSE_API_KEY=cac651de.89f60066a4434ee98844288e220ad6dc
+      - BRAVE_SEARCH_API_KEY=BSA0opgLKaFETyvaBCfSrRfbEXktSJS
       # Deployment tracking (set by deploy script, used for /funding/status)
       - DEPLOYMENT_TIER=2
       - DEPLOYMENT_TIER_NAME=Standard

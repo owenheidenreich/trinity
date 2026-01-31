@@ -285,8 +285,8 @@ const Modals = {
                 </div>
                 
                 <div class="about-section">
-                    <h4>📦 Filecoin (FIL)</h4>
-                    <p>Archived chats are stored permanently on Filecoin via IPFS. Content-addressed storage means your data is verifiable, immutable, and truly yours.</p>
+                    <h4>📦 IPFS Storage</h4>
+                    <p>Archived chats are stored permanently on IPFS (InterPlanetary File System). Content-addressed storage means your data is verifiable, immutable, and truly yours.</p>
                 </div>
                 
                 <div class="about-section">
@@ -298,7 +298,7 @@ You → ICP Frontend → ICP Backend Canister
               ↓
       Akash Backend (GPU + Ollama)
               ↓
-      Archive → Lighthouse → IPFS + Filecoin</pre>
+      Archive → Lighthouse → IPFS</pre>
                 </div>
                 
                 <div class="about-section">
@@ -309,7 +309,7 @@ You → ICP Frontend → ICP Backend Canister
                 <div class="about-links" style="margin-top: 20px; text-align: center;">
                     <a href="https://internetcomputer.org" target="_blank">ICP</a> · 
                     <a href="https://akash.network" target="_blank">Akash</a> · 
-                    <a href="https://filecoin.io" target="_blank">Filecoin</a> · 
+                    <a href="https://ipfs.tech" target="_blank">IPFS</a> · 
                     <a href="https://ens.domains" target="_blank">ENS</a>
                 </div>
                 
@@ -332,8 +332,8 @@ You → ICP Frontend → ICP Backend Canister
         };
     },
 
-    // Show About Filecoin/CID modal
-    showFilecoinModal(cid) {
+    // Show About IPFS/CID modal
+    showIPFSModal(cid) {
         this.removeAllModals();
         const shortCid = cid.length > 20 ? cid.substring(0, 12) + '...' + cid.substring(cid.length - 8) : cid;
         const gatewayUrl = `https://gateway.lighthouse.storage/ipfs/${cid}`;
@@ -342,7 +342,7 @@ You → ICP Frontend → ICP Backend Canister
         dialog.className = 'modal-dialog';
         dialog.innerHTML = `
             <div class="modal-content about-modal">
-                <h2 style="text-align: center; margin-bottom: 20px;">📦 Archived on Filecoin</h2>
+                <h2 style="text-align: center; margin-bottom: 20px;">📦 Archived on IPFS</h2>
                 <p style="text-align: center; color: #aaa; margin-bottom: 24px;">
                     This chat is permanently stored on the decentralized web
                 </p>
@@ -371,7 +371,7 @@ You → ICP Frontend → ICP Backend Canister
                 
                 <div class="about-section">
                     <h4>Where Is It Stored?</h4>
-                    <p>Your archive is stored on <strong>Filecoin</strong> (permanent, incentivized storage) and accessible via <strong>IPFS</strong> (global peer-to-peer network). Lighthouse.storage handles the deal-making with Filecoin miners.</p>
+                    <p>Your archive is stored on <strong>IPFS</strong> (InterPlanetary File System) — a global peer-to-peer network. <a href="https://docs.lighthouse.storage" target="_blank" style="color: #69db7c;">Lighthouse.storage</a> handles uploads and provides permanent pinning.</p>
                 </div>
                 
                 <div class="modal-buttons" style="justify-content: center; margin-top: 24px; gap: 12px;">
@@ -508,15 +508,15 @@ You → ICP Frontend → ICP Backend Canister
         dialog.querySelector('.btn-confirm').onclick = () => dialog.remove();
     },
 
-    // Show Filecoin/Lighthouse info modal
-    showFilecoinStorageModal() {
+    // Show IPFS/Lighthouse info modal
+    showIPFSStorageModal() {
         this.removeAllModals();
         
         const dialog = document.createElement('div');
         dialog.className = 'modal-dialog';
         dialog.innerHTML = `
             <div class="modal-content about-modal">
-                <h2 style="text-align: center; margin-bottom: 20px;">◉ Filecoin Storage</h2>
+                <h2 style="text-align: center; margin-bottom: 20px;">◉ IPFS Storage</h2>
                 <p style="text-align: center; color: #aaa; margin-bottom: 24px;">
                     Your archives live forever on decentralized storage
                 </p>
@@ -524,15 +524,14 @@ You → ICP Frontend → ICP Backend Canister
                 <div class="about-section">
                     <h4>The Storage Stack</h4>
                     <div style="background: #1a1a1a; padding: 12px; border-radius: 6px; font-size: 11px; line-height: 1.8; font-family: monospace;">
-                        <div><span style="color: #69db7c;">Lighthouse SDK</span> <span style="color: #666;">→ handles uploads & deal-making</span></div>
-                        <div><span style="color: #69db7c;">IPFS</span> <span style="color: #666;">→ content-addressed retrieval</span></div>
-                        <div><span style="color: #69db7c;">Filecoin</span> <span style="color: #666;">→ permanent incentivized storage</span></div>
+                        <div><span style="color: #69db7c;">Lighthouse SDK</span> <span style="color: #666;">→ handles uploads & pinning</span></div>
+                        <div><span style="color: #69db7c;">IPFS</span> <span style="color: #666;">→ content-addressed permanent storage</span></div>
                     </div>
                 </div>
                 
                 <div class="about-section">
                     <h4>How It Works</h4>
-                    <p>When you archive a chat, Lighthouse uploads it to IPFS and creates a Filecoin storage deal. Miners are paid to store your data for years. The CID (Content ID) is your permanent receipt.</p>
+                    <p>When you archive a chat, Lighthouse uploads it to IPFS and pins it permanently. The CID (Content ID) is your permanent address — anyone with it can retrieve your encrypted data from any IPFS gateway worldwide.</p>
                 </div>
                 
                 <div class="about-section">
@@ -547,7 +546,7 @@ You → ICP Frontend → ICP Backend Canister
                 
                 <div class="about-section">
                     <h4>Your Data, Your Keys</h4>
-                    <p>Archives are encrypted with your principal ID before upload. Only you can decrypt them. Lighthouse and Filecoin miners see only encrypted bytes.</p>
+                    <p>Archives are encrypted with your principal ID before upload. Only you can decrypt them. Lighthouse and IPFS nodes see only encrypted bytes.</p>
                 </div>
                 
                 <div class="modal-buttons" style="justify-content: center; margin-top: 24px; gap: 12px;">

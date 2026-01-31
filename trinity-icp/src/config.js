@@ -11,7 +11,7 @@
 // ============================================================================
 
 // Current app version - increment to force cache clear on updates
-const APP_VERSION = '2.6.2';
+const APP_VERSION = '2.7.0';
 
 // Default production API URL (Vercel Proxy → Akash)
 // Note: Akash URLs change on each deployment, Vercel proxy abstracts this
@@ -45,7 +45,7 @@ const CONFIG = {
     // SIMPLE MODE: Use minimal generate endpoints (no context, no auth, no complexity)
     // When false: Full context memory, user memory, autosave are enabled
     // When true: Direct streaming without memory features (faster, simpler)
-    USE_SIMPLE_GENERATE: false,  // ← Full features enabled
+
     
     // ICP Canister settings
     // DISABLED: ICP HTTPS outcalls have ~20s timeout, Tier 3 (72B) needs 60s+

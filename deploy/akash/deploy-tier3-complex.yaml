@@ -1,34 +1,39 @@
 version: "2.0"
 
 # ============================================================================
-# Trinity Tier 3: Complex Reasoning (Qwen 2.5 72B)
+# Trinity Tier 3: Complex Reasoning (Qwen 2.5 32B or 72B)
 # ============================================================================
 # 
 # Purpose: Complex reasoning, code generation, multi-step analysis
-# Model: Qwen 2.5 72B (40GB+ VRAM required)
-# Cost: ~$1.50-2.50/hour (~$1000-1800/month)
-# Response Time: 15-45 seconds
-# Intelligence: Excellent (best for complex tasks)
+# Model: Qwen 2.5 32B (fits on more GPUs) - can upgrade to 72B on A100
+# Cost: ~$0.80-1.50/hour (~$600-1000/month)
+# Response Time: 10-30 seconds
+# Intelligence: Excellent
 #
-# GPU Selection: A100 80GB only - required for 72B model
+# NOTE: 72B requires A100 80GB which has very limited availability.
+#       32B runs on A100 40GB, A6000, or 2x RTX 4090.
+#       Edit MODEL_NAME to qwen2.5:72b if you get A100 80GB bids.
+#
+# Using 48GB RAM and 32B model to increase provider availability.
 # ============================================================================
 
 services:
   trinity:
-    image: gdubx/trinity-inference:v6-sessions
+    image: gdubx/trinity-inference:v3-agent
     env:
       - PROVIDER_ID=trinity-tier3-complex
-      - MODEL_NAME=qwen2.5:72b
+      - MODEL_NAME=qwen2.5:32b
       - MODEL_BACKEND=ollama
       - GPU_TYPE=A100
       - MAX_QUEUE_SIZE=5
       - OLLAMA_HOST=http://localhost:11434
       - LIGHTHOUSE_API_KEY=cac651de.89f60066a4434ee98844288e220ad6dc
+      - BRAVE_SEARCH_API_KEY=BSA0opgLKaFETyvaBCfSrRfbEXktSJS
       # Deployment tracking (set by deploy script, used for /funding/status)
       - DEPLOYMENT_TIER=3
       - DEPLOYMENT_TIER_NAME=Professional
-      - HOURLY_COST_AKT=1.75
-      - DAILY_COST_AKT=42.0
+      - HOURLY_COST_AKT=1.00
+      - DAILY_COST_AKT=24.0
       - SESSION_TYPE=community
     expose:
       - port: 8000
@@ -36,8 +41,8 @@ services:
         to:
           - global: true
         http_options:
-          read_timeout: 180000
-          send_timeout: 180000
+          read_timeout: 60000
+          send_timeout: 60000
           max_body_size: 10485760
 
 profiles:
@@ -49,7 +54,7 @@ profiles:
         memory:
           size: 64Gi
         storage:
-          size: 150Gi
+          size: 100Gi
         gpu:
           units: 1
           attributes:
@@ -61,7 +66,7 @@ profiles:
       pricing:
         trinity:
           denom: uakt
-          amount: 50000
+          amount: 500000
 
 deployment:
   trinity:

@@ -357,7 +357,7 @@ update_vercel_proxy() {
 # =============================================================================
 
 update_icp_canisters() {
-    log_step "Updating ICP Canisters"
+    log_step "Building and Deploying ICP Canisters"
     
     # Check if dfx is available
     if ! command -v dfx &> /dev/null; then
@@ -368,7 +368,27 @@ update_icp_canisters() {
     
     cd "$PROJECT_ROOT/trinity-icp"
     
+    # Install npm dependencies if needed
+    if [ ! -d "node_modules" ]; then
+        echo "Installing npm dependencies..."
+        npm install || {
+            log_warning "npm install failed - continuing anyway"
+        }
+    fi
+    
+    # Build frontend
+    echo ""
+    echo "Building ICP frontend..."
+    if npm run build 2>&1 | tail -10; then
+        log_success "Frontend build complete"
+    else
+        log_error "Frontend build failed"
+        cd "$PROJECT_ROOT"
+        return 1
+    fi
+    
     # Verify the full chain works (ICP → Vercel → Akash)
+    echo ""
     echo "Verifying ICP canister can reach Akash via Vercel proxy..."
     HEALTH_RESULT=$(dfx canister --ic call trinity_backend health 2>&1 || echo "error")
     
@@ -382,10 +402,19 @@ update_icp_canisters() {
     # Deploy frontend canister
     echo ""
     echo "Deploying ICP frontend canister..."
-    if dfx deploy --ic trinity_frontend 2>&1 | tail -10; then
+    if dfx deploy trinity_frontend --network ic 2>&1 | tail -10; then
         log_success "ICP frontend canister deployed"
     else
         log_warning "ICP frontend deployment may have issues"
+    fi
+    
+    # Deploy backend canister (optional - only if there are changes)
+    echo ""
+    echo "Deploying ICP backend canister..."
+    if dfx deploy trinity_backend --network ic 2>&1 | tail -10; then
+        log_success "ICP backend canister deployed"
+    else
+        log_warning "ICP backend deployment may have issues"
     fi
     
     cd "$PROJECT_ROOT"

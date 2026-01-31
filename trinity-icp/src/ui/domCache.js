@@ -20,7 +20,7 @@ const DOMCache = {
             infraStack: document.getElementById('infraStack'),
             akashIndicator: document.getElementById('akashIndicator'),
             icpIndicator: document.getElementById('icpIndicator'),
-            filecoinIndicator: document.getElementById('filecoinIndicator'),
+            ipfsIndicator: document.getElementById('ipfsIndicator'),
             modelName: document.getElementById('modelName'),
             modelBadge: document.getElementById('modelBadge'),
             logoutBtn: document.getElementById('logoutBtn'),

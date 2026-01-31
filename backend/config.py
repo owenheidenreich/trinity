@@ -52,6 +52,10 @@ DEPLOYMENT_TIER = tier_names.get(MODEL_NAME, 0)
 # ===== BUILD INFO =====
 BUILD_TIMESTAMP = datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')
 
+# ===== WEB SEARCH CONFIGURATION =====
+# Brave Search API - sign up at https://brave.com/search/api/
+BRAVE_SEARCH_API_KEY = os.getenv('BRAVE_SEARCH_API_KEY', '')
+
 # ===== AUTHENTICATION =====
 AUTH_TIMESTAMP_WINDOW_MS = 5 * 60 * 1000  # 5 minutes
 

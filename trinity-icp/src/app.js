@@ -3,13 +3,13 @@
 // ============================================================================
 // OVERVIEW:
 // Trinity AI is a decentralized AI chat app with ICP auth, Akash compute, and
-// Filecoin storage. This is the main frontend application.
+// IPFS storage. This is the main frontend application.
 //
 // ARCHITECTURE:
 //   1. CONFIG     - API URLs, environment detection, constants
-//   2. Auth       - Ed25519 keypairs (Principal ID = user identity + FIL address)
-//   3. Autosave   - Debounced saves to Akash disk (/chats/{principal}/{chatId}.json)
-//   4. Archive    - Metadata flags for read-only chats (10 limit, Lighthouse/Filecoin)
+//   2. Auth       - Ed25519 keypairs (Principal ID = user identity)
+//   3. Autosave   - Debounced saves to IPFS via Lighthouse
+//   4. Archive    - Metadata flags for read-only chats (10 limit, Lighthouse/IPFS)
 //   5. State      - Global app state (chat history, context memory, user memory)
 //   6. API        - Signed requests to Flask backend (signature verification)
 //   7. UI         - DOM rendering (messages, sidebar, modals, animations)
@@ -26,9 +26,9 @@
 //   → AI response → addMessage() → autosave → repeat
 //
 // STORAGE:
-//   - Active chats: Akash disk (/chats/{principal}/{chatId}.json)
-//   - User memory: Akash disk (/chats/{principal}/user_memory.json)
-//   - Archived chats: Lighthouse SDK → IPFS + Filecoin deals
+//   - Active chats: IPFS via Lighthouse (encrypted)
+//   - User memory: IPFS via Lighthouse (encrypted)
+//   - Archived chats: Lighthouse SDK → IPFS (permanent)
 // ============================================================================
 
 // ============================================================================
@@ -77,10 +77,17 @@ import { initFunding } from './modules/funding.js';
 // - conversationSummary: Compressed older messages (created every 15 messages)
 // - userMemory: Persistent facts across ALL chats (synced to user_memory.json)
 //
-// DATA FLOW:
-// User types → State.addMessage() → updates chatHistory & contextMemory
-// → autosave to Akash → generate() sends contextMemory + userMemory to LLM
-// → AI response → State.addMessage() → cycle repeats
+// DATA FLOW (Agentic Pipeline):
+// User types → State.addMessage('user') → chatHistory updated
+// → generate() sends to /generate/agent → backend runs multi-pass pipeline
+// → Backend streams: phases (UI only, not saved) + tokens (final answer)
+// → AI response complete → State.addMessage('assistant', finalAnswer)
+// → autosave triggers → only chatHistory saved to IPFS
+//
+// WHAT'S SAVED vs EPHEMERAL:
+// ✅ SAVED: User prompts, final AI answers (chatHistory → autosave → IPFS)
+// ❌ EPHEMERAL: Understanding, planning, critique, search results, phase messages
+// This keeps IPFS storage lean - no bloat from internal reasoning chains.
 // ============================================================================
 
 // ============================================================================
@@ -184,71 +191,6 @@ const API = {
         return { generated_text: result.response, model: result.model };
     },
 
-    /**
-     * Simple streaming generate - minimal path
-     */
-    async generateSimpleStream(prompt, onToken, onDone, onError, temperature = 0.7) {
-        console.log('🔧 Using SIMPLE stream (no context, no auth)');
-        
-        try {
-            const response = await fetch(`${CONFIG.API_URL}/generate/simple/stream`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    prompt: prompt.trim(),
-                    max_length: 500,
-                    temperature
-                })
-            });
-            
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
-            }
-            
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let fullText = '';
-            let buffer = '';
-            
-            while (true) {
-                const { done, value } = await reader.read();
-                
-                if (done) {
-                    onDone(fullText);
-                    break;
-                }
-                
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split('\n');
-                buffer = lines.pop() || '';
-                
-                for (const line of lines) {
-                    if (line.startsWith('data: ')) {
-                        try {
-                            const data = JSON.parse(line.slice(6));
-                            if (data.token) {
-                                fullText += data.token;
-                                onToken(data.token, fullText);
-                            }
-                            if (data.done) {
-                                onDone(fullText);
-                                return;
-                            }
-                            if (data.error) {
-                                onError(new Error(data.error));
-                                return;
-                            }
-                        } catch (e) {
-                            // Ignore parse errors
-                        }
-                    }
-                }
-            }
-        } catch (error) {
-            onError(error);
-        }
-    },
-
     async generate(prompt, temperature = 0.7, skipContext = false, documentContext = null) {
         // =====================================================================
         // ROUTING: ICP Canister (decentralized) vs Direct HTTP (local dev)
@@ -337,10 +279,10 @@ const API = {
      * @param {function} onToken - Callback for each token: (token) => void
      * @param {function} onDone - Callback when complete: (fullText) => void
      * @param {function} onError - Callback on error: (error) => void
-     * @param {object} options - Optional settings (temperature, skipContext, documentContext)
+     * @param {object} options - Optional settings (temperature, skipContext, documentContext, reasoningMode)
      */
     async generateStream(prompt, onToken, onDone, onError, options = {}) {
-        const { temperature = 0.7, skipContext = false, documentContext = null } = options;
+        const { temperature = 0.7, skipContext = false, documentContext = null, reasoningMode = false } = options;
         
         // Build context
         let contextMessages = [];
@@ -350,10 +292,12 @@ const API = {
         
         const body = {
             prompt: prompt.trim(),
-            max_length: 800,
+            // Deep thinking needs MUCH more tokens: 4000 for /think vs 1000 normal
+            max_length: reasoningMode ? 4000 : 1000,
             temperature,
             principal: State.principal,
             contextMemory: contextMessages,
+            reasoning_mode: reasoningMode,  // Enable structured reasoning
         };
         
         if (documentContext) {
@@ -427,6 +371,143 @@ const API = {
             console.error('🌊 Stream error:', error);
             onError(error);
         }
+    },
+
+    /**
+     * Generate response using the Agentic Pipeline (multi-pass reasoning)
+     * Automatically handles complexity detection, web search, and deep thinking
+     * @param {string} prompt - User's question
+     * @param {function} onToken - Called for each token received
+     * @param {function} onPhase - Called when phase changes (with whimsical message)
+     * @param {function} onDone - Called when generation completes
+     * @param {function} onError - Called on error
+     * @param {object} options - Optional settings
+     */
+    async generateAgent(prompt, onToken, onPhase, onDone, onError, options = {}) {
+        const { temperature = 0.7, documentContext = null } = options;
+        
+        // Build context
+        let contextMessages = [];
+        if (State.contextMemory && State.contextMemory.length > 0) {
+            contextMessages = State.contextMemory.slice(-CONFIG.CONTEXT_WINDOW_SIZE * 2);
+        }
+        
+        const body = {
+            prompt: prompt.trim(),
+            temperature,
+            principal: State.principal,
+            context_messages: contextMessages,
+            user_memory: State.userMemory || {},
+        };
+        
+        if (documentContext) {
+            body.document_context = documentContext;
+        }
+        
+        const url = `${CONFIG.API_URL}/generate/agent`;
+        console.log('🧠 Starting agent pipeline:', url);
+        
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                mode: 'cors',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(body),
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let fullText = '';
+            let buffer = '';
+            let agentResponse = null;
+            
+            while (true) {
+                const { done, value } = await reader.read();
+                
+                if (done) {
+                    console.log('🧠 Agent stream complete:', fullText.length, 'chars');
+                    onDone(fullText, agentResponse);
+                    break;
+                }
+                
+                // Decode chunk and add to buffer
+                buffer += decoder.decode(value, { stream: true });
+                
+                // Process complete SSE messages from buffer
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+                
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const data = JSON.parse(line.slice(6));
+                            
+                            // Phase update - show whimsical loading message
+                            if (data.phase && data.message) {
+                                console.log(`🔄 Phase: ${data.phase} - ${data.message}`);
+                                onPhase(data.phase, data.message);
+                            }
+                            
+                            // Token - append to response
+                            if (data.token) {
+                                fullText += data.token;
+                                onToken(data.token, fullText);
+                            }
+                            
+                            // Clear signal - need to reset response (refinement)
+                            if (data.clear) {
+                                console.log('🔄 Clearing for refinement');
+                                fullText = '';
+                            }
+                            
+                            // Done - final response
+                            if (data.done && data.response) {
+                                agentResponse = data.response;
+                                console.log('🧠 Agent complete:', {
+                                    complexity: agentResponse.complexity,
+                                    passes: agentResponse.passes_used,
+                                    time: agentResponse.total_time_seconds,
+                                    search: agentResponse.search_performed
+                                });
+                            }
+                            
+                            // Error
+                            if (data.error) {
+                                throw new Error(data.error);
+                            }
+                        } catch (e) {
+                            if (e.message !== 'Unexpected end of JSON input') {
+                                console.warn('SSE parse error:', e);
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('🧠 Agent error:', error);
+            onError(error);
+        }
+    },
+
+    /**
+     * Web search via Brave Search API
+     * @param {string} query - Search query
+     * @returns {Promise<{query: string, context: string, sources: Array}>}
+     */
+    async webSearch(query) {
+        console.log('🔍 Web search:', query);
+        const response = await this.request('/tools/search-and-summarize', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query, num_results: 3 })
+        });
+        return response;
     },
 
     // NEW ENDPOINTS FOR AUTOSAVE, ARCHIVE, ETC
@@ -613,7 +694,7 @@ const Actions = {
         }
     },
 
-    // Send message and get AI response
+    // Send message and get AI response via Agentic Pipeline
     async generate() {
         // SECURITY: Block if not authenticated
         if (!State.isAuthenticated) {
@@ -625,8 +706,16 @@ const Actions = {
         // Prevent double-submit
         if (State.isGenerating) return;
 
-        const prompt = UI.elements.promptInput.value.trim();
+        let prompt = UI.elements.promptInput.value.trim();
         if (!prompt) return;
+
+        // IMMEDIATELY mark as generating to prevent double-submit
+        State.setGenerating(true);
+        UI.setGenerating(true, State);
+
+        // Clear input immediately to prevent re-submission
+        const originalPrompt = prompt;
+        UI.resetInput();
 
         // Initialize new chat if needed
         if (!State.chatStarted) {
@@ -635,12 +724,9 @@ const Actions = {
             State.setCurrentChatId(State.generateChatId());
         }
 
-        UI.setGenerating(true, State);
-
         // Add user message
-        State.addMessage('user', prompt);
-        UI.showMessage('user', prompt);
-        UI.resetInput();
+        State.addMessage('user', originalPrompt);
+        UI.showMessage('user', originalPrompt);
 
         // Debug: Log current context
         console.log('📝 Current context memory:', State.contextMemory.length, 'messages');
@@ -652,14 +738,22 @@ const Actions = {
         messageDiv.id = 'msg-' + Date.now();
         messagesContainer.appendChild(messageDiv);
         
-        // Show cursor while waiting for first token
-        messageDiv.innerHTML = '<span class="streaming-cursor">▊</span>';
+        // Show whimsical thinking indicator initially
+        messageDiv.innerHTML = `
+            <div class="thinking-indicator">
+                <span class="phase-badge">Thinking</span>
+                <div class="thinking-message active">
+                    Examining the question<span class="thinking-dots"><span></span><span></span><span></span></span>
+                </div>
+            </div>
+        `;
         chatArea.scrollTop = chatArea.scrollHeight;
 
         try {
             let generatedText = '';
+            let isReceivingTokens = false;
 
-            console.log('🔍 TEST_MODE:', CONFIG.TEST_MODE, 'API_URL:', CONFIG.API_URL);
+            console.log('🧠 Using Agentic Pipeline:', CONFIG.API_URL);
 
             if (CONFIG.TEST_MODE) {
                 // Test mode - use mock responses
@@ -668,60 +762,58 @@ const Actions = {
                 generatedText = CONFIG.TEST_RESPONSES[State.testResponseIndex % CONFIG.TEST_RESPONSES.length];
                 State.incrementTestResponseIndex();
                 messageDiv.innerHTML = DOMPurify.sanitize(marked.parse(generatedText));
-            } else if (CONFIG.USE_SIMPLE_GENERATE) {
-                // SIMPLE MODE - minimal path, no context/auth complexity
-                console.log('🔧 Using SIMPLE generate mode (no context, minimal complexity)');
-                
-                await new Promise((resolve, reject) => {
-                    API.generateSimpleStream(
-                        prompt,
-                        // onToken
-                        (token, fullText) => {
-                            generatedText = fullText;
-                            messageDiv.innerHTML = DOMPurify.sanitize(marked.parse(fullText)) + 
-                                '<span class="streaming-cursor">▊</span>';
-                            chatArea.scrollTop = chatArea.scrollHeight;
-                        },
-                        // onDone
-                        (fullText) => {
-                            generatedText = fullText;
-                            messageDiv.innerHTML = DOMPurify.sanitize(marked.parse(fullText));
-                            chatArea.scrollTop = chatArea.scrollHeight;
-                            resolve();
-                        },
-                        // onError
-                        (error) => reject(error),
-                        0.7  // temperature
-                    );
-                });
-                
-                console.log('✅ Simple stream complete:', generatedText.length, 'chars');
             } else {
-                // Production - use streaming API
-                console.log('🌊 Using streaming API:', `${CONFIG.API_URL}/generate/stream`);
+                // Production - use Agentic Pipeline
                 const documentContent = getAttachedContent();
                 
                 if (documentContent) {
                     console.log('📎 Including attached content:', documentContent.length, 'chars');
                 }
                 
-                // Stream tokens in real-time
+                // Use agent pipeline for intelligent responses
                 await new Promise((resolve, reject) => {
-                    API.generateStream(
+                    API.generateAgent(
                         prompt,
                         // onToken - update message with each token
                         (token, fullText) => {
+                            // First token - switch from thinking to response
+                            if (!isReceivingTokens) {
+                                isReceivingTokens = true;
+                                messageDiv.innerHTML = '';
+                            }
                             generatedText = fullText;
-                            // Re-render full content with markdown (Option A)
                             messageDiv.innerHTML = DOMPurify.sanitize(marked.parse(fullText)) + 
                                 '<span class="streaming-cursor">▊</span>';
                             chatArea.scrollTop = chatArea.scrollHeight;
                         },
+                        // onPhase - update thinking indicator
+                        (phase, message) => {
+                            if (!isReceivingTokens) {
+                                const phaseName = phase.charAt(0).toUpperCase() + phase.slice(1);
+                                messageDiv.innerHTML = `
+                                    <div class="thinking-indicator">
+                                        <span class="phase-badge">${phaseName}</span>
+                                        <div class="thinking-message active">
+                                            ${message}<span class="thinking-dots"><span></span><span></span><span></span></span>
+                                        </div>
+                                    </div>
+                                `;
+                                chatArea.scrollTop = chatArea.scrollHeight;
+                            }
+                        },
                         // onDone - finalize message
-                        (fullText) => {
+                        (fullText, agentResponse) => {
                             generatedText = fullText;
                             messageDiv.innerHTML = DOMPurify.sanitize(marked.parse(fullText));
                             chatArea.scrollTop = chatArea.scrollHeight;
+                            
+                            // Log agent stats
+                            if (agentResponse) {
+                                console.log(`🧠 Agent: ${agentResponse.complexity} complexity, ${agentResponse.passes_used} passes, ${agentResponse.total_time_seconds}s`);
+                                if (agentResponse.search_performed) {
+                                    console.log(`🔍 Web search performed: ${agentResponse.search_query}`);
+                                }
+                            }
                             resolve();
                         },
                         // onError - handle failures
@@ -1122,7 +1214,7 @@ const Actions = {
         }
     },
 
-    // Recover archived chats from Filecoin (auto-called on login)
+    // Recover archived chats from IPFS (auto-called on login)
     async recoverArchivedChats() {
         if (!State.isAuthenticated) {
             console.log('❌ recoverArchivedChats() skipped - not authenticated');
@@ -1130,7 +1222,7 @@ const Actions = {
         }
 
         try {
-            console.log('📦 Recovering archived chats from Filecoin...');
+            console.log('📦 Recovering archived chats from IPFS...');
             const response = await API.recoverArchives();
 
             if (!response.success) {
@@ -1139,7 +1231,7 @@ const Actions = {
             }
 
             const archives = response.archives || [];
-            console.log(`📦 Found ${archives.length} archived chats in Filecoin`);
+            console.log(`📦 Found ${archives.length} archived chats in IPFS`);
 
             if (archives.length === 0) {
                 return;
@@ -1158,18 +1250,18 @@ const Actions = {
                         title: archive.title || 'Recovered Chat',
                         isArchived: true,
                         archivedAt: archive.archivedAt,
-                        filecoinCID: archive.cid,
+                        ipfsCID: archive.cid,
                         messageCount: archive.messageCount || 0,
-                        recoveredFromFilecoin: true
+                        recoveredFromIPFS: true
                     });
                     newCount++;
                 }
             }
 
             if (newCount > 0) {
-                console.log(`✅ Recovered ${newCount} new archived chats from Filecoin`);
+                console.log(`✅ Recovered ${newCount} new archived chats from IPFS`);
                 UI.renderSidebar(State);
-                UI.showNotification(`📦 Recovered ${newCount} archived chat(s) from Filecoin`, 'success');
+                UI.showNotification(`📦 Recovered ${newCount} archived chat(s) from IPFS`, 'success');
             } else {
                 console.log('ℹ️ All archived chats already synced locally');
             }
@@ -1222,8 +1314,8 @@ const Actions = {
                 const cidBadge = document.getElementById('archiveCidBadge');
                 const cidText = document.getElementById('cidText');
                 const cidLink = document.getElementById('cidLink');
-                // CID can be in 'cid', 'filecoinCID', or 'filecoin_cid' property
-                const chatCid = currentChat.cid || currentChat.filecoinCID || currentChat.filecoin_cid;
+                // CID can be in 'cid', 'ipfsCID', or 'filecoinCID' property (legacy)
+                const chatCid = currentChat.cid || currentChat.ipfsCID || currentChat.filecoinCID;
                 if (cidBadge && chatCid) {
                     const shortCid = chatCid.length > 16 
                         ? chatCid.substring(0, 8) + '...' + chatCid.substring(chatCid.length - 6)
@@ -1598,7 +1690,7 @@ async function init() {
             e.preventDefault();
             const cid = cidLink.dataset.cid;
             if (cid) {
-                Modals.showFilecoinModal(cid);
+                Modals.showIPFSModal(cid);
             }
         });
     }

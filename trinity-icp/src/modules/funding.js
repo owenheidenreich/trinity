@@ -231,9 +231,9 @@ function createDonateModal() {
                         <div style="font-size: 10px; color: #666;">~$${cyclesUsd} • ${requestsRemaining.toLocaleString()} requests</div>
                     </div>
                     <div>
-                        <div style="font-size: 10px; color: #888; margin-bottom: 4px;">FILECOIN</div>
+                        <div style="font-size: 10px; color: #888; margin-bottom: 4px;">IPFS</div>
                         <div style="font-size: 16px; font-weight: 600; color: #fbbf24;">Free</div>
-                        <div style="font-size: 10px; color: #666;">1GB via Lighthouse</div>
+                        <div style="font-size: 10px; color: #666;">1GB via <a href="https://docs.ipfs.tech/concepts/what-is-ipfs/" target="_blank" style="color: #60a5fa;">Lighthouse</a></div>
                     </div>
                 </div>
                 <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #3d3d3d; text-align: center;">

@@ -1,60 +1,99 @@
 # Trinity Next Steps Implementation Plan
 
 > **Updated:** January 31, 2026  
-> **Status:** Security hardening complete. Moving to quick wins.
+> **Status:** Phases 1-3 implemented (Self-Identity, Reasoning, Web Search). Ready for deploy.
 
 ---
 
-## Quick Reference
+## Quick Tasks
 
-| Priority | Task | Effort | Docker? |
-|----------|------|--------|---------|
-| 🟡 MED | Show CID after archive | 30 min | ❌ No |
-| 🟡 MED | trinityai.cc SSL certificate | 5 min | ❌ No |
-| 🟢 LOW | PDF document parsing | 2 hrs | ✅ Yes |
-| 🟢 LOW | Live market data | 4 hrs | ✅ Yes |
-| 🔵 FUTURE | Memory system upgrade | 4 hrs | ✅ Yes |
-| 🔵 FUTURE | Monetization | 16+ hrs | ✅ Yes |
+- [ ] Point ICP canister to new domain (options: trinityai.ai $80/yr, trin.chat $6/yr)
+- [ ] Pentest, security test, robust security checks
+- [ ] Show CID after archive (30 min frontend fix)
 
 ---
 
-## 🟡 Priority 1: Quick Wins
+## Phase 1: Self-Identity ✅ IMPLEMENTED
+**Goal**: Give Trinity awareness of its decentralized architecture without exposing sensitive info.
 
-### 1.1 Show CID After Archive
-**File:** `trinity-icp/src/modules/archive.js`  
-**Time:** 30 minutes  
-**Docker:** No (frontend only)
+**Changes Made**:
+- Expanded `TRINITY_SYSTEM_PROMPT` in `backend/inference_server.py`
+- Includes: model transparency, provider info (ICP/Akash/Filecoin), privacy values
+- Excludes: API keys, wallet addresses, internal config
 
-**Problem:** Archive success notification doesn't show the CID. Users must check console.
-
-**Current:**
-```javascript
-UI.showSuccess(`Chat archived to Filecoin! (${response.archivedCount}/10)`);
-```
-
-**Fix:**
-```javascript
-const shortCid = response.cid.substring(0, 12) + '...' + response.cid.slice(-6);
-UI.showSuccess(`Archived! CID: ${shortCid} (${response.archivedCount}/10)`);
-console.log(`Full CID: ${response.cid}`);
-console.log(`Verify: https://gateway.lighthouse.storage/ipfs/${response.cid}`);
-```
+**Status**: Code complete, needs Docker rebuild + deploy
 
 ---
 
-### 1.2 trinityai.cc SSL Certificate
-**Status:** DNS working, SSL pending  
-**Time:** 5 minutes (just redeploy)
+## Phase 2: Agentic Reasoning ✅ IMPLEMENTED
+**Goal**: Add thinking/planning capability for complex questions.
 
-**Fix:**
-```bash
-dfx deploy --ic trinity_frontend
-```
+**Changes Made**:
+- Added `reasoning_mode` parameter to `/generate` endpoint
+- Implemented ReAct-style loop with `<thinking>`, `<plan>`, `<answer>` tags
+- Added `parse_reasoning_response()` to extract structured output
+- Response includes `reasoning` object with thinking/plan/raw when enabled
 
-**Verify:**
-```bash
-curl -I https://trinityai.cc
-```
+**Status**: Code complete, needs Docker rebuild + deploy
+
+---
+
+## Phase 3: Web Search ✅ IMPLEMENTED
+**Goal**: Allow Trinity to access real-time information.
+
+**Changes Made**:
+- Added `/tools/search` endpoint using Brave Search API
+- Added `/tools/browse` endpoint for URL fetching with HTML-to-text extraction
+- Added `/tools/search-and-summarize` combined endpoint
+- Added `BRAVE_SEARCH_API_KEY` to `backend/config.py`
+
+**Status**: Code complete, needs Docker rebuild + deploy + Brave API key
+
+---
+
+## Phase 4: Hardware Scaling 🔬 REQUIRES DEEP RESEARCH
+**Goal**: Multi-GPU support for larger models (Llama 405B+).
+
+**Research Needed**:
+- Akash multi-GPU availability and pricing
+- vLLM vs Ollama for tensor parallelism
+- Model sharding strategies
+- Cost-benefit analysis: 4x A100 vs multiple deployments
+
+**Potential Changes**:
+- Switch from Ollama to vLLM for tensor parallel inference
+- Update Akash SDL for multi-GPU allocation
+- Load balancer configuration
+
+**Complexity**: High (infrastructure change)
+
+---
+
+## Phase 5: Make Trinity Useful 🔬 REQUIRES DEEP RESEARCH
+**Goal**: Transform Trinity from chat wrapper to autonomous agent.
+
+**Research Needed**:
+- Tool framework design (code execution, file ops, API calls)
+- Safety boundaries for autonomous actions
+- Task planning and multi-step execution
+- User permission model for sensitive operations
+
+**Potential Features**:
+- Code execution sandbox (Python, JS)
+- Document summarization and analysis
+- Task planning with checkpoints
+- Calendar/reminder integration
+- Memory search across all conversations
+
+**Complexity**: Very High (full agent framework)
+
+---
+
+## Future: Monetization & Open Source
+- Payment integration for private sessions
+- Usage-based billing
+- Open source deployment guide
+- One-click ICP/Akash/Filecoin setup for self-hosting
 
 ---
 

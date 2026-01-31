@@ -68,6 +68,14 @@ Click archive and your chat is uploaded to IPFS, then automatically sealed into 
 ### Context Memory
 Trinity remembers. A 6-message sliding window plus periodic summarization means coherent long conversations without exploding token counts.
 
+### Agentic Reasoning (v3.6)
+Trinity thinks deeply. A multi-pass reasoning pipeline automatically routes questions by complexity:
+- **Simple questions** → Direct answer (1 pass)
+- **Medium questions** → Understand → Execute → Critique (3 passes)
+- **Complex questions** → Understand → Plan → Execute → Critique → Refine (5 passes)
+
+Includes automatic web search for current information (prices, news, trends).
+
 ### Custom Domain
 Access via `trinityai.cc` - a traditional domain pointing directly to ICP boundary nodes. Fast loading (~200ms), no IPFS latency.
 
@@ -148,7 +156,12 @@ Archive (optional) → Lighthouse → IPFS + Filecoin
 Trinity/
 ├── backend/                 # Python Flask backend
 │   ├── inference_server.py  # Main API server
-│   └── icp_auth.py          # Ed25519 signature verification
+│   ├── icp_auth.py          # Ed25519 signature verification
+│   └── services/            # Agentic reasoning pipeline
+│       ├── agent.py         # Multi-pass orchestrator
+│       ├── agent_prompts.py # Pass prompts + XML parsing
+│       ├── complexity.py    # Question complexity classifier
+│       └── search.py        # Brave web search integration
 ├── trinity-icp/             # Frontend + ICP canisters
 │   ├── src/
 │   │   ├── app.js           # Main application
