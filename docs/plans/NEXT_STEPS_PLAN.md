@@ -1,8 +1,8 @@
 # Trinity Next Steps Implementation Plan
 
 > **Created:** January 25, 2026  
-> **Updated:** January 30, 2026  
-> **Status:** In Progress - Phase 11 (Codebase Refactor)  
+> **Updated:** January 31, 2026  
+> **Status:** Phase 11 COMPLETE - Upgrading to Tier 3 (Qwen 72B)  
 > **Estimated Total Effort:** 45-55 hours  
 > **Order:** Frontend-only first → Backend (Docker) updates batched at end
 
@@ -25,15 +25,43 @@ Tasks reordered to minimize Akash redeployments. **All frontend/ICP-only tasks f
 | **Phase 8** | Akash Provider Research | ❌ No | 🔴 Manual |
 | **Phase 9** | Scaling/Stress Testing | ❌ No | 🟡 Basic |
 | **Phase 10** | Monetization | ❌/✅ | 🔴 Not Started |
-| **Phase 11** | Codebase Refactor (Speed + Stability) | ✅ Yes | 🔄 In Progress |
+| **Phase 11** | Codebase Refactor (Speed + Stability) | ✅ Yes | ✅ COMPLETE (Partial) |
 
 ---
 
-## Phase 11: Codebase Refactor for Speed + Stability 🔄
+## Phase 11: Codebase Refactor for Speed + Stability ✅
 
 > **Started:** January 30, 2026  
-> **Estimated Effort:** 16 hours  
+> **Completed:** January 31, 2026  
+> **Estimated Effort:** 16 hours → **Actual: ~8 hours**  
 > **Goal:** Keep Trinity fast while re-enabling all features with clean, maintainable code
+
+### ✅ COMPLETED ITEMS
+
+| Task | Status | Notes |
+|------|--------|-------|
+| **11.1 IndexedDB Local-First Storage** | ✅ Done | `trinity-icp/src/storage/indexedDB.js` (~250 lines) |
+| **11.2 Autosave Integration** | ✅ Done | Local-first save, then cloud sync |
+| **11.3 Sync Retry on App Load** | ✅ Done | Added to `app.js` after authentication |
+| **11.4 Extract config.py** | ✅ Done | All env vars centralized (~70 lines) |
+| **11.5 Extract encryption.py** | ✅ Done | EncryptionUtils class (~80 lines) |
+| **11.6 Extract storage.py** | ✅ Done | File operations (~80 lines) |
+| **11.7 Extract lighthouse.py** | ✅ Done | IPFS/Filecoin functions (~200 lines) |
+| **11.8 Re-enable Full Features** | ✅ Done | `USE_SIMPLE_GENERATE: false` |
+| **11.9 Dockerfile Updated** | ✅ Done | Added COPY for new modules |
+| **11.10 Docker Build + Push** | ✅ Done | `gdubx/trinity-inference:v2-simple` |
+| **11.11 Akash Tier 1 Deploy** | ✅ Done | Health check passed |
+| **11.12 ICP Frontend Deploy** | ✅ Done | Async fix for handleAutosaveError |
+
+### ⏳ DEFERRED TO FUTURE
+
+| Task | Status | Reason |
+|------|--------|--------|
+| **metrics.py extraction** | ⏳ Later | Not critical for functionality |
+| **auth.py unification** | ⏳ Later | Works fine as-is |
+| **icp_cache.py extraction** | ⏳ Later | Low priority |
+| **ollama.py extraction** | ⏳ Later | Requires careful testing |
+| **routes/* Blueprint split** | ⏳ Later | Major refactor, defer to maintenance phase |
 
 ### Why This Improves Trinity
 
@@ -45,38 +73,46 @@ Tasks reordered to minimize Akash redeployments. **All frontend/ICP-only tasks f
 | **Complex generate code paths** | One clean streaming path | Fewer bugs, faster responses |
 | **Cloud-only autosave** | IndexedDB first, then cloud | Instant saves, resilient to network issues |
 
-### 11.1 Local-First Autosave with IndexedDB
+### 11.1 Local-First Autosave with IndexedDB ✅ COMPLETE
 **Files:** `trinity-icp/src/storage/indexedDB.js` (new), `autosave.js` (modify)  
-**Time:** 4 hours  
+**Time:** 4 hours → **Actual: 2 hours**
 
-- Create IndexedDB abstraction layer (~150 lines)
-- Modify autosave to save locally FIRST, then sync to cloud
-- Queue failed syncs for retry on reconnect
-- Add sync retry on app load after authentication
+**Implementation Details:**
+- Created `indexedDB.js` with full abstraction layer (~250 lines)
+- Key functions: `saveChat()`, `loadChat()`, `listChats()`, `queueForSync()`, `markSynced()`, `getPendingSync()`, `retryPendingSync()`
+- Modified `autosave.js` to save locally FIRST, then sync to cloud
+- Made `handleAutosaveError()` async for IndexedDB queuing
+- Added `retryPendingSync()` call in `app.js` after authentication
 
-### 11.2 Backend Module Split (Phase 1-2: Utilities)
-**Files:** `backend/config.py`, `metrics.py`, `encryption.py`, `storage.py`, `lighthouse.py` (all new)  
-**Time:** 3 hours  
+**Git Commit:** `e8b5d66` - "Fix: Make handleAutosaveError async for IndexedDB queue"
 
-- Extract all environment variables to `config.py`
-- Extract MetricsCollector to `metrics.py`
-- Extract EncryptionUtils to `encryption.py`
-- Extract file operations to `storage.py`
-- Extract Filecoin functions to `lighthouse.py`
+### 11.2 Backend Module Split (Phase 1-2: Utilities) ✅ COMPLETE
+**Files:** `backend/config.py`, `encryption.py`, `storage.py`, `lighthouse.py` (all new)  
+**Time:** 3 hours → **Actual: 2 hours**
 
-### 11.3 Backend Module Split (Phase 3-5: Core)
+**Implementation Details:**
+- `config.py` (~70 lines): All environment variables, paths, timeouts
+- `encryption.py` (~80 lines): EncryptionUtils class with AES-256-GCM
+- `storage.py` (~80 lines): File operations, user directories, metadata
+- `lighthouse.py` (~200 lines): IPFS upload, Filecoin deals, downloads
+- Updated `inference_server.py` imports (reduced by ~400 lines)
+- Updated `Dockerfile` with COPY statements for new modules
+
+**Git Commits:**
+- `90d1c17` - "Phase 11: Codebase refactor for speed + stability"
+- `6fbc3f4` - "Dockerfile: Add new backend modules"
+
+### 11.3 Backend Module Split (Phase 3-5: Core) ⏳ DEFERRED
 **Files:** `backend/auth.py`, `icp_cache.py`, `ollama.py` (all new/modified)  
 **Time:** 3 hours  
+**Reason:** Existing code works, defer to maintenance phase
 
-- Merge `icp_auth.py` with `require_auth` decorator into unified `auth.py`
-- Extract ICPIdempotencyCache to `icp_cache.py`
-- Extract LLM interface (`build_prompt_with_context`, etc.) to `ollama.py`
-
-### 11.4 Backend Module Split (Phase 6: Routes)
+### 11.4 Backend Module Split (Phase 6: Routes) ⏳ DEFERRED
 **Files:** `backend/routes/*.py` (7 new files)  
 **Time:** 5 hours  
+**Reason:** Major architectural change, defer to dedicated maintenance sprint
 
-Create Flask Blueprints for each route group:
+Blueprint split would create:
 - `routes/health.py` - `/health`, `/health/icp`, `/stats`
 - `routes/generate.py` - `/generate`, `/generate/stream`, `/generate/simple`
 - `routes/chat.py` - `/chat/autosave`, `/chat/list`, `/chat/<id>`
@@ -85,7 +121,7 @@ Create Flask Blueprints for each route group:
 - `routes/memory.py` - `/user/memory` endpoints
 - `routes/tools.py` - `/tools/*` endpoints
 
-### 11.5 Testing Checkpoints
+### 11.5 Testing Checkpoints ✅ VERIFIED
 
 After each step, verify:
 ```bash
@@ -974,4 +1010,95 @@ feedparser>=6.0.0
 ```
 
 **Verification:** Ask Trinity "What's Bitcoin trading at?" → Should return live price.
+
+---
+
+## Deployment History Log
+
+### January 31, 2026 - Phase 11 Complete
+
+**What Was Deployed:**
+- Docker Image: `gdubx/trinity-inference:v2-simple`
+- Build Timestamp: 2026-01-31 04:16:53 UTC
+- Features: Full features re-enabled (`USE_SIMPLE_GENERATE: false`)
+
+**Backend Changes:**
+- NEW: `backend/config.py` (~70 lines) - Centralized configuration
+- NEW: `backend/encryption.py` (~80 lines) - AES-256-GCM encryption
+- NEW: `backend/storage.py` (~80 lines) - File operations
+- NEW: `backend/lighthouse.py` (~200 lines) - IPFS/Filecoin integration
+- MODIFIED: `backend/inference_server.py` - Reduced by ~400 lines via imports
+
+**Frontend Changes:**
+- NEW: `trinity-icp/src/storage/indexedDB.js` (~250 lines) - Local-first storage
+- MODIFIED: `trinity-icp/src/storage/autosave.js` - IndexedDB integration
+- MODIFIED: `trinity-icp/src/app.js` - Sync retry on load
+- MODIFIED: `trinity-icp/src/config.js` - `USE_SIMPLE_GENERATE: false`
+
+**Akash Tier 1 Deployment:**
+- DSEQ: 25316215
+- Provider: akash1hgulk6aekakqzc0v6wukrd3dy9n90f5gkl4ezk
+- URI: kn7bptdkfd8aped1ge7u1milpk.ingress.h4i-dedicated.eu-sw-2.digitalfrontier.so
+- Health Check: ✅ Passed (healthy, tinyllama:1.1b, ollama_connected: true)
+- Status: CLOSED (upgrading to Tier 3)
+
+**ICP Frontend:**
+- Canister: zc67k-kiaaa-aaaal-qtmiq-cai
+- Status: ✅ Deployed
+
+**Upgrading To:**
+- Tier 3: Qwen2.5 72B
+- Reason: Better quality responses for production use
+
+---
+
+## Current Architecture Summary
+
+### Files Created in Phase 11
+
+```
+backend/
+├── config.py        # NEW - All env vars, paths, timeouts
+├── encryption.py    # NEW - EncryptionUtils (AES-256-GCM)
+├── storage.py       # NEW - File operations, user dirs
+├── lighthouse.py    # NEW - IPFS/Filecoin functions
+├── icp_auth.py      # EXISTING - Ed25519 verification
+└── inference_server.py  # MODIFIED - Imports from new modules
+
+trinity-icp/src/
+├── storage/
+│   ├── indexedDB.js  # NEW - Local-first browser storage
+│   ├── autosave.js   # MODIFIED - IndexedDB integration
+│   ├── lighthouse.js # EXISTING - Cloud upload
+│   └── mock.js       # EXISTING - Test mocks
+├── config.js         # MODIFIED - USE_SIMPLE_GENERATE: false
+└── app.js            # MODIFIED - retryPendingSync on load
+```
+
+### Data Flow After Phase 11
+
+```
+User Message → Frontend
+     ↓
+1. Save to IndexedDB (instant, local)
+2. Mark as pendingSync: true
+     ↓
+3. POST /chat/autosave (encrypted)
+     ↓
+4. On success: Mark pendingSync: false
+   On failure: Queue for retry
+     ↓
+5. On next app load: retryPendingSync()
+```
+
+### Backend Module Dependencies
+
+```
+inference_server.py
+    ├── imports config.py (env vars)
+    ├── imports encryption.py (EncryptionUtils)
+    ├── imports storage.py (file ops)
+    ├── imports lighthouse.py (IPFS)
+    └── imports icp_auth.py (auth decorator)
+```
 
