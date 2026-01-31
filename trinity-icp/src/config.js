@@ -43,8 +43,9 @@ const CONFIG = {
     API_URL: DEFAULT_API_URL,
     
     // SIMPLE MODE: Use minimal generate endpoints (no context, no auth, no complexity)
-    // Enable this to bypass all the complex prompt building that breaks TinyLlama
-    USE_SIMPLE_GENERATE: true,  // ← Toggle this to switch between simple/complex paths
+    // When false: Full context memory, user memory, autosave are enabled
+    // When true: Direct streaming without memory features (faster, simpler)
+    USE_SIMPLE_GENERATE: false,  // ← Full features enabled
     
     // ICP Canister settings
     // DISABLED: ICP HTTPS outcalls have ~20s timeout, Tier 3 (72B) needs 60s+

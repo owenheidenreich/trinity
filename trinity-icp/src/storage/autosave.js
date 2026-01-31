@@ -3,11 +3,13 @@
  * Handles automatic chat persistence with debouncing and retry logic
  * 
  * Features:
+ * - LOCAL-FIRST: Saves to IndexedDB immediately, then syncs to cloud
  * - Debounced saves (2s delay to batch rapid changes)
  * - Exponential backoff retry (up to 5 attempts)
- * - State mutation avoided (returns result objects)
- * - Dependency injection for chat reloading
+ * - Pending sync queue for offline resilience
  */
+
+import IndexedDBStorage from './indexedDB.js';
 
 const AutosaveManager = {
     // Configuration
@@ -108,8 +110,7 @@ const AutosaveManager = {
             chatId: currentChatId,
             messageCount: chatHistory?.length || 0,
             isAuthenticated,
-            testMode,
-            principal: principal?.substring(0, 20)
+            testMode
         });
 
         try {
@@ -117,6 +118,21 @@ const AutosaveManager = {
                 showIndicator('saving');
             }
             
+            // STEP 1: Save locally FIRST (instant, reliable)
+            try {
+                await IndexedDBStorage.saveChat(
+                    currentChatId,
+                    {
+                        messages: chatHistory,
+                        metadata: { title: this.generateChatTitle(), timestamp: Date.now() }
+                    },
+                    principal
+                );
+            } catch (localError) {
+                console.warn('⚠️ IndexedDB save failed (continuing to cloud):', localError.message);
+            }
+            
+            // STEP 2: Attempt cloud sync
             let response;
             if (testMode && mockSave) {
                 // Use mock storage for test mode
@@ -136,6 +152,13 @@ const AutosaveManager = {
 
             if (response.success) {
                 console.log('✅ Chat autosaved successfully:', currentChatId);
+                
+                // STEP 3: Mark as synced (remove from pending queue)
+                try {
+                    await IndexedDBStorage.markSynced(currentChatId);
+                } catch (syncError) {
+                    console.warn('⚠️ Could not mark as synced:', syncError.message);
+                }
                 
                 // Reset state
                 this.retryCount = 0;
@@ -209,20 +232,26 @@ const AutosaveManager = {
                 retryCount: this.retryCount
             };
         } else {
-            console.error('❌ Autosave failed after max retries - storing offline');
+            console.error('❌ Autosave failed after max retries - queued for sync');
             
             if (showIndicator) {
                 showIndicator('error');
             }
             
-            // TODO: Store in IndexedDB for sync when online
+            // Queue for sync retry when back online
+            try {
+                await IndexedDBStorage.queueForSync(this.pendingData?.chatId, this.pendingData);
+            } catch (queueError) {
+                console.warn('⚠️ Could not queue for sync:', queueError.message);
+            }
             
             return {
                 success: false,
                 error: error.message,
                 autosaveStatus: 'error',
                 shouldRetry: false,
-                maxRetriesExceeded: true
+                maxRetriesExceeded: true,
+                queuedForSync: true
             };
         }
     },
@@ -241,6 +270,58 @@ const AutosaveManager = {
             return title;
         }
         return 'Untitled Chat';
+    },
+
+    /**
+     * Retry syncing any pending chats (called on app load after auth)
+     * @param {Function} apiSave - API save function
+     * @returns {Promise<{synced: number, failed: number}>}
+     */
+    async retryPendingSync(apiSave) {
+        if (!apiSave) {
+            console.warn('⚠️ No API save function provided for sync retry');
+            return { synced: 0, failed: 0 };
+        }
+
+        const pending = await IndexedDBStorage.getPendingSync();
+        
+        if (pending.length === 0) {
+            console.log('✅ No pending syncs');
+            return { synced: 0, failed: 0 };
+        }
+
+        console.log(`🔄 Retrying ${pending.length} pending sync(s)...`);
+        
+        let synced = 0;
+        let failed = 0;
+
+        for (const item of pending) {
+            // Skip items with too many attempts
+            if (item.attempts >= 10) {
+                console.warn(`⏭️ Skipping ${item.chatId.slice(0, 8)}... - too many attempts`);
+                failed++;
+                continue;
+            }
+
+            try {
+                const response = await apiSave(item.chatData);
+                
+                if (response.success) {
+                    await IndexedDBStorage.markSynced(item.chatId);
+                    console.log(`✅ Synced: ${item.chatId.slice(0, 8)}...`);
+                    synced++;
+                } else {
+                    console.warn(`❌ Sync failed: ${item.chatId.slice(0, 8)}...`);
+                    failed++;
+                }
+            } catch (error) {
+                console.error(`❌ Sync error: ${item.chatId.slice(0, 8)}...`, error.message);
+                failed++;
+            }
+        }
+
+        console.log(`🔄 Sync complete: ${synced} synced, ${failed} failed`);
+        return { synced, failed };
     }
 };
 

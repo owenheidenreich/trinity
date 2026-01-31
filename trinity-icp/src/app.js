@@ -958,6 +958,18 @@ const Actions = {
             console.warn('⚠️ Failed to recover archives (will retry later):', error.message);
         }
         
+        // Retry any pending syncs from IndexedDB
+        try {
+            const { synced, failed } = await AutosaveManager.retryPendingSync(
+                (chatData) => API.autosave(chatData)
+            );
+            if (synced > 0) {
+                console.log(`☁️ Synced ${synced} pending chat(s)`);
+            }
+        } catch (error) {
+            console.warn('⚠️ Failed to retry pending syncs:', error.message);
+        }
+        
         // Final UI update after all data loaded
         UI.renderSidebar(State);
         console.log('📂 Background data loading complete');

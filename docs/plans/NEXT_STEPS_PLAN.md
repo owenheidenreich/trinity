@@ -1,9 +1,9 @@
 # Trinity Next Steps Implementation Plan
 
 > **Created:** January 25, 2026  
-> **Updated:** January 26, 2026  
-> **Status:** In Progress - Phase 2  
-> **Estimated Total Effort:** 30-40 hours  
+> **Updated:** January 30, 2026  
+> **Status:** In Progress - Phase 11 (Codebase Refactor)  
+> **Estimated Total Effort:** 45-55 hours  
 > **Order:** Frontend-only first → Backend (Docker) updates batched at end
 
 ---
@@ -25,6 +25,101 @@ Tasks reordered to minimize Akash redeployments. **All frontend/ICP-only tasks f
 | **Phase 8** | Akash Provider Research | ❌ No | 🔴 Manual |
 | **Phase 9** | Scaling/Stress Testing | ❌ No | 🟡 Basic |
 | **Phase 10** | Monetization | ❌/✅ | 🔴 Not Started |
+| **Phase 11** | Codebase Refactor (Speed + Stability) | ✅ Yes | 🔄 In Progress |
+
+---
+
+## Phase 11: Codebase Refactor for Speed + Stability 🔄
+
+> **Started:** January 30, 2026  
+> **Estimated Effort:** 16 hours  
+> **Goal:** Keep Trinity fast while re-enabling all features with clean, maintainable code
+
+### Why This Improves Trinity
+
+| Problem | Solution | Benefit |
+|---------|----------|---------|
+| **Data loss on Akash redeploy** | Local-first IndexedDB + cloud sync | Users never lose chats, even offline |
+| **2867-line monolithic backend** | Split into 10 focused modules | Easier debugging, faster iteration |
+| **Blocking summarization** | Async background compression | No UI lag when context grows |
+| **Complex generate code paths** | One clean streaming path | Fewer bugs, faster responses |
+| **Cloud-only autosave** | IndexedDB first, then cloud | Instant saves, resilient to network issues |
+
+### 11.1 Local-First Autosave with IndexedDB
+**Files:** `trinity-icp/src/storage/indexedDB.js` (new), `autosave.js` (modify)  
+**Time:** 4 hours  
+
+- Create IndexedDB abstraction layer (~150 lines)
+- Modify autosave to save locally FIRST, then sync to cloud
+- Queue failed syncs for retry on reconnect
+- Add sync retry on app load after authentication
+
+### 11.2 Backend Module Split (Phase 1-2: Utilities)
+**Files:** `backend/config.py`, `metrics.py`, `encryption.py`, `storage.py`, `lighthouse.py` (all new)  
+**Time:** 3 hours  
+
+- Extract all environment variables to `config.py`
+- Extract MetricsCollector to `metrics.py`
+- Extract EncryptionUtils to `encryption.py`
+- Extract file operations to `storage.py`
+- Extract Filecoin functions to `lighthouse.py`
+
+### 11.3 Backend Module Split (Phase 3-5: Core)
+**Files:** `backend/auth.py`, `icp_cache.py`, `ollama.py` (all new/modified)  
+**Time:** 3 hours  
+
+- Merge `icp_auth.py` with `require_auth` decorator into unified `auth.py`
+- Extract ICPIdempotencyCache to `icp_cache.py`
+- Extract LLM interface (`build_prompt_with_context`, etc.) to `ollama.py`
+
+### 11.4 Backend Module Split (Phase 6: Routes)
+**Files:** `backend/routes/*.py` (7 new files)  
+**Time:** 5 hours  
+
+Create Flask Blueprints for each route group:
+- `routes/health.py` - `/health`, `/health/icp`, `/stats`
+- `routes/generate.py` - `/generate`, `/generate/stream`, `/generate/simple`
+- `routes/chat.py` - `/chat/autosave`, `/chat/list`, `/chat/<id>`
+- `routes/archive.py` - Archive + recovery endpoints
+- `routes/funding.py` - `/funding/status`, `/session/*`
+- `routes/memory.py` - `/user/memory` endpoints
+- `routes/tools.py` - `/tools/*` endpoints
+
+### 11.5 Testing Checkpoints
+
+After each step, verify:
+```bash
+# Quick health check
+curl http://localhost:8000/health | jq
+
+# Generate test
+curl -X POST http://localhost:8000/generate \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "Hello"}' | jq
+
+# Full integration
+python3 test/integration/test_filecoin_integration.py
+
+# Production verification
+./test-prod
+```
+
+### 11.6 Re-enable Full Features
+**Files:** `trinity-icp/src/config.js`  
+**Time:** 30 minutes  
+
+- Set `USE_SIMPLE_GENERATE: false` to re-enable context memory + autosave
+- Verify streaming still works with full pipeline
+- Test context memory compression (async, non-blocking)
+
+### Success Criteria
+- [ ] IndexedDB saves chats instantly (< 50ms)
+- [ ] Cloud sync happens in background
+- [ ] Failed syncs retry automatically on reconnect
+- [ ] Backend split into ~10 focused modules
+- [ ] Each module < 300 lines
+- [ ] All existing tests pass
+- [ ] Response time unchanged (< 2s for first token)
 
 ---
 

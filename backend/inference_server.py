@@ -1,9 +1,11 @@
 """
 Trinity Inference Server
 Production backend using Ollama for model inference
+
+Refactored: Config, encryption, storage, and lighthouse modules extracted.
 """
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
 from functools import wraps
 import requests
@@ -20,26 +22,29 @@ from typing import Dict, Tuple, Optional
 import threading
 from apscheduler.schedulers.background import BackgroundScheduler
 
-# Encryption imports
-from Crypto.Cipher import AES
-from Crypto.Random import get_random_bytes
-from Crypto.Protocol.KDF import PBKDF2
-
-# Configure logging with timestamps FIRST (before using logger)
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+# Import extracted modules
+from config import (
+    PROVIDER_ID, MODEL_NAME, MODEL_BACKEND, GPU_TYPE, OLLAMA_HOST,
+    MAX_QUEUE_SIZE, CHATS_DIR, LIGHTHOUSE_API_KEY, LIGHTHOUSE_NODE,
+    LIGHTHOUSE_API, LIGHTHOUSE_GATEWAY, AKASH_WALLET_ADDRESS,
+    ICP_BACKEND_CANISTER, DEPLOYMENT_TIER, BUILD_TIMESTAMP,
+    AUTH_TIMESTAMP_WINDOW_MS, logger
 )
-logger = logging.getLogger(__name__)
+from encryption import EncryptionUtils
+from storage import (
+    get_user_dir, get_metadata_path, get_user_memory_path,
+    load_user_memory, save_user_memory, load_metadata, save_metadata
+)
+from lighthouse import (
+    upload_to_filecoin, get_lighthouse_uploads,
+    get_filecoin_deal_status, download_from_filecoin
+)
 
-# Reduce werkzeug HTTP request log spam (every request was being logged)
-logging.getLogger('werkzeug').setLevel(logging.WARNING)
-
-# Audio transcription (after logger is defined)
+# Audio transcription
 import tempfile
 try:
     import whisper
-    WHISPER_MODEL = None  # Lazy loaded on first use
+    WHISPER_MODEL = None
     WHISPER_AVAILABLE = True
     logger.info('✅ Whisper library available')
 except ImportError:
@@ -53,438 +58,10 @@ from icp_auth import require_auth, verify_request_auth
 app = Flask(__name__)
 CORS(app)
 
-# ===== CONFIGURATION =====
-# These can be overridden by environment variables for Akash deployment
-PROVIDER_ID = os.getenv('PROVIDER_ID', 'local-mac-mini')
-MODEL_NAME = os.getenv('MODEL_NAME', 'phi3')
-MODEL_BACKEND = os.getenv('MODEL_BACKEND', 'ollama')  # Always use Ollama
-GPU_TYPE = os.getenv('GPU_TYPE', 'CPU')
-OLLAMA_HOST = os.getenv('OLLAMA_HOST', 'http://localhost:11434')
-MAX_QUEUE_SIZE = int(os.getenv('MAX_QUEUE_SIZE', '10'))
-CHATS_DIR = os.getenv('CHATS_DIR', '/var/lib/trinity/chats')
-
-# ===== LIGHTHOUSE / FILECOIN CONFIGURATION =====
-# Lighthouse replaces Pinata for decentralized IPFS + Filecoin storage
-# Get API key from: https://files.lighthouse.storage
-LIGHTHOUSE_API_KEY = os.getenv('LIGHTHOUSE_API_KEY', '')
-
-# Lighthouse API endpoints (from official SDK lighthouse.config.js)
-LIGHTHOUSE_NODE = 'https://upload.lighthouse.storage'    # For uploads
-LIGHTHOUSE_API = 'https://api.lighthouse.storage'        # For metadata/status
-LIGHTHOUSE_GATEWAY = 'https://gateway.lighthouse.storage'  # For downloads
-
-# Legacy fallback - support old env var name during transition
-if not LIGHTHOUSE_API_KEY:
-    LIGHTHOUSE_API_KEY = os.getenv('FILECOIN_API_KEY', '')
-
-# Build timestamp for pipeline verification
-BUILD_TIMESTAMP = datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')
-logger.info(f'🏗️  Trinity Backend Build: {BUILD_TIMESTAMP}')
-
-# Create directories
-Path(CHATS_DIR).mkdir(parents=True, exist_ok=True)
-
 # ===== GLOBAL STATE =====
 
-# ===== AI TOOLS CONFIGURATION =====
-# All tools use the existing Ollama backend (same as Trinity chat)
-
 # In-memory document storage for Chat With Documents (per-session)
-# Format: { session_id: { 'content': str, 'filename': str, 'uploaded_at': datetime } }
 document_store = {}
-
-# ===== ENCRYPTION UTILITIES =====
-class EncryptionUtils:
-    """Handle AES-256-GCM encryption for chat content"""
-    
-    @staticmethod
-    def derive_key(principal_id: str, salt: bytes) -> bytes:
-        """Derive encryption key from principal ID using PBKDF2"""
-        from Crypto.Hash import SHA256
-        return PBKDF2(principal_id, salt, dkLen=32, count=100000, hmac_hash_module=SHA256)
-    
-    @staticmethod
-    def encrypt_chat(chat_data: Dict, principal_id: str) -> Dict:
-        """Encrypt chat content"""
-        salt = get_random_bytes(16)
-        key = EncryptionUtils.derive_key(principal_id, salt)
-        
-        # Serialize chat data
-        plaintext = json.dumps(chat_data).encode('utf-8')
-        
-        # Generate nonce and encrypt
-        cipher = AES.new(key, AES.MODE_GCM)
-        nonce = cipher.nonce
-        ciphertext, tag = cipher.encrypt_and_digest(plaintext)
-        
-        return {
-            'version': '1.0',
-            'encryption': {
-                'algorithm': 'AES-256-GCM',
-                'salt': base64.b64encode(salt).decode('utf-8'),
-                'nonce': base64.b64encode(nonce).decode('utf-8'),
-                'tag': base64.b64encode(tag).decode('utf-8')
-            },
-            'encryptedContent': base64.b64encode(ciphertext).decode('utf-8'),
-            'fileMetadata': {
-                'principalId': principal_id,
-                'createdAt': chat_data.get('metadata', {}).get('createdAt', int(time.time() * 1000)),
-                'contentType': 'application/json'
-            }
-        }
-    
-    @staticmethod
-    def decrypt_chat(encrypted_data: Dict, principal_id: str) -> Dict:
-        """Decrypt chat content"""
-        try:
-            salt = base64.b64decode(encrypted_data['encryption']['salt'])
-            nonce = base64.b64decode(encrypted_data['encryption']['nonce'])
-            tag = base64.b64decode(encrypted_data['encryption']['tag'])
-            ciphertext = base64.b64decode(encrypted_data['encryptedContent'])
-            
-            key = EncryptionUtils.derive_key(principal_id, salt)
-            cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
-            plaintext = cipher.decrypt_and_verify(ciphertext, tag)
-            
-            return json.loads(plaintext.decode('utf-8'))
-        except Exception as e:
-            logger.error(f'Decryption failed: {e}')
-            raise ValueError('Failed to decrypt chat - wrong principal or corrupted data')
-
-# ===== ICP SIGNATURE VERIFICATION =====
-def verify_icp_signature(principal_id: str, timestamp: str, signature: str) -> Tuple[bool, Optional[str]]:
-    """Verify ICP Internet Identity signature"""
-    try:
-        # Check timestamp is recent (within 5 minutes)
-        request_time = int(timestamp)
-        current_time = int(time.time() * 1000)
-        time_diff = abs(current_time - request_time)
-        
-        if time_diff > 5 * 60 * 1000:  # 5 minutes
-            return False, 'Timestamp too old'
-        
-        # NOTE: Full ICP signature verification would require @dfinity/agent library
-        # For now, just verify timestamp freshness and principal format
-        if not principal_id or len(principal_id) < 10:
-            return False, 'Invalid principal format'
-        
-        logger.debug(f'Signature verification passed for {principal_id}')
-        return True, None
-    except Exception as e:
-        logger.error(f'Signature verification error: {e}')
-        return False, str(e)
-
-def require_auth(f):
-    """Decorator to require ICP authentication"""
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        principal = request.headers.get('ICP-Principal')
-        signature = request.headers.get('ICP-Signature')
-        timestamp = request.headers.get('ICP-Timestamp')
-        
-        if not all([principal, signature, timestamp]):
-            logger.warning('Missing authentication headers')
-            return jsonify({'error': 'Missing authentication headers'}), 401
-        
-        valid, error = verify_icp_signature(principal, timestamp, signature)
-        if not valid:
-            logger.warning(f'Invalid signature for principal {principal}: {error}')
-            return jsonify({'error': error or 'Invalid signature'}), 401
-        
-        # Set principal on request object for use in route handler
-        request.principal = principal
-        logger.debug(f'✅ Authenticated request from {principal}')
-        
-        return f(*args, **kwargs)
-    
-    return decorated_function
-
-# ===== FILE STORAGE MANAGEMENT =====
-def get_user_dir(principal_id: str) -> Path:
-    """Get user's chat directory"""
-    user_dir = Path(CHATS_DIR) / principal_id
-    user_dir.mkdir(parents=True, exist_ok=True)
-    return user_dir
-
-def get_metadata_path(principal_id: str) -> Path:
-    """Get metadata file path for user"""
-    return get_user_dir(principal_id) / 'metadata.json'
-
-def get_user_memory_path(principal_id: str) -> Path:
-    """Get user memory file path"""
-    return get_user_dir(principal_id) / 'user_memory.json'
-
-def load_user_memory(principal_id: str) -> Dict:
-    """Load user's persistent memory"""
-    path = get_user_memory_path(principal_id)
-    if path.exists():
-        with open(path, 'r') as f:
-            return json.load(f)
-    return {
-        'principalId': principal_id,
-        'version': '1.0',
-        'facts': [],  # List of important facts about the user
-        'preferences': {},  # User preferences
-        'createdAt': int(time.time() * 1000),
-        'lastUpdated': int(time.time() * 1000)
-    }
-
-def save_user_memory(principal_id: str, memory: Dict):
-    """Save user's persistent memory"""
-    memory['lastUpdated'] = int(time.time() * 1000)
-    with open(get_user_memory_path(principal_id), 'w') as f:
-        json.dump(memory, f, indent=2)
-
-def load_metadata(principal_id: str) -> Dict:
-    """Load user's metadata"""
-    path = get_metadata_path(principal_id)
-    if path.exists():
-        with open(path, 'r') as f:
-            return json.load(f)
-    return {
-        'principalId': principal_id,
-        'version': '1.0',
-        'chats': [],
-        'createdAt': int(time.time() * 1000),
-        'lastLogin': int(time.time() * 1000),
-        # Bundle tracking fields for Pinata sync
-        'currentBundleCID': None,
-        'lastBundleVersion': 0,
-        'lastSyncedAt': None
-    }
-
-def save_metadata(principal_id: str, metadata: Dict):
-    """Save user's metadata"""
-    metadata['lastLogin'] = int(time.time() * 1000)
-    with open(get_metadata_path(principal_id), 'w') as f:
-        json.dump(metadata, f, indent=2)
-
-# ============================================================================
-# LIGHTHOUSE / FILECOIN INTEGRATION
-# ============================================================================
-# Lighthouse provides IPFS pinning + verified Filecoin storage deals.
-# Unlike Pinata, Lighthouse creates actual Filecoin deals for long-term storage.
-#
-# API Flow:
-#   1. Upload: POST to /api/v0/add -> returns CID immediately
-#   2. Filecoin deal: Created automatically (takes 1-24 hours to seal)
-#   3. Retrieval: Any IPFS gateway using the CID
-#
-# Documentation: https://docs.lighthouse.storage
-# ============================================================================
-
-def upload_to_filecoin(file_data: bytes, filename: str, principal_id: str = None, is_master_bundle: bool = False) -> Optional[str]:
-    """
-    Upload file to IPFS + Filecoin via Lighthouse.
-    
-    Lighthouse automatically queues uploaded content for Filecoin verified deals.
-    The CID is available immediately via IPFS; Filecoin deal seals in 1-24 hours.
-
-    Args:
-        file_data: The encrypted data to upload
-        filename: Name for the file (used for tracking)
-        principal_id: User's principal ID (stored in local metadata only)
-        is_master_bundle: If True, marks this as the user's master bundle
-
-    Returns:
-        CID string on success, None on failure
-    """
-    if not LIGHTHOUSE_API_KEY:
-        logger.warning('Lighthouse API key not configured - skipping archive')
-        return None
-
-    try:
-        # Lighthouse uses /api/v0/add endpoint for uploads
-        endpoint = f'{LIGHTHOUSE_NODE}/api/v0/add'
-        
-        headers = {
-            'Authorization': f'Bearer {LIGHTHOUSE_API_KEY}'
-        }
-        
-        # Create form data with the file
-        # Lighthouse accepts multipart/form-data with 'file' field
-        files = {
-            'file': (filename, file_data, 'application/json')
-        }
-        
-        logger.info(f'📤 Uploading to Lighthouse: {filename} ({len(file_data)} bytes)')
-        
-        response = requests.post(
-            endpoint,
-            headers=headers,
-            files=files,
-            timeout=60  # 60 second timeout for upload
-        )
-
-        if response.status_code == 200:
-            result = response.json()
-            cid = result.get('Hash')
-            size = result.get('Size', len(file_data))
-            
-            logger.info(f'✅ Uploaded to Lighthouse/IPFS: {cid}')
-            logger.info(f'   Size: {size} bytes')
-            logger.info(f'   Principal: {principal_id}')
-            logger.info(f'   Gateway: {LIGHTHOUSE_GATEWAY}/ipfs/{cid}')
-            logger.info(f'   ⏳ Filecoin deal will be created automatically (1-24 hours)')
-            
-            return cid
-        else:
-            logger.error(f'❌ Lighthouse upload failed: {response.status_code} - {response.text}')
-            return None
-
-    except requests.Timeout:
-        logger.error('❌ Lighthouse upload timed out')
-        return None
-    except Exception as e:
-        logger.error(f'❌ Lighthouse upload error: {e}', exc_info=True)
-        return None
-
-
-def get_lighthouse_uploads(principal_id: str = None, file_type: str = None) -> list:
-    """
-    Get list of files uploaded to Lighthouse for this API key.
-    
-    Note: Lighthouse associates files with the API key, not with custom metadata.
-    To support multi-user, we store principal -> CID mapping in local metadata.
-    This function returns all uploads for the current API key.
-
-    Args:
-        principal_id: User's principal ID (for logging, filtering done locally)
-        file_type: Optional filter - not used in Lighthouse API, filter locally
-
-    Returns:
-        List of upload records sorted by upload time (newest first)
-    """
-    if not LIGHTHOUSE_API_KEY:
-        logger.warning('Lighthouse API key not configured')
-        return []
-
-    try:
-        headers = {
-            'Authorization': f'Bearer {LIGHTHOUSE_API_KEY}'
-        }
-
-        # Lighthouse uses /api/user/files_uploaded endpoint
-        response = requests.get(
-            f'{LIGHTHOUSE_API}/api/user/files_uploaded',
-            headers=headers,
-            timeout=30
-        )
-
-        if response.status_code == 200:
-            result = response.json()
-            files = result.get('fileList', [])
-            
-            # Sort by createdAt descending (newest first)
-            files.sort(key=lambda x: x.get('createdAt', 0), reverse=True)
-            
-            logger.info(f'📦 Found {len(files)} files in Lighthouse storage')
-            return files
-        else:
-            logger.error(f'Lighthouse listing failed: {response.status_code} - {response.text}')
-            return []
-
-    except requests.Timeout:
-        logger.error('Lighthouse listing timed out')
-        return []
-    except Exception as e:
-        logger.error(f'Lighthouse listing error: {e}', exc_info=True)
-        return []
-
-
-def get_filecoin_deal_status(cid: str) -> dict:
-    """
-    Check Filecoin deal status for a CID.
-    
-    Filecoin deals typically take 1-24 hours to be created and sealed.
-    This function returns the current deal status.
-
-    Args:
-        cid: IPFS content identifier
-
-    Returns:
-        Dict with deal status information
-    """
-    if not cid:
-        return {'status': 'error', 'message': 'No CID provided'}
-
-    try:
-        response = requests.get(
-            f'{LIGHTHOUSE_API}/api/lighthouse/deal_status?cid={cid}',
-            timeout=30
-        )
-
-        if response.status_code == 200:
-            deals = response.json()
-            
-            if not deals or len(deals) == 0:
-                return {
-                    'status': 'pending',
-                    'message': 'Filecoin deal not yet created (can take 1-24 hours)',
-                    'deals': []
-                }
-            
-            return {
-                'status': 'active',
-                'message': 'Stored on Filecoin',
-                'deals': deals
-            }
-        else:
-            return {
-                'status': 'unknown',
-                'message': f'Could not check deal status: {response.status_code}',
-                'deals': []
-            }
-
-    except Exception as e:
-        logger.error(f'Deal status check failed: {e}')
-        return {
-            'status': 'error',
-            'message': str(e),
-            'deals': []
-        }
-
-def download_from_filecoin(cid: str) -> Optional[bytes]:
-    """
-    Download file from IPFS via multiple gateways for redundancy.
-    
-    Tries Lighthouse gateway first since we upload there, then falls back
-    to other public IPFS gateways for redundancy.
-    """
-    if not cid:
-        return None
-
-    try:
-        # Try multiple IPFS gateways - Lighthouse first since we upload there
-        gateways = [
-            f'{LIGHTHOUSE_GATEWAY}/ipfs/{cid}',  # Lighthouse gateway (primary)
-            f'https://ipfs.io/ipfs/{cid}',        # Protocol Labs gateway
-            f'https://dweb.link/ipfs/{cid}',      # dweb.link gateway
-            f'https://cloudflare-ipfs.com/ipfs/{cid}'  # Cloudflare gateway
-        ]
-
-        for gateway in gateways:
-            try:
-                logger.info(f'Attempting download from: {gateway}')
-                response = requests.get(gateway, timeout=30)
-
-                if response.status_code == 200:
-                    logger.info(f'✅ File downloaded from IPFS: {cid}')
-                    return response.content
-                else:
-                    logger.warning(f'Gateway {gateway} returned {response.status_code}')
-            except requests.Timeout:
-                logger.warning(f'Gateway {gateway} timed out')
-                continue
-            except Exception as e:
-                logger.warning(f'Gateway {gateway} error: {e}')
-                continue
-
-        logger.error(f'❌ All gateways failed for CID: {cid}')
-        return None
-    except Exception as e:
-        logger.error(f'❌ IPFS download error: {e}', exc_info=True)
-        return None
 
 # ===== METRICS TRACKING =====
 class MetricsCollector:

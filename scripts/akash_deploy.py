@@ -468,6 +468,7 @@ def main():
     # Known problematic providers to skip
     skip_providers = [
         "akash19yhu3jgw8h0320av98h8n5qczje3pj3u9u2amp",  # bdl.computer - times out
+        "akash1sjwuwre4qprcaa34f6324yz7m8nn0awvc75gp5",  # quanglong.org - very slow image pulls (26+ min)
     ]
     
     for provider, price in bids:
