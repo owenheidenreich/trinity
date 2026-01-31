@@ -253,17 +253,21 @@ Browser                           Backend
 ### Storage Architecture
 
 ```
-┌─────────────────────────────────────────────┐
-│              STORAGE LAYERS               │
-├───────────────┬───────────────┬─────────────┤
-│   IndexedDB   │   Akash Disk  │    IPFS     │
-│   (Browser)   │   (Hot)       │  (Backup)   │
-├───────────────┼───────────────┼─────────────┤
-│ Instant       │ Fast          │ Permanent   │
-│ Session only  │ Until redep.  │ Encrypted   │
-│ Encrypted     │ Encrypted     │ Via CID     │
-└───────────────┴───────────────┴─────────────┘
+┌───────────────────────────────────────────────────────────────────┐
+│                       STORAGE ARCHITECTURE                        │
+├───────────────────────────────────────────────────────────────────┤
+│  IPFS (Lighthouse) = Source of Truth                             │
+│  • All encrypted chats stored permanently                         │
+│  • Metadata synced for recovery after redeployment               │
+│  • Content-addressed (CID) for integrity verification            │
+├───────────────────────────────────────────────────────────────────┤
+│  Browser (IndexedDB) = Session Cache                             │
+│  • Immediate responsiveness                                       │
+│  • Cleared on logout                                              │
+└───────────────────────────────────────────────────────────────────┘
 ```
+
+**Note:** Akash disk is only used for temporary metadata caching (chat list) to speed up requests. All actual chat data lives on IPFS and survives Akash redeployments.
 
 ---
 

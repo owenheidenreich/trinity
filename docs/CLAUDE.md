@@ -382,19 +382,21 @@ User Login (after redeploy):
 ### Storage Layers
 | Layer | Speed | Persistence | Purpose |
 |-------|-------|-------------|---------|
-| Local Disk | Fast | Lost on redeploy | Active cache |
-| Lighthouse/IPFS | Medium | Permanent | Cloud backup |
-| Filecoin Deals | Slow | 540+ days | Verified archival |
+| IPFS (Lighthouse) | Medium | Permanent | **Source of truth** - all chat data |
+| Akash Disk | Fast | Lost on redeploy | Metadata cache only |
+| Browser (IndexedDB) | Instant | Session only | UI responsiveness |
+
+**Note:** Filecoin archive feature was removed in v3.7.0. IPFS is now the primary permanent storage.
 
 ### Encryption
 - AES-256-GCM with PBKDF2 key derivation
 - Principal ID used as encryption password
 - 100k PBKDF2 iterations, random salt + nonce
-- Same encryption for local AND cloud storage
+- All data encrypted before upload to IPFS
 
-### Autosave (v3.4.0+)
+### Autosave (v3.7.0)
 - 2-second debounce after each message
-- Dual-write: local disk + Lighthouse upload
+- Direct upload to IPFS (Lighthouse)
 - CID stored in metadata for recovery
 - Exponential backoff retry (5 attempts max)
 - Rainbow wave animation during save
