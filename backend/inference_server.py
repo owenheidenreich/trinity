@@ -48,6 +48,54 @@ from icp_auth import require_auth, verify_request_auth
 app = Flask(__name__)
 CORS(app)
 
+# ===== INPUT VALIDATION =====
+
+import re
+from collections import defaultdict
+
+def validate_chat_id(chat_id: str) -> bool:
+    """Validate chat_id format - alphanumeric, dash, underscore only."""
+    if not chat_id or len(chat_id) > 64:
+        return False
+    return bool(re.match(r'^[a-zA-Z0-9_-]+$', chat_id))
+
+def validate_principal_id(principal_id: str) -> bool:
+    """Validate ICP principal format."""
+    if not principal_id or len(principal_id) > 64:
+        return False
+    # ICP principals are base32-ish with dashes
+    return bool(re.match(r'^[a-z0-9-]+$', principal_id.lower()))
+
+def validate_cid(cid: str) -> bool:
+    """Validate IPFS CID format - base32/base58 alphanumeric."""
+    if not cid or len(cid) > 100:
+        return False
+    return bool(re.match(r'^[a-zA-Z0-9]+$', cid))
+
+# ===== RATE LIMITING =====
+
+request_counts = defaultdict(list)
+RATE_LIMIT = 30  # requests per window (generous for legitimate users)
+RATE_WINDOW = 60  # seconds
+
+def rate_limit(f):
+    """Rate limit decorator - limits requests per IP address."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        ip = request.remote_addr or 'unknown'
+        now = time.time()
+        
+        # Clean old requests
+        request_counts[ip] = [t for t in request_counts[ip] if now - t < RATE_WINDOW]
+        
+        if len(request_counts[ip]) >= RATE_LIMIT:
+            logger.warning(f'⚠️ Rate limit exceeded for IP: {ip}')
+            return jsonify({'error': 'Rate limit exceeded. Try again later.'}), 429
+        
+        request_counts[ip].append(now)
+        return f(*args, **kwargs)
+    return decorated
+
 # ===== GLOBAL STATE =====
 
 # In-memory document storage for Chat With Documents (per-session)
@@ -896,6 +944,7 @@ def build_prompt_with_context(user_prompt: str, context_messages: list, user_mem
     return "\n".join(conversation_parts)
 
 @app.route('/generate', methods=['POST'])
+@rate_limit
 @icp_idempotent
 def generate():
     """
@@ -1068,6 +1117,7 @@ def generate():
 # ============================================================================
 
 @app.route('/generate/simple', methods=['POST'])
+@rate_limit
 def generate_simple():
     """
     Ultra-minimal generate endpoint for testing and debugging.
@@ -1128,6 +1178,7 @@ def generate_simple():
 
 
 @app.route('/generate/simple/stream', methods=['POST'])
+@rate_limit
 def generate_simple_stream():
     """
     Ultra-minimal streaming generate endpoint.
@@ -1199,6 +1250,7 @@ def generate_simple_stream():
 # ============================================================================
 
 @app.route('/generate/stream', methods=['POST'])
+@rate_limit
 def generate_stream():
     """
     Generate text using AI model with Server-Sent Events (SSE) streaming.
@@ -1330,12 +1382,21 @@ def autosave_chat():
         messages = data.get('messages', [])
         metadata = data.get('metadata', {})
         
-        # Privacy: Don't log metadata (may contain user-generated titles)
-        logger.debug(f'   chatId: {chat_id}, messages: {len(messages)}')
-        
+        # Validate inputs
         if not chat_id:
             logger.error('❌ Missing chatId in autosave request')
             return jsonify({'error': 'Missing chatId'}), 400
+        
+        if not validate_chat_id(chat_id):
+            logger.warning(f'⚠️ Invalid chatId format: {chat_id[:20]}...')
+            return jsonify({'error': 'Invalid chatId format'}), 400
+        
+        if not validate_principal_id(principal):
+            logger.warning(f'⚠️ Invalid principal format: {principal[:20]}...')
+            return jsonify({'error': 'Invalid principal format'}), 400
+        
+        # Privacy: Don't log metadata (may contain user-generated titles)
+        logger.debug(f'   chatId: {chat_id}, messages: {len(messages)}')
         
         # Prepare chat data for encryption
         chat_data = {
@@ -1509,6 +1570,12 @@ def get_chat(chat_id):
     """Load specific chat - tries local disk first, then falls back to Lighthouse (IPFS)"""
     try:
         principal = request.principal
+        
+        # Validate inputs
+        if not validate_chat_id(chat_id):
+            logger.warning(f'⚠️ Invalid chatId format in GET: {chat_id[:20]}...')
+            return jsonify({'error': 'Invalid chatId format'}), 400
+        
         chat_path = get_user_dir(principal) / f"{chat_id}.json"
         
         # Try local disk first (fastest)
@@ -1581,6 +1648,12 @@ def delete_chat(chat_id):
     """Delete chat"""
     try:
         principal = request.principal
+        
+        # Validate inputs
+        if not validate_chat_id(chat_id):
+            logger.warning(f'⚠️ Invalid chatId format in DELETE: {chat_id[:20]}...')
+            return jsonify({'error': 'Invalid chatId format'}), 400
+        
         chat_path = get_user_dir(principal) / f"{chat_id}.json"
         
         if chat_path.exists():
@@ -1608,6 +1681,12 @@ def archive_chat(chat_id):
     """Archive chat to Pinata/Filecoin with immediate upload"""
     try:
         principal = request.principal
+        
+        # Validate inputs
+        if not validate_chat_id(chat_id):
+            logger.warning(f'⚠️ Invalid chatId format in archive: {chat_id[:20]}...')
+            return jsonify({'error': 'Invalid chatId format'}), 400
+        
         chat_path = get_user_dir(principal) / f"{chat_id}.json"
 
         if not chat_path.exists():
@@ -1837,6 +1916,12 @@ def get_archived_chat(cid):
     """
     try:
         principal = request.principal
+        
+        # Validate CID format
+        if not validate_cid(cid):
+            logger.warning(f'⚠️ Invalid CID format: {cid[:20]}...')
+            return jsonify({'error': 'Invalid CID format'}), 400
+        
         logger.info(f'📥 Downloading archived chat: {cid}')
 
         # Download from IPFS
@@ -1889,6 +1974,11 @@ def get_archive_deal_status(cid):
         - deals: Array of Filecoin deal information (if active)
     """
     try:
+        # Validate CID format
+        if not validate_cid(cid):
+            logger.warning(f'⚠️ Invalid CID format in status check: {cid[:20]}...')
+            return jsonify({'error': 'Invalid CID format'}), 400
+        
         logger.info(f'📊 Checking Filecoin deal status for: {cid}')
         
         status = get_filecoin_deal_status(cid)

@@ -1,10 +1,10 @@
 # Trinity Codebase Reference
 
 > **Purpose:** Comprehensive documentation for AI assistants to quickly understand the Trinity project  
-> **Last Updated:** January 29, 2026  
-> **Last Verified:** January 29, 2026  
-> **Status:** Development - Persistent Cloud Storage Fix  
-> **Version:** v3.4.0 (Lighthouse Auto-Sync)
+> **Last Updated:** January 31, 2026  
+> **Last Verified:** January 31, 2026  
+> **Status:** Development - Security hardening complete  
+> **Version:** v3.5.0 (Backend Validation + Rate Limiting)
 
 ---
 
@@ -422,6 +422,10 @@ dfx canister --network ic call au5zq-2qaaa-aaaal-qtowa-cai health
 ---
 
 ## 📋 API Endpoints
+
+**Security Features:**
+- All `/chat/*` endpoints validate input parameters (chat_id, principal_id, CID format)
+- All `/generate*` endpoints are rate-limited (30 requests/60 seconds per IP)
 
 | Endpoint | Method | Auth | Purpose |
 |----------|--------|------|---------|

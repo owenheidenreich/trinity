@@ -1,7 +1,7 @@
 # Trinity Next Steps Implementation Plan
 
 > **Updated:** January 31, 2026  
-> **Status:** Core features complete. Focus on security hardening + new capabilities.
+> **Status:** Security hardening complete. Moving to quick wins.
 
 ---
 
@@ -9,8 +9,6 @@
 
 | Priority | Task | Effort | Docker? |
 |----------|------|--------|---------|
-| 🔴 HIGH | Backend input validation (security) | 1 hr | ✅ Yes |
-| 🔴 HIGH | Rate limit /generate | 1 hr | ✅ Yes |
 | 🟡 MED | Show CID after archive | 30 min | ❌ No |
 | 🟡 MED | trinityai.cc SSL certificate | 5 min | ❌ No |
 | 🟢 LOW | PDF document parsing | 2 hrs | ✅ Yes |
@@ -20,82 +18,9 @@
 
 ---
 
-## 🔴 Priority 1: Security Hardening
+## 🟡 Priority 1: Quick Wins
 
-### 1.1 Backend Input Validation
-**File:** `backend/inference_server.py`  
-**Time:** 1 hour  
-**Risk:** Medium - path traversal vulnerability exists
-
-**Problem:** Chat IDs and principal IDs are accepted without format validation. Malicious input like `../../etc/passwd` could cause issues.
-
-**Solution:**
-```python
-import re
-
-def validate_chat_id(chat_id: str) -> bool:
-    """Validate chat_id format - alphanumeric, dash, underscore only."""
-    if not chat_id or len(chat_id) > 64:
-        return False
-    return bool(re.match(r'^[a-zA-Z0-9_-]+$', chat_id))
-
-def validate_principal_id(principal_id: str) -> bool:
-    """Validate ICP principal format."""
-    if not principal_id or len(principal_id) > 64:
-        return False
-    return bool(re.match(r'^[a-z0-9-]+$', principal_id.lower()))
-```
-
-Apply to all `/chat/*` endpoints before processing.
-
-**Test:** Send `../../../etc/passwd` as chat_id → should return 400.
-
----
-
-### 1.2 Rate Limit /generate Endpoint
-**File:** `backend/inference_server.py`  
-**Time:** 1 hour  
-**Risk:** Medium - currently anyone can consume unlimited GPU resources
-
-**Problem:** `/generate` has no authentication or rate limiting.
-
-**Solution:**
-```python
-from functools import wraps
-from collections import defaultdict
-import time
-
-request_counts = defaultdict(list)
-RATE_LIMIT = 10  # requests per window
-RATE_WINDOW = 60  # seconds
-
-def rate_limit(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        ip = request.remote_addr
-        now = time.time()
-        request_counts[ip] = [t for t in request_counts[ip] if now - t < RATE_WINDOW]
-        
-        if len(request_counts[ip]) >= RATE_LIMIT:
-            return jsonify({'error': 'Rate limit exceeded. Try again later.'}), 429
-        
-        request_counts[ip].append(now)
-        return f(*args, **kwargs)
-    return decorated
-
-@app.route('/generate', methods=['POST'])
-@rate_limit
-def generate():
-    # ... existing code
-```
-
-**Test:** Send 11 rapid requests → 11th should return 429.
-
----
-
-## 🟡 Priority 2: Quick Wins
-
-### 2.1 Show CID After Archive
+### 1.1 Show CID After Archive
 **File:** `trinity-icp/src/modules/archive.js`  
 **Time:** 30 minutes  
 **Docker:** No (frontend only)
@@ -117,7 +42,7 @@ console.log(`Verify: https://gateway.lighthouse.storage/ipfs/${response.cid}`);
 
 ---
 
-### 2.2 trinityai.cc SSL Certificate
+### 1.2 trinityai.cc SSL Certificate
 **Status:** DNS working, SSL pending  
 **Time:** 5 minutes (just redeploy)
 
@@ -133,9 +58,9 @@ curl -I https://trinityai.cc
 
 ---
 
-## 🟢 Priority 3: Enhancements
+## 🟢 Priority 2: Enhancements
 
-### 3.1 PDF Document Parsing
+### 2.1 PDF Document Parsing
 **File:** `backend/inference_server.py`  
 **Time:** 2 hours  
 **Docker:** Yes
@@ -158,7 +83,7 @@ Update frontend to accept PDF in file input.
 
 ---
 
-### 3.2 Live Market Data
+### 2.2 Live Market Data
 **Files:** `backend/market_data.py` (new), `backend/inference_server.py`  
 **Time:** 4 hours  
 **Docker:** Yes  
@@ -192,6 +117,11 @@ Integrate with `/generate` to detect market queries and inject live data.
 ---
 
 ## ✅ Completed Work (Reference)
+
+### Security Hardening (Jan 31, 2026)
+- ✅ Backend input validation (`validate_chat_id`, `validate_principal_id`, `validate_cid`)
+- ✅ Rate limiting on all `/generate*` endpoints (30 req/min per IP)
+- ✅ Applied validation to all `/chat/*` endpoints
 
 ### Phase 11: Codebase Refactor (Jan 31, 2026)
 - ✅ IndexedDB local-first storage (`trinity-icp/src/storage/indexedDB.js`)
@@ -227,7 +157,7 @@ Backend (Akash + Ollama)
 ├── storage.py       # File operations
 ├── lighthouse.py    # IPFS/Filecoin integration
 ├── icp_auth.py      # Ed25519 authentication
-└── inference_server.py  # Main Flask app
+└── inference_server.py  # Main Flask app (with rate limiting + validation)
 
 Data Flow:
 User → IndexedDB (instant) → Cloud sync → Akash storage
