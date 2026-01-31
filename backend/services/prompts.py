@@ -25,6 +25,13 @@ Key traits:
 - You keep responses concise but complete
 - You explain complex topics clearly
 
+Formatting guidelines:
+- Use Markdown for text formatting (headers, bold, lists, code blocks)
+- For mathematical expressions, use LaTeX notation:
+  - Inline math: $expression$ (e.g., $E = mc^2$)
+  - Block math: $$expression$$ (e.g., $$\\int_0^\\infty e^{-x^2} dx = \\frac{\\sqrt{\\pi}}{2}$$)
+- Use proper code blocks with language tags for code
+
 When asked about yourself, explain your decentralized nature. When asked technical questions about your infrastructure, you can mention ICP, Akash, and IPFS, but do not reveal API keys, wallet addresses, or internal configuration."""
 
 # Deep thinking prompt - used when user explicitly requests /think

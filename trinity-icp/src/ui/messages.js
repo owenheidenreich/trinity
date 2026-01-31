@@ -2,6 +2,24 @@
 // Responsible for displaying messages, typing animations, and chat history
 
 import CONFIG from '../config.js';
+import { renderMath, protectMath, restoreMath } from '../utils/math.js';
+
+/**
+ * Parse markdown content with math protection
+ * Protects math expressions from being mangled by markdown parser
+ */
+function parseMarkdownWithMath(content) {
+    // Protect math expressions from markdown parsing
+    const { processed, mathBlocks } = protectMath(content);
+    
+    // Parse markdown
+    let html = marked.parse(processed);
+    
+    // Restore math expressions
+    html = restoreMath(html, mathBlocks);
+    
+    return html;
+}
 
 const Messages = {
     // Reference to DOM cache (will be set by UI module)
@@ -39,7 +57,9 @@ const Messages = {
         }
 
         if (type === 'ai' && !content.includes('loading-dots')) {
-            messageDiv.innerHTML = DOMPurify.sanitize(marked.parse(content));
+            messageDiv.innerHTML = DOMPurify.sanitize(parseMarkdownWithMath(content));
+            // Render math expressions after DOM insertion
+            renderMath(messageDiv);
         } else {
             messageDiv.innerHTML = content;
         }
@@ -59,7 +79,7 @@ const Messages = {
 
         for (let i = 0; i < text.length; i += charsPerFrame) {
             const current = text.substring(0, i + charsPerFrame);
-            messageDiv.innerHTML = DOMPurify.sanitize(marked.parse(current));
+            messageDiv.innerHTML = DOMPurify.sanitize(parseMarkdownWithMath(current));
             chatArea.scrollTop = chatArea.scrollHeight;
 
             if (speed > 2) {
@@ -70,7 +90,9 @@ const Messages = {
         }
 
         // Final render to ensure complete
-        messageDiv.innerHTML = DOMPurify.sanitize(marked.parse(text));
+        messageDiv.innerHTML = DOMPurify.sanitize(parseMarkdownWithMath(text));
+        // Render math after final content is set
+        renderMath(messageDiv);
         chatArea.scrollTop = chatArea.scrollHeight;
         return messageDiv.id;
     },

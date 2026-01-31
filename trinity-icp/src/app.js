@@ -45,9 +45,20 @@ import State from './state/store.js';
 import ContextMemory from './state/contextMemory.js';
 import initRainbowBorders from './ui/rainbowBorder.js';
 import Validation from './utils/validation.js';
+import { protectMath, restoreMath } from './utils/math.js';
 import { generateViaCanister, healthCheckViaCanister, isCanisterConfigured } from './api/canister-client.js';
 import { initTools, getAttachedContent, clearAttachment } from './tools.js';
 import { initFunding } from './modules/funding.js';
+
+/**
+ * Parse markdown with math protection
+ * Protects LaTeX from being mangled by marked
+ */
+function parseMarkdownWithMath(content) {
+    const { processed, mathBlocks } = protectMath(content);
+    let html = marked.parse(processed);
+    return restoreMath(html, mathBlocks);
+}
 
 // ============================================================================
 // 1b. AUTHENTICATION - Imported from auth/authManager.js
@@ -771,20 +782,40 @@ const Actions = {
                 }
                 
                 // Use agent pipeline for intelligent responses
+                // Token buffer for smoother typing effect
+                let displayedLength = 0;
+                let tokenBuffer = '';
+                let typingInterval = null;
+                
+                // Smooth typing function - types out buffered text gradually
+                const startTyping = () => {
+                    if (typingInterval) return;
+                    typingInterval = setInterval(() => {
+                        if (displayedLength < tokenBuffer.length) {
+                            // Type 2-5 characters at a time for smooth effect
+                            const charsToAdd = Math.min(3, tokenBuffer.length - displayedLength);
+                            displayedLength += charsToAdd;
+                            const visibleText = tokenBuffer.substring(0, displayedLength);
+                            messageDiv.innerHTML = DOMPurify.sanitize(parseMarkdownWithMath(visibleText)) + 
+                                '<span class="streaming-cursor">▊</span>';
+                            // No auto-scroll - let user control scroll position
+                        }
+                    }, 15); // ~66 chars/sec for natural typing feel
+                };
+                
                 await new Promise((resolve, reject) => {
                     API.generateAgent(
                         prompt,
-                        // onToken - update message with each token
+                        // onToken - buffer tokens for smooth typing
                         (token, fullText) => {
                             // First token - switch from thinking to response
                             if (!isReceivingTokens) {
                                 isReceivingTokens = true;
                                 messageDiv.innerHTML = '';
+                                startTyping();
                             }
+                            tokenBuffer = fullText;
                             generatedText = fullText;
-                            messageDiv.innerHTML = DOMPurify.sanitize(marked.parse(fullText)) + 
-                                '<span class="streaming-cursor">▊</span>';
-                            chatArea.scrollTop = chatArea.scrollHeight;
                         },
                         // onPhase - update thinking indicator
                         (phase, message) => {
@@ -801,11 +832,35 @@ const Actions = {
                                 chatArea.scrollTop = chatArea.scrollHeight;
                             }
                         },
-                        // onDone - finalize message
+                        // onDone - finish typing and render final with math
                         (fullText, agentResponse) => {
+                            // Stop typing interval
+                            if (typingInterval) {
+                                clearInterval(typingInterval);
+                                typingInterval = null;
+                            }
+                            
                             generatedText = fullText;
-                            messageDiv.innerHTML = DOMPurify.sanitize(marked.parse(fullText));
-                            chatArea.scrollTop = chatArea.scrollHeight;
+                            messageDiv.innerHTML = DOMPurify.sanitize(parseMarkdownWithMath(fullText));
+                            
+                            // Render math expressions
+                            if (window.renderMathInElement) {
+                                try {
+                                    window.renderMathInElement(messageDiv, {
+                                        delimiters: [
+                                            { left: '$$', right: '$$', display: true },
+                                            { left: '$', right: '$', display: false },
+                                            { left: '\\[', right: '\\]', display: true },
+                                            { left: '\\(', right: '\\)', display: false },
+                                        ],
+                                        throwOnError: false,
+                                    });
+                                } catch (e) {
+                                    console.warn('Math rendering error:', e);
+                                }
+                            }
+                            
+                            // No auto-scroll after completion - let user control scroll position
                             
                             // Log agent stats
                             if (agentResponse) {
@@ -818,6 +873,11 @@ const Actions = {
                         },
                         // onError - handle failures
                         (error) => {
+                            // Stop typing interval on error
+                            if (typingInterval) {
+                                clearInterval(typingInterval);
+                                typingInterval = null;
+                            }
                             reject(error);
                         },
                         { documentContext: documentContent }
@@ -885,11 +945,17 @@ const Actions = {
 
     // Toggle sidebar visibility
     toggleSidebar() {
-        UI.elements.sidebar.classList.toggle('collapsed');
+        const sidebar = UI.elements.sidebar;
+        const wasCollapsed = sidebar.classList.contains('collapsed');
+        sidebar.classList.toggle('collapsed');
 
-        // On mobile, set up click-outside-to-close
-        if (window.innerWidth <= 768 && !UI.elements.sidebar.classList.contains('collapsed')) {
-            document.addEventListener('click', this.closeSidebarOnClickOutside);
+        // On mobile, set up click-outside-to-close after a small delay
+        // to prevent the same click from immediately closing the sidebar
+        if (window.innerWidth <= 768 && wasCollapsed) {
+            // Sidebar is now open - add listener after this click event completes
+            setTimeout(() => {
+                document.addEventListener('click', this.closeSidebarOnClickOutside);
+            }, 10);
         } else {
             document.removeEventListener('click', this.closeSidebarOnClickOutside);
         }
@@ -899,8 +965,12 @@ const Actions = {
     closeSidebarOnClickOutside(event) {
         const sidebar = UI.elements.sidebar;
         const toggleBtn = UI.elements.toggleSidebarBtn;
+        const sidebarToggleBtn = UI.elements.sidebarToggleBtn;
 
-        if (!sidebar.contains(event.target) && !toggleBtn.contains(event.target)) {
+        // Check if click is outside sidebar and both toggle buttons
+        if (!sidebar.contains(event.target) && 
+            !toggleBtn?.contains(event.target) && 
+            !sidebarToggleBtn?.contains(event.target)) {
             sidebar.classList.add('collapsed');
             document.removeEventListener('click', Actions.closeSidebarOnClickOutside);
         }

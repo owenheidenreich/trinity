@@ -1031,7 +1031,7 @@ body {
     border-radius: 6px;
     cursor: pointer;
     font-size: 16px;
-    z-index: 10;
+    z-index: 100;
     display: none;
     transition: background 0.2s;
 }
@@ -1148,6 +1148,31 @@ body {
     padding: 2px 6px;
     border-radius: 4px;
     color: #ff6b9d;
+}
+
+/* KaTeX Math Styling */
+.message.ai .katex {
+    font-size: 1.1em;
+    color: #ececec;
+}
+
+.message.ai .katex-display {
+    margin: 1em 0;
+    padding: 12px 16px;
+    background: rgba(61, 61, 61, 0.5);
+    border-radius: 8px;
+    overflow-x: auto;
+}
+
+.message.ai .katex-display > .katex {
+    text-align: left;
+}
+
+/* Error styling for invalid LaTeX */
+.message.ai .katex-error {
+    color: #ff6b9d;
+    font-family: 'Monaco', 'Courier New', monospace;
+    font-size: 0.9em;
 }
 
 /* Input Area */
@@ -1432,11 +1457,27 @@ MOBILE RESPONSIVE STYLES
         width: 100%;
         position: relative;
     }
+    
+    /* Fade gradient at top of chat to avoid button overlap - MOBILE ONLY */
+    .chat-area::before {
+        content: '';
+        position: sticky;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 60px;
+        background: linear-gradient(to bottom, #1a1a1a 0%, #1a1a1a 30%, transparent 100%);
+        pointer-events: none;
+        z-index: 5;
+        margin-bottom: -60px;
+        flex-shrink: 0;
+    }
 
     /* Messages container stays full width */
     .messages-container {
         max-width: 100%;
         width: 100%;
+        padding-top: 50px; /* Space for toggle button + fade */
     }
     .sidebar {
         position: fixed;

@@ -69,6 +69,7 @@ Your plan:
 Now execute your plan to answer this question thoroughly:
 {question}
 
+Formatting: Use Markdown for text. For math, use LaTeX: inline $x^2$ or block $$\\sum_{{i=1}}^n i$$.
 Take your time. Be thorough. Show your reasoning. Quality over speed."""
 
 
@@ -82,6 +83,7 @@ Previous conversation:
 {search_context}
 Question: {question}
 
+Formatting: Use Markdown for text. For math, use LaTeX: inline $x^2$ or block $$\\sum_{{i=1}}^n i$$.
 Provide a clear, helpful response."""
 
 

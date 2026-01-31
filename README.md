@@ -1,152 +1,278 @@
 <p align="center">
   <img src="https://img.shields.io/badge/status-live-brightgreen" alt="Status: Live">
+  <img src="https://img.shields.io/badge/self--custody-Ed25519-ff6b6b" alt="Self-Custody">
+  <img src="https://img.shields.io/badge/encryption-AES--256--GCM-ffd93d" alt="Encrypted">
   <img src="https://img.shields.io/badge/stack-fully%20decentralized-blueviolet" alt="Fully Decentralized">
-  <img src="https://img.shields.io/badge/license-MIT-blue" alt="License: MIT">
 </p>
 
-# Trinity
+<h1 align="center">Trinity</h1>
 
-**A fully decentralized AI chat application.** No accounts. No passwords. No centralized servers. Just you and your AI, secured by cryptography.
+<h3 align="center"><em>Your Keys. Your Data. Your AI.</em></h3>
 
 <p align="center">
-  <a href="https://trinityai.cc">trinityai.cc</a> · 
-  <a href="https://zc67k-kiaaa-aaaal-qtmiq-cai.icp0.io">ICP Canister</a>
+The first AI chat application where you truly own everything.<br>
+No accounts. No passwords. No company storing your conversations.<br>
+Just cryptographic keys that belong to you.
+</p>
+
+<p align="center">
+  <strong><a href="https://trinityai.cc">→ Start Chatting at trinityai.cc ←</a></strong>
 </p>
 
 ---
 
-## What Makes Trinity Different
+## Why Trinity Exists
 
-| Traditional AI Chat | Trinity |
-|---------------------|---------|
-| Create account with email/password | Generate cryptographic keypair in browser |
-| Company stores your conversations | You own your data, encrypted with keys only you hold |
-| Servers in data centers | Compute on Akash (decentralized cloud) |
-| Data on company databases | Archives on Filecoin (permanent, verifiable storage) |
-| Access via company domain | Access via ICP canister (trinityai.cc) |
+Every AI chat service today follows the same model: create an account, hand over your data, trust them not to read it, sell it, or lock you out. You don't own your conversations—they do.
 
-**Zero trust architecture.** We can't read your chats. We can't lock you out. We can't shut down.
+**Trinity inverts this entirely.**
+
+When you open Trinity, your browser generates a cryptographic keypair. That's your identity—not an email, not a username, just mathematics. Your private key never leaves your device. Every message you save is encrypted *before* it leaves your browser with keys derived from your identity. The backend literally cannot read your chats.
+
+If you lose your key, your data is gone forever. That's not a bug—it's the whole point. **True ownership means no backdoors, no recovery, no "forgot password."** Your keys, your responsibility, your freedom.
+
+---
+
+## The Trinity: Three Blockchains, One Stack
+
+| Blockchain | Role | Replaces |
+|------------|------|----------|
+| **ICP** (Internet Computer) | Frontend hosting + identity | AWS S3, Cloudflare, Auth0 |
+| **Akash** (AKT) | GPU compute for AI inference | AWS EC2, Google Cloud, Azure |
+| **IPFS/Filecoin** | Permanent encrypted storage | AWS S3, Google Drive, Dropbox |
+
+No single company. No single point of failure. No kill switch.
+
+Like Neo choosing to see the truth, Trinity represents awakening to a different reality—one where you control your digital existence instead of renting it from corporations.
+
+
+Three becoming one. Distinct technologies unified into a seamless experience. An homage to faith and the belief that something greater can emerge from the union of parts.
+
+---
+
+## What Makes This Different
+
+<table>
+<tr>
+<th width="50%">Traditional AI Chat</th>
+<th width="50%">Trinity</th>
+</tr>
+<tr>
+<td>
+
+❌ Create account with email/password  
+❌ Company stores all conversations  
+❌ Company can read your data  
+❌ Company can ban you  
+❌ Company can shut down  
+❌ Limited export options  
+❌ Servers in corporate data centers  
+
+</td>
+<td>
+
+✅ Generate keypair in browser (30 seconds)  
+✅ You encrypt before saving  
+✅ Backend cannot decrypt your chats  
+✅ No accounts = no bans  
+✅ Decentralized = unstoppable  
+✅ Full data portability (export key)  
+✅ Compute on decentralized networks  
+
+</td>
+</tr>
+</table>
+
+**The backend operators—including me—cannot read your messages.** The encryption happens in your browser with keys derived from your cryptographic identity. I store ciphertext. That's it.
+
+---
+
+## Features
+
+### 🔐 Self-Custody Authentication
+
+No passwords. No accounts. No "forgot password" emails.
+
+Your browser generates an Ed25519 keypair—the same cryptography used by SSH, Signal, and modern blockchains. Your public key becomes your **principal ID** (your identity). Your private key is yours to export, backup, and protect.
+
+**Import your key on any device** and your identity comes with you. No company can lock you out because no company controls your access.
+
+### 🔒 Zero-Knowledge Encryption
+
+Every saved chat is encrypted with **AES-256-GCM** before leaving your browser:
+
+- **PBKDF2 key derivation** with 100,000 iterations
+- **Random salt + nonce** per encryption operation
+- **Your principal ID** as the encryption password
+
+The backend stores only ciphertext. Even if the server is compromised, attackers get encrypted blobs they cannot decrypt without your private key.
+
+### 📦 Permanent Archives
+
+When you click "Archive," your encrypted chat is:
+
+1. **Uploaded to IPFS** via Lighthouse SDK
+2. **Pinned across multiple gateways** for redundancy
+3. **Sealed into a Filecoin deal** (540+ day guarantee)
+
+Your conversations become permanent, verifiable, and censorship-resistant. The content-addressed hash proves the data hasn't been tampered with.
+
+### 🧠 Intelligent Reasoning (v3.6)
+
+Trinity doesn't just respond—it *thinks*. A multi-pass agentic pipeline automatically routes questions by complexity:
+
+| Complexity | Pipeline | Passes |
+|------------|----------|--------|
+| **Simple** | Direct answer | 1 |
+| **Medium** | Understand → Execute → Critique | 3 |
+| **Complex** | Understand → Plan → Execute → Critique → Refine | 5 |
+
+For current information (prices, news, events), Trinity searches the web via Brave Search and synthesizes results into coherent answers.
+
+### 💾 Smart Memory
+
+- **6-message sliding window** for immediate context
+- **Automatic summarization** every 15 messages (compress, don't lose)
+- **User memory** that persists across all chats (facts, preferences, context)
+- **Autosave** with 2-second debounce (never lose a message)
+
+### 📊 LaTeX Mathematics
+
+Full support for mathematical notation:
+- Inline: `$E = mc^2$` renders as $E = mc^2$
+- Block equations with `$$...$$`
+- Powered by KaTeX for fast, beautiful rendering
 
 ---
 
 ## The Stack
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         TRINITY STACK                           │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│   ┌─────────────┐    ┌─────────────┐    ┌─────────────┐        │
-│   │     ICP     │    │    AKASH    │    │  FILECOIN   │        │
-│   │  Identity   │    │   Compute   │    │   Storage   │        │
-│   └─────────────┘    └─────────────┘    └─────────────┘        │
-│                                                                 │
-│   • Frontend hosting  • GPU inference   • Permanent archives   │
-│   • Ed25519 auth      • LLM serving     • Verified deals       │
-│   • HTTPS outcalls    • Hot storage     • IPFS pinning         │
-│                                                                 │
-├─────────────────────────────────────────────────────────────────┤
-│   DNS: trinityai.cc → ICP boundary nodes (fast, direct)        │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           TRINITY ARCHITECTURE                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│    ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐    │
+│    │       ICP        │  │      AKASH       │  │    FILECOIN      │    │
+│    │  Internet        │  │   Decentralized  │  │   Permanent      │    │
+│    │  Computer        │  │   Cloud          │  │   Storage        │    │
+│    ├──────────────────┤  ├──────────────────┤  ├──────────────────┤    │
+│    │ • Frontend       │  │ • GPU compute    │  │ • IPFS pinning   │    │
+│    │ • Backend canister│  │ • LLM inference │  │ • Verified deals │    │
+│    │ • Ed25519 auth   │  │ • Hot storage    │  │ • 540+ day proof │    │
+│    │ • HTTPS outcalls │  │ • Flask API      │  │ • Multi-gateway  │    │
+│    └──────────────────┘  └──────────────────┘  └──────────────────┘    │
+│                                                                         │
+├─────────────────────────────────────────────────────────────────────────┤
+│  ZERO DEPENDENCE ON: AWS, Google Cloud, Azure, Cloudflare, Auth0       │
+│  CUSTOM DOMAIN: [no-domain-yet] → ICP boundary nodes (~200ms load)        │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
-**No Cloudflare. No AWS. No Google. No single point of failure.**
-
 ---
 
-## Features
+Trinity is fully open source. Clone it, deploy it, own it.
 
-### Self-Custody Authentication
-Generate an Ed25519 keypair in your browser. Your public key becomes your identity. Your private key is your password. Export it, back it up, own it forever.
-
-### End-to-End Encryption
-Every saved chat is encrypted with AES-256-GCM before leaving your browser. The key is derived from your principal ID. Not even the backend can read your messages.
-
-### Permanent Archives
-Click archive and your chat is uploaded to IPFS, then automatically sealed into a Filecoin deal. Verifiable, permanent, censorship-resistant storage.
-
-### Context Memory
-Trinity remembers. A 6-message sliding window plus periodic summarization means coherent long conversations without exploding token counts.
-
-### Agentic Reasoning (v3.6)
-Trinity thinks deeply. A multi-pass reasoning pipeline automatically routes questions by complexity:
-- **Simple questions** → Direct answer (1 pass)
-- **Medium questions** → Understand → Execute → Critique (3 passes)
-- **Complex questions** → Understand → Plan → Execute → Critique → Refine (5 passes)
-
-Includes automatic web search for current information (prices, news, trends).
-
-### Custom Domain
-Access via `trinityai.cc` - a traditional domain pointing directly to ICP boundary nodes. Fast loading (~200ms), no IPFS latency.
-
----
-
-## Quick Start
-
-### Use Trinity (No Installation)
-Just visit **[trinityai.cc](https://trinityai.cc)** or **[the ICP canister](https://zc67k-kiaaa-aaaal-qtmiq-cai.icp0.io)** and start chatting.
-
-### Run Locally (Development)
 ```bash
-# Clone the repo
+# Clone the repository
 git clone https://github.com/yourusername/Trinity.git
 cd Trinity
 
-# Start local backend with TinyLlama
+# Copy environment template
+cp .env.example .env
+# Edit .env with your API keys:
+# - LIGHTHOUSE_API_KEY (get from https://files.lighthouse.storage/)
+# - BRAVE_SEARCH_API_KEY (get from https://brave.com/search/api/)
+
+# Start local development (TinyLlama, no GPU needed)
 ./dev
 
-# Opens browser to frontend
-# Backend runs at localhost:8000
+# Or deploy to production (choose your tier)
+./scripts/trinity-deploy-production.sh 1  # TinyLlama ~$25/mo
+./scripts/trinity-deploy-production.sh 2  # Llama 8B ~$50/mo  
+./scripts/trinity-deploy-production.sh 3  # Qwen 72B ~$200/mo
 ```
 
-### Deploy to Production
-```bash
-# Full automated deployment (local test → build → push → Akash → verify)
-./scripts/trinity-deploy-production.sh
-# Prompts for tier selection: 1=TinyLlama, 2=Llama8B, 3=Qwen72B
+### Deployment Tiers
 
-# Or specify tier directly:
-./scripts/trinity-deploy-production.sh 1  # Tier 1: TinyLlama (~$25/mo)
-./scripts/trinity-deploy-production.sh 2  # Tier 2: Llama 8B (~$50/mo)
-./scripts/trinity-deploy-production.sh 3  # Tier 3: Qwen 72B (~$200/mo)
-
-# Deploy frontend to ICP
-cd trinity-icp && dfx deploy --ic trinity_frontend
-```
+| Tier | Model | Intelligence | Cost | Use Case |
+|------|-------|--------------|------|----------|
+| **1** | TinyLlama 1.1B | Basic | ~$25/mo | Testing, light use |
+| **2** | Llama 3.1 8B | Good | ~$50/mo | Daily driver |
+| **3** | Qwen 2.5 32B+ | Excellent | ~$200/mo | Complex reasoning |
 
 ---
 
-## Architecture
+## Security Model
 
-### Data Flow
+### What The Operators Cannot Do
+
+- **Read your chats** → Encrypted client-side before transmission
+- **Recover your account** → No accounts exist, only keypairs
+- **Ban you** → No identity system to ban
+- **Comply with data requests** → Cannot decrypt what we cannot read
+- **Sell your data** → We don't have readable data
+
+### What You Control
+
+- **Your private key** → Export, backup, protect it
+- **Your encrypted archives** → Stored on Filecoin with your CIDs
+- **Your chat history** → Delete anytime from local storage
+- **Your identity** → Same key works across devices
+
+### The Trade-Off
+
+**If you lose your private key, your data is gone forever.**
+
+There is no "forgot password." There is no recovery email. There is no customer support that can help you. This is the price of true ownership—and it's a feature, not a bug.
+
+Back up your key. Store it safely. You are your own bank.
+
+---
+
+## Technical Deep Dive
+
+### Authentication Flow
+
 ```
-User Input
-    ↓
-Browser (Ed25519 signature)
-    ↓
-ICP Frontend Canister
-    ↓
-ICP Backend Canister (HTTPS outcalls)
-    ↓
-Vercel Proxy (SSL termination)
-    ↓
-Akash Backend (Flask + Ollama)
-    ↓
-LLM Response
-    ↓
-Autosave (encrypted) → Akash disk
-    ↓
-Archive (optional) → Lighthouse → IPFS + Filecoin
+Browser                           Backend
+   │                                 │
+   │  1. Generate Ed25519 keypair    │
+   │  2. Derive principal ID         │
+   │                                 │
+   │  ──── Request + Signature ───►  │
+   │       (timestamp, payload)      │
+   │                                 │
+   │                   3. Verify signature
+   │                   4. Check timestamp (5-min window)
+   │                   5. Process request
+   │                                 │
+   │  ◄──── Encrypted Response ────  │
 ```
 
-### Key Components
+### Encryption Layers
 
-| Component | Location | Purpose |
-|-----------|----------|---------|
-| Frontend | `trinity-icp/src/` | Modular vanilla JS with Zustand state |
-| Backend | `backend/` | Flask API with Ed25519 auth |
-| Deployment | `deploy/` | Docker, Akash YAML, Vercel proxy |
-| Scripts | `scripts/` | Dev, deploy, provider switching |
+| Layer | Algorithm | Purpose |
+|-------|-----------|---------|
+| Transport | TLS 1.3 | Network security |
+| Application | AES-256-GCM | Chat encryption |
+| Key Derivation | PBKDF2 (100k iterations) | Password to key |
+| Identity | Ed25519 | Signatures + principal |
+
+### Storage Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     STORAGE LAYERS                          │
+├──────────────┬──────────────┬──────────────┬───────────────┤
+│  IndexedDB   │  Akash Disk  │  IPFS/Light- │   Filecoin    │
+│  (Browser)   │  (Hot)       │  house       │   (Archive)   │
+├──────────────┼──────────────┼──────────────┼───────────────┤
+│ Instant      │ Fast         │ Medium       │ Slow          │
+│ Session only │ Until redep. │ Permanent    │ 540+ days     │
+│ Encrypted    │ Encrypted    │ Encrypted    │ Encrypted     │
+└──────────────┴──────────────┴──────────────┴───────────────┘
+```
 
 ---
 
@@ -154,117 +280,81 @@ Archive (optional) → Lighthouse → IPFS + Filecoin
 
 ```
 Trinity/
-├── backend/                 # Python Flask backend
-│   ├── inference_server.py  # Main API server
-│   ├── icp_auth.py          # Ed25519 signature verification
-│   └── services/            # Agentic reasoning pipeline
-│       ├── agent.py         # Multi-pass orchestrator
-│       ├── agent_prompts.py # Pass prompts + XML parsing
-│       ├── complexity.py    # Question complexity classifier
-│       └── search.py        # Brave web search integration
-├── trinity-icp/             # Frontend + ICP canisters
+├── backend/                    # Python Flask backend
+│   ├── inference_server.py     # Main API + encryption
+│   ├── icp_auth.py             # Ed25519 verification
+│   ├── config.py               # Environment configuration
+│   └── services/
+│       ├── agent.py            # Multi-pass reasoning
+│       ├── complexity.py       # Question classifier
+│       └── search.py           # Brave web search
+│
+├── trinity-icp/                # Frontend + ICP canisters
 │   ├── src/
-│   │   ├── app.js           # Main application
-│   │   ├── auth/            # Ed25519 keypair management
-│   │   ├── state/           # Zustand store + context memory
-│   │   ├── storage/         # Autosave + Lighthouse SDK
-│   │   ├── modules/         # Archive + Funding transparency
-│   │   └── ui/              # Modular UI components
-│   └── src/backend_canister/ # Rust ICP canister
+│   │   ├── app.js              # Main application
+│   │   ├── auth/               # Keypair management
+│   │   ├── state/              # Zustand + context memory
+│   │   ├── storage/            # Autosave + Lighthouse
+│   │   └── ui/                 # Modular components
+│   └── src/backend_canister/   # Rust ICP canister
+│
 ├── deploy/
-│   ├── akash/               # GPU deployment manifests
-│   ├── docker/              # Container build scripts
-│   └── vercel-proxy/        # SSL termination proxy
-├── docs/
-│   └── CLAUDE.md            # Comprehensive technical reference
-└── scripts/                 # Automation scripts
+│   ├── akash/                  # Tier 1/2/3 manifests
+│   ├── docker/                 # Container builds
+│   └── vercel-proxy/           # SSL termination
+│
+└── docs/
+    └── CLAUDE.md               # Complete technical reference
 ```
 
 ---
 
-## Technology
+## Support Trinity
 
-| Layer | Technology | Why |
-|-------|------------|-----|
-| **Frontend** | Vanilla JS + Vite | No framework lock-in, fast builds |
-| **State** | Zustand 5.0 | Minimal, immutable, predictable |
-| **Auth** | Ed25519 (TweetNaCl) | Industry standard, self-custody |
-| **Encryption** | AES-256-GCM | Military-grade, browser-native |
-| **Backend** | Flask + Ollama | Simple, battle-tested |
-| **Compute** | Akash Network | Decentralized, cost-effective GPUs |
-| **Hosting** | ICP Canisters | Unstoppable, no servers |
-| **Storage** | Lighthouse SDK | IPFS + verified Filecoin deals |
-| **DNS** | trinityai.cc → ICP | Custom domain pointing directly to ICP |
-| **Proxy** | Vercel Edge | SSL termination for Akash |
+Running decentralized infrastructure costs real money:
 
----
+| Resource | Monthly Cost |
+|----------|--------------|
+| Akash GPU (current tier) | ~$50-200 |
+| ICP Canister Cycles | ~$5-10 |
+| Domain + DNS | ~$1 |
 
-## Security Model
+**Total: ~$60-220/month** depending on model tier.
 
-### What We Can't Do
-- Read your chats (encrypted client-side)
-- Lock you out (you own your keys)
-- Shut down your access (decentralized hosting)
-- Sell your data (we don't have it)
+If Trinity is valuable to you, consider:
 
-### What You Control
-- Your private key (export and back up!)
-- Your encrypted archives (stored on Filecoin)
-- Your chat history (delete anytime)
+- **Donating AKT/ICP/FIL** to help cover infrastructure
+- **Running your own instance** to decentralize further
+- **Contributing code** to improve the project
+- **Spreading the word** to others who value data sovereignty
 
-### Trust Assumptions
-- Browser cryptography is sound (Web Crypto API)
-- ICP canisters execute as written
-- Akash providers run unmodified containers
-- Filecoin deals are honored
-
----
-
-## Cost
-
-Running Trinity costs real crypto:
-
-| Resource | Token | Approximate Cost |
-|----------|-------|------------------|
-| Akash GPU (Tier 1) | AKT | ~$25-50/month |
-| ICP Canister Cycles | ICP | ~$5-10/month |
-| Filecoin Storage | FIL | ~$0.01/GB/year |
-| ENS Domain | ETH | ~$5/year |
-
-**Total:** ~$30-60/month for a fully decentralized AI chat with permanent storage.
+*Contact information and wallet addresses coming soon.*
 
 ---
 
 ## Roadmap
 
-- [x] Phase 1: Self-custody authentication (Ed25519)
-- [x] Phase 2: Encrypted autosave (AES-256-GCM)
-- [x] Phase 3: Filecoin archive via Lighthouse SDK
-- [x] Phase 4: ICP backend canister (HTTPS Outcalls)
-- [x] Phase 5: Custom domain (trinityai.cc → ICP)
-- [x] Phase 6: Unified CLI deployment pipeline
-- [ ] Phase 7: Lightweight RAG (FastEmbed + BM25)
-- [ ] Phase 8: Multi-tier LLM routing
-- [ ] Phase 9: Open source release
+- [x] **Phase 1:** Self-custody authentication (Ed25519)
+- [x] **Phase 2:** Encrypted autosave (AES-256-GCM)
+- [x] **Phase 3:** Filecoin archive (Lighthouse SDK)
+- [x] **Phase 4:** ICP backend canister (HTTPS Outcalls)
+- [x] **Phase 5:** Custom domain (trinityai.cc)
+- [x] **Phase 6:** Agentic reasoning pipeline (v3.6)
+- [x] **Phase 7:** LaTeX mathematics (KaTeX)
+- [ ] **Phase 8:** Lightweight RAG (local embeddings)
+- [ ] **Phase 9:** Voice input/output
+- [ ] **Phase 10:** Mobile PWA
 
 ---
 
 ## Contributing
 
-Trinity is built for transparency. The code does exactly what it says.
+Trinity is built for transparency. Every line of code is visible. Every decision is documented.
 
 1. Fork the repository
-2. Create a feature branch
-3. Make your changes
+2. Read `docs/CLAUDE.md` for technical context
+3. Create a feature branch
 4. Submit a pull request
-
-See `docs/CLAUDE.md` for comprehensive technical documentation.
-
----
-
-## License
-
-MIT License. Use it, fork it, improve it.
 
 ---
 
@@ -278,5 +368,9 @@ MIT License. Use it, fork it, improve it.
 ---
 
 <p align="center">
-  <i>Built without permission. Runs without servers. Owned by no one.</i>
+<strong>Built without permission. Runs without servers. Owned by no one.</strong>
+</p>
+
+<p align="center">
+<em>Because your conversations with AI should belong to you.</em>
 </p>
