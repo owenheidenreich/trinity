@@ -4,7 +4,7 @@
 > **Last Updated:** January 31, 2026  
 > **Last Verified:** January 31, 2026  
 > **Status:** Production - Agentic Pipeline verified working  
-> **Version:** v3.6.0 (Agentic Multi-Pass Reasoning Pipeline)
+> **Version:** v3.7.0 (Streamlined UI + Live KaTeX Rendering)
 
 ---
 
@@ -148,9 +148,7 @@ Trinity/
 │       │   ├── notifications.js # Toast notifications
 │       │   ├── rainbowBorder.js # Rainbow effects
 │       │   └── loadingMessages.js # 🆕 Whimsical loading phrases
-│       ├── modules/
-│       │   ├── archive.js       # Filecoin archival
-│       │   └── funding.js       # Funding transparency panel
+│       ├── modules/             # Feature modules (empty - archive/funding removed in v3.7)
 │       ├── utils/
 │       │   └── validation.js    # Input validation
 │       └── backend_canister/    # ICP Backend (Rust)
@@ -509,14 +507,10 @@ dfx canister --network ic call au5zq-2qaaa-aaaal-qtowa-cai health
 | `/health/icp` | GET | No | ICP consensus health |
 | `/generate` | POST | No | LLM generation |
 | `/stats` | GET | No | Performance stats |
-| `/funding/status` | GET | No | Escrow balance + time remaining |
 | `/chat/autosave` | POST | ✅ | Save encrypted chat |
 | `/chat/list` | GET | ✅ | List user's chats |
 | `/chat/<id>` | GET | ✅ | Load specific chat |
 | `/chat/<id>` | DELETE | ✅ | Delete chat |
-| `/chat/<id>/archive` | POST | ✅ | Archive to Filecoin |
-| `/chat/recover-archives` | GET | ✅ | Recover archives |
-| `/chat/archive/<cid>` | GET | No | Download by CID |
 | `/user/memory` | GET/POST | ✅ | User memory CRUD |
 
 ---
@@ -560,8 +554,6 @@ Hard refresh: `Cmd+Shift+R` (Mac) or `Ctrl+Shift+R` (Windows/Linux)
 | Change context memory | `trinity-icp/src/state/contextMemory.js` |
 | Change auth flow | `trinity-icp/src/auth/authManager.js` |
 | Change autosave | `trinity-icp/src/storage/autosave.js` |
-| Change Filecoin archive | `trinity-icp/src/modules/archive.js` |
-| Change funding panel | `trinity-icp/src/modules/funding.js` |
 | Change environment config | `trinity-icp/src/config.js` |
 | Change Vercel proxy | `deploy/vercel-proxy/api/proxy.js` |
 | Change Akash deployment | `deploy/akash/deploy-tier*.yaml` |
@@ -703,9 +695,7 @@ trinity-icp/src/
 │   ├── modals.js           # Dialog boxes
 │   ├── notifications.js    # Toasts
 │   └── rainbowBorder.js    # Effects
-└── modules/
-    ├── archive.js          # Filecoin archival
-    └── funding.js          # Funding panel
+└── modules/                # Feature modules (empty - archive/funding removed in v3.7)
 ```
 
 ---

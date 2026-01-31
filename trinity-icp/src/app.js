@@ -36,7 +36,6 @@
 // ============================================================================
 import CONFIG from './config.js';
 import MockStorage from './storage/mock.js';
-import Archive from './modules/archive.js';
 import UI from './ui/index.js';
 import Modals from './ui/modals.js';
 import AuthManager from './auth/authManager.js';
@@ -48,7 +47,6 @@ import Validation from './utils/validation.js';
 import { protectMath, restoreMath } from './utils/math.js';
 import { generateViaCanister, healthCheckViaCanister, isCanisterConfigured } from './api/canister-client.js';
 import { initTools, getAttachedContent, clearAttachment } from './tools.js';
-import { initFunding } from './modules/funding.js';
 
 /**
  * Parse markdown with math protection
@@ -592,27 +590,6 @@ const API = {
         return this.request(`/chat/${chatId}`, { method: 'DELETE' });
     },
 
-    async archiveChat(chatId) {
-        if (!Validation.isValidChatId(chatId)) {
-            console.error('❌ Invalid chat ID format:', chatId);
-            throw new Error('Invalid chat ID format');
-        }
-        return this.request(`/chat/${chatId}/archive`, { method: 'POST' });
-    },
-
-    // Archive recovery endpoints (Filecoin/IPFS)
-    async recoverArchives() {
-        return this.request('/chat/recover-archives', { method: 'GET' });
-    },
-
-    async getArchivedChat(cid) {
-        if (!Validation.isValidCid(cid)) {
-            console.error('❌ Invalid CID format:', cid);
-            throw new Error('Invalid CID format');
-        }
-        return this.request(`/chat/archive/${cid}`, { method: 'GET' });
-    },
-
     // User memory endpoints
     async getUserMemory() {
         return this.request('/user/memory', { method: 'GET' });
@@ -787,6 +764,28 @@ const Actions = {
                 let tokenBuffer = '';
                 let typingInterval = null;
                 
+                // Helper to render KaTeX on message div
+                const renderKatex = () => {
+                    const renderFunc = window.renderMathInElement || (typeof renderMathInElement === 'function' ? renderMathInElement : null);
+                    if (renderFunc) {
+                        try {
+                            renderFunc(messageDiv, {
+                                delimiters: [
+                                    { left: '$$', right: '$$', display: true },
+                                    { left: '$', right: '$', display: false },
+                                    { left: '\\[', right: '\\]', display: true },
+                                    { left: '\\(', right: '\\)', display: false },
+                                ],
+                                throwOnError: false,
+                                errorColor: '#cc0000',
+                                strict: false,
+                            });
+                        } catch (e) {
+                            // Ignore errors during streaming - math may be incomplete
+                        }
+                    }
+                };
+                
                 // Smooth typing function - types out buffered text gradually
                 const startTyping = () => {
                     if (typingInterval) return;
@@ -798,7 +797,10 @@ const Actions = {
                             const visibleText = tokenBuffer.substring(0, displayedLength);
                             messageDiv.innerHTML = DOMPurify.sanitize(parseMarkdownWithMath(visibleText)) + 
                                 '<span class="streaming-cursor">▊</span>';
-                            // No auto-scroll - let user control scroll position
+                            
+                            // Render KaTeX on every frame to keep math rendered
+                            // This prevents the "flashing" between raw and rendered states
+                            renderKatex();
                         }
                     }, 15); // ~66 chars/sec for natural typing feel
                 };
@@ -832,44 +834,49 @@ const Actions = {
                                 chatArea.scrollTop = chatArea.scrollHeight;
                             }
                         },
-                        // onDone - finish typing and render final with math
+                        // onDone - let typing finish, then render final with math
                         (fullText, agentResponse) => {
-                            // Stop typing interval
-                            if (typingInterval) {
-                                clearInterval(typingInterval);
-                                typingInterval = null;
-                            }
-                            
                             generatedText = fullText;
-                            messageDiv.innerHTML = DOMPurify.sanitize(parseMarkdownWithMath(fullText));
+                            tokenBuffer = fullText; // Ensure buffer has full text
                             
-                            // Render math expressions
-                            if (window.renderMathInElement) {
-                                try {
-                                    window.renderMathInElement(messageDiv, {
-                                        delimiters: [
-                                            { left: '$$', right: '$$', display: true },
-                                            { left: '$', right: '$', display: false },
-                                            { left: '\\[', right: '\\]', display: true },
-                                            { left: '\\(', right: '\\)', display: false },
-                                        ],
-                                        throwOnError: false,
-                                    });
-                                } catch (e) {
-                                    console.warn('Math rendering error:', e);
+                            // Wait for typing to catch up before final render
+                            const finishTyping = () => {
+                                if (displayedLength < tokenBuffer.length) {
+                                    // Still typing - check again soon
+                                    setTimeout(finishTyping, 20);
+                                    return;
                                 }
-                            }
-                            
-                            // No auto-scroll after completion - let user control scroll position
-                            
-                            // Log agent stats
-                            if (agentResponse) {
-                                console.log(`🧠 Agent: ${agentResponse.complexity} complexity, ${agentResponse.passes_used} passes, ${agentResponse.total_time_seconds}s`);
-                                if (agentResponse.search_performed) {
-                                    console.log(`🔍 Web search performed: ${agentResponse.search_query}`);
+                                
+                                // Typing caught up - stop interval and render final
+                                if (typingInterval) {
+                                    clearInterval(typingInterval);
+                                    typingInterval = null;
                                 }
-                            }
-                            resolve();
+                            
+                                // Debug: Log if content contains potential math
+                                if (fullText.includes('$') || fullText.includes('\\')) {
+                                    console.log('📐 Math content detected:', fullText.substring(0, 200));
+                                }
+                            
+                                messageDiv.innerHTML = DOMPurify.sanitize(parseMarkdownWithMath(fullText));
+                            
+                                // Final KaTeX render with debug logging
+                                setTimeout(() => {
+                                    renderKatex();
+                                    console.log('✅ KaTeX final render complete');
+                                }, 50);
+                            
+                                // Log agent stats
+                                if (agentResponse) {
+                                    console.log(`🧠 Agent: ${agentResponse.complexity} complexity, ${agentResponse.passes_used} passes, ${agentResponse.total_time_seconds}s`);
+                                    if (agentResponse.search_performed) {
+                                        console.log(`🔍 Web search performed: ${agentResponse.search_query}`);
+                                    }
+                                }
+                                resolve();
+                            };
+                            
+                            finishTyping();
                         },
                         // onError - handle failures
                         (error) => {
@@ -937,10 +944,29 @@ const Actions = {
             return;
         }
         
+        // Clear UI and reset state
         UI.clearMessages();
         UI.resetInput();
         State.reset();
+        
+        // Ensure input is enabled
+        if (UI.elements.promptInput) {
+            UI.elements.promptInput.disabled = false;
+        }
+        if (UI.elements.submitButton) {
+            UI.elements.submitButton.disabled = true; // Disabled until user types
+        }
+        
+        // Enable attach button
+        const attachBtn = document.getElementById('attachBtn');
+        if (attachBtn) attachBtn.disabled = false;
+        
+        // Reset scroll position
+        const chatArea = document.getElementById('chatArea');
+        if (chatArea) chatArea.scrollTop = 0;
+        
         UI.renderSidebar(State);
+        console.log('🆕 New chat started');
     },
 
     // Toggle sidebar visibility
@@ -1373,40 +1399,12 @@ const Actions = {
             
             UI.renderChatHistory(State);
             
-            // Check if this is an archived chat and disable input
-            const currentChat = State.allChats.find(c => c.chatId === chatId);
-            if (currentChat && currentChat.isArchived) {
-                if (UI.elements.promptInput) UI.elements.promptInput.disabled = true;
-                if (UI.elements.submitButton) UI.elements.submitButton.disabled = true;
-                UI.showWarning('📦 Archived chat (read-only). Cannot send new messages. Start a new chat to continue.');
-                
-                // Show CID badge for archived chats
-                const cidBadge = document.getElementById('archiveCidBadge');
-                const cidText = document.getElementById('cidText');
-                const cidLink = document.getElementById('cidLink');
-                // CID can be in 'cid', 'ipfsCID', or 'filecoinCID' property (legacy)
-                const chatCid = currentChat.cid || currentChat.ipfsCID || currentChat.filecoinCID;
-                if (cidBadge && chatCid) {
-                    const shortCid = chatCid.length > 16 
-                        ? chatCid.substring(0, 8) + '...' + chatCid.substring(chatCid.length - 6)
-                        : chatCid;
-                    cidText.textContent = shortCid;
-                    cidLink.dataset.cid = chatCid;
-                    cidBadge.style.display = 'block';
-                } else if (cidBadge && currentChat.isArchived) {
-                    // Archived but no CID yet - show placeholder
-                    cidText.textContent = 'pending...';
-                    cidBadge.style.display = 'block';
-                }
-            } else {
-                // Re-enable input for non-archived chats
-                if (UI.elements.promptInput) UI.elements.promptInput.disabled = false;
-                if (UI.elements.submitButton) UI.elements.submitButton.disabled = false;
-                
-                // Hide CID badge for non-archived chats
-                const cidBadge = document.getElementById('archiveCidBadge');
-                if (cidBadge) cidBadge.style.display = 'none';
-            }
+            // Ensure input is enabled for all chats
+            if (UI.elements.promptInput) UI.elements.promptInput.disabled = false;
+            if (UI.elements.submitButton) UI.elements.submitButton.disabled = false;
+            
+            const attachBtn = document.getElementById('attachBtn');
+            if (attachBtn) attachBtn.disabled = false;
         } catch (error) {
             UI.showError('Failed to load chat: ' + error.message);
         }
@@ -1798,7 +1796,7 @@ async function init() {
         
         // Route actions
         if (action === 'loadChat' && chatId) Actions.loadChat(chatId);
-        else if (action === 'archiveChat' && chatId) Archive.initiateArchive(chatId);
+        else if (action === 'deleteChat' && chatId) Actions.deleteChat(chatId);
         else if (action === 'newChat') Actions.newChat();
         else if (action === 'login') Actions.login();
         else if (action === 'logout') Actions.logout();
@@ -1829,16 +1827,16 @@ async function init() {
         const chatItem = e.target.closest('.chat-item');
         if (!chatItem) return;
         chatItem.style.background = '#3d3d3d';
-        const archiveBtn = chatItem.querySelector('.archive-btn');
-        if (archiveBtn) archiveBtn.style.display = 'inline-block';
+        const deleteBtn = chatItem.querySelector('.delete-btn');
+        if (deleteBtn) deleteBtn.style.display = 'inline-block';
     });
 
     document.addEventListener('mouseout', (e) => {
         const chatItem = e.target.closest('.chat-item');
         if (!chatItem) return;
         chatItem.style.background = '#2d2d2d';
-        const archiveBtn = chatItem.querySelector('.archive-btn');
-        if (archiveBtn) archiveBtn.style.display = 'none';
+        const deleteBtn = chatItem.querySelector('.delete-btn');
+        if (deleteBtn) deleteBtn.style.display = 'none';
     });
 
     // Mobile keyboard handling
@@ -1855,10 +1853,6 @@ async function init() {
     // Initialize file attachment tools
     initTools();
     console.log('✅ Tools initialized');
-
-    // Initialize funding transparency panel
-    initFunding();
-    console.log('✅ Funding transparency initialized');
 
     // -------------------- Initial State --------------------
 

@@ -27,11 +27,9 @@ services:
       - GPU_TYPE=A100
       - MAX_QUEUE_SIZE=5
       - OLLAMA_HOST=http://localhost:11434
-      # API Keys - REQUIRED: Replace with your own keys before deployment
-      # Get Lighthouse key: https://files.lighthouse.storage/
-      # Get Brave key: https://brave.com/search/api/
-      - LIGHTHOUSE_API_KEY=${LIGHTHOUSE_API_KEY}
-      - BRAVE_SEARCH_API_KEY=${BRAVE_SEARCH_API_KEY}
+      # API Keys - loaded from .env (gitignored)
+      - LIGHTHOUSE_API_KEY=cac651de.89f60066a4434ee98844288e220ad6dc
+      - BRAVE_SEARCH_API_KEY=BSA0opgLKaFETyvaBCfSrRfbEXktSJS
       # Deployment tracking (set by deploy script, used for /funding/status)
       - DEPLOYMENT_TIER=3
       - DEPLOYMENT_TIER_NAME=Professional

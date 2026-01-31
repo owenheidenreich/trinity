@@ -107,17 +107,7 @@ Every saved chat is encrypted with **AES-256-GCM** before leaving your browser:
 
 The backend stores only ciphertext. Even if the server is compromised, attackers get encrypted blobs they cannot decrypt without your private key.
 
-### 📦 Permanent Archives
-
-When you click "Archive," your encrypted chat is:
-
-1. **Uploaded to IPFS** via Lighthouse SDK
-2. **Pinned across multiple gateways** for redundancy
-3. **Sealed into a Filecoin deal** (540+ day guarantee)
-
-Your conversations become permanent, verifiable, and censorship-resistant. The content-addressed hash proves the data hasn't been tampered with.
-
-### 🧠 Intelligent Reasoning (v3.6)
+### 🧠 Intelligent Reasoning (v3.7)
 
 Trinity doesn't just respond—it *thinks*. A multi-pass agentic pipeline automatically routes questions by complexity:
 
@@ -138,9 +128,10 @@ For current information (prices, news, events), Trinity searches the web via Bra
 
 ### 📊 LaTeX Mathematics
 
-Full support for mathematical notation:
+Full support for mathematical notation with **live rendering** as you chat:
 - Inline: `$E = mc^2$` renders as $E = mc^2$
 - Block equations with `$$...$$`
+- Equations render progressively during response typing
 - Powered by KaTeX for fast, beautiful rendering
 
 ---
@@ -262,16 +253,16 @@ Browser                           Backend
 ### Storage Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     STORAGE LAYERS                          │
-├──────────────┬──────────────┬──────────────┬───────────────┤
-│  IndexedDB   │  Akash Disk  │  IPFS/Light- │   Filecoin    │
-│  (Browser)   │  (Hot)       │  house       │   (Archive)   │
-├──────────────┼──────────────┼──────────────┼───────────────┤
-│ Instant      │ Fast         │ Medium       │ Slow          │
-│ Session only │ Until redep. │ Permanent    │ 540+ days     │
-│ Encrypted    │ Encrypted    │ Encrypted    │ Encrypted     │
-└──────────────┴──────────────┴──────────────┴───────────────┘
+┌─────────────────────────────────────────────┐
+│              STORAGE LAYERS               │
+├───────────────┬───────────────┬─────────────┤
+│   IndexedDB   │   Akash Disk  │    IPFS     │
+│   (Browser)   │   (Hot)       │  (Backup)   │
+├───────────────┼───────────────┼─────────────┤
+│ Instant       │ Fast          │ Permanent   │
+│ Session only  │ Until redep.  │ Encrypted   │
+│ Encrypted     │ Encrypted     │ Via CID     │
+└───────────────┴───────────────┴─────────────┘
 ```
 
 ---

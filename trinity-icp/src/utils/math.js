@@ -15,11 +15,24 @@
  */
 export function renderMath(element) {
     if (!window.renderMathInElement) {
-        console.warn('KaTeX auto-render not loaded');
+        console.warn('⚠️ KaTeX auto-render not loaded yet');
         return;
     }
 
     try {
+        // Debug: Check for math content before rendering
+        const textContent = element.textContent || '';
+        const hasDollarSign = textContent.includes('$');
+        const hasBackslash = textContent.includes('\\');
+        
+        if (hasDollarSign || hasBackslash) {
+            console.log('📐 renderMath called - found potential math:', 
+                hasDollarSign ? '$ found' : '',
+                hasBackslash ? '\\ found' : '',
+                'First 100 chars:', textContent.substring(0, 100)
+            );
+        }
+        
         window.renderMathInElement(element, {
             // Delimiters for math expressions
             delimiters: [
@@ -45,6 +58,14 @@ export function renderMath(element) {
                 '\\C': '\\mathbb{C}',
             }
         });
+        
+        // Check if any KaTeX spans were created
+        const katexElements = element.querySelectorAll('.katex');
+        if (katexElements.length > 0) {
+            console.log('✅ KaTeX rendered', katexElements.length, 'math expressions');
+        } else if (hasDollarSign) {
+            console.log('⚠️ $ found but no KaTeX elements created - raw text:', textContent.substring(0, 200));
+        }
     } catch (error) {
         console.warn('Math rendering error:', error);
     }

@@ -133,12 +133,14 @@ const Messages = {
         }
     },
 
-    // Reset input field
+    // Reset input field and re-enable it
     resetInput() {
         const { promptInput, sendBtn } = this.elements;
         promptInput.value = '';
-        sendBtn.disabled = true;
+        promptInput.disabled = false;  // Always re-enable on reset
+        sendBtn.disabled = true;  // Disabled until user types
         this.autoResize(promptInput);
+        promptInput.focus();
     },
 
     // Auto-resize textarea

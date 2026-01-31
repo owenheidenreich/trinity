@@ -2,11 +2,11 @@
 
 ## Architecture Overview
 
-Trinity is a **fully decentralized AI chat application** with self-custody authentication, encrypted storage, and permanent Filecoin archival. The system consists of:
+Trinity is a **fully decentralized AI chat application** with self-custody authentication, encrypted storage, and live KaTeX math rendering. The system consists of:
 
 - **Frontend**: ICP canister (Internet Computer) hosting vanilla JavaScript app
 - **Backend**: Akash Network (decentralized cloud) running Python Flask + Ollama
-- **Storage**: Two-tier system - active chats on Akash disk, archives on Filecoin/IPFS via Lighthouse SDK
+- **Storage**: Encrypted autosave on Akash disk with IPFS backup via Lighthouse SDK
 - **Auth**: Ed25519 keypairs with principal-based access control
 
 ### Key Components
@@ -20,8 +20,6 @@ Trinity is a **fully decentralized AI chat application** with self-custody authe
 User Input → Frontend (ICP) → ICP Backend Canister → Vercel Proxy → Akash Backend → Ollama LLM
                                       ↓
                                Autosave (2s debounce) → Encrypted JSON on Akash disk
-                                      ↓
-                               Archive Button → Lighthouse → IPFS + Filecoin Deal
 ```
 
 ## Critical Developer Workflows
@@ -146,7 +144,7 @@ Reference: `trinity-icp/src/storage/autosave.js`
 |---------|-------------------|-------------------|
 | AI Inference | ✅ TinyLlama 1.1B | ✅ Tier 1/2/3 models |
 | Autosave | ❌ Not functional | ✅ Encrypted to disk |
-| Filecoin Archive | ❌ No Lighthouse config | ✅ Full archival via Lighthouse |
+| KaTeX Math | ✅ Live rendering | ✅ Live rendering |
 | Context Memory | ⚠️ Works but not persisted | ✅ Full persistence |
 | Cost | Free | ~$25-200/month (by tier) |
 
@@ -163,7 +161,8 @@ Reference: `trinity-icp/src/storage/autosave.js`
 
 ### External Dependencies
 - **Ollama**: Model inference (local + Akash)
-- **Lighthouse SDK**: Direct IPFS + Filecoin storage with verified deals
+- **Lighthouse SDK**: IPFS backup storage
+- **KaTeX**: Live LaTeX math rendering (via jsdelivr CDN)
 - **Vercel Proxy**: SSL termination for Akash (replaced Cloudflare)
 - **Akash Network**: Decentralized compute (CLI deployment via `provider-services`)
 - **ICP**: Frontend + backend canister hosting (dfx deploy)
@@ -171,11 +170,11 @@ Reference: `trinity-icp/src/storage/autosave.js`
 ### API Endpoints
 - `/health`: Status check (no auth)
 - `/generate`: AI inference (no auth)
-- `/funding/status`: Escrow balance + time remaining (no auth)
 - `/chat/autosave`: Save encrypted chat (Ed25519 required)
 - `/chat/list`: List user's chats (Ed25519 required)
 - `/chat/<id>`: Load specific chat (Ed25519 required)
-- `/chat/archive/<cid>`: Download archive by CID (no auth)
+- `/chat/<id>` DELETE: Delete chat (Ed25519 required)
+- `/user/memory`: User memory CRUD (Ed25519 required)
 
 ### File Structure Conventions
 - Frontend modules: `trinity-icp/src/` with clear separation (auth/, state/, storage/, ui/)
@@ -202,9 +201,5 @@ Reference: `trinity-icp/src/storage/autosave.js`
 ### Cold Starts
 - First request after Akash deployment takes 20-30 seconds (LLM loading)
 - This is expected behavior, not a bug
-
-### Archive Limits
-- Maximum 10 archived chats per user
-- Archive button moves current chat to read-only and starts new chat
 
 Reference: `docs/CLAUDE.md#next-steps-analysis`

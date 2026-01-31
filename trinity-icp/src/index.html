@@ -60,23 +60,6 @@
                     <span class="model-label">Model</span>
                     <span class="model-name" id="modelName">Loading...</span>
                 </a>
-                
-                <!-- Funding Transparency Panel -->
-                <div class="funding-panel" id="fundingPanel">
-                    <div class="funding-header">
-                        <span class="funding-title">Community LLM</span>
-                        <a href="#" class="donate-link" id="donateLink">Donate</a>
-                    </div>
-                    <div class="funding-progress">
-                        <div class="funding-bar">
-                            <div class="funding-fill" id="fundingFill" style="width: 0%"></div>
-                        </div>
-                    </div>
-                    <div class="funding-details">
-                        <span class="funding-time" id="fundingTime">Loading...</span>
-                        <span class="funding-cost" id="fundingCost"></span>
-                    </div>
-                </div>
             </div>
 
             <div class="sidebar-content" id="sidebarContent">
@@ -89,9 +72,6 @@
 
             <!-- Main Chat Area -->
             <div class="chat-area" id="chatArea">
-                <div class="archive-cid-badge" id="archiveCidBadge" style="display: none;">
-                    <a href="#" id="cidLink" class="cid-link">CID: <span id="cidText"></span></a>
-                </div>
                 <div class="empty-state" id="emptyState">
                     <h1 id="chatTitle">Trinity</h1>
                 </div>
@@ -129,6 +109,16 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+    <script>
+        // Verify KaTeX loaded correctly
+        if (typeof renderMathInElement === 'function') {
+            console.log('✅ KaTeX auto-render loaded successfully');
+            window.katexReady = true;
+        } else {
+            console.error('❌ KaTeX auto-render failed to load');
+            window.katexReady = false;
+        }
+    </script>
     <!-- Main App -->
     <script type="module" src="/app.js"></script>
 </body>
