@@ -2,9 +2,9 @@
 
 > **Purpose:** Comprehensive documentation for AI assistants to quickly understand the Trinity project  
 > **Last Updated:** January 29, 2026  
-> **Last Verified:** January 29, 2026 - Backend temporarily down for maintenance  
-> **Status:** Development - Streaming + UI Improvements Complete  
-> **Version:** v3.3.0 (Streaming Responses + Compact UI)
+> **Last Verified:** January 29, 2026  
+> **Status:** Development - Persistent Cloud Storage Fix  
+> **Version:** v3.4.0 (Lighthouse Auto-Sync)
 
 ---
 
@@ -297,17 +297,39 @@ ICP-PublicKey: <hex-public-key>
 
 ## 💾 Storage Architecture
 
-### Two-Tier System
-1. **Active Storage (Akash):** Encrypted JSON files on deployment disk
-2. **Archive Storage (Filecoin):** Permanent storage via Lighthouse SDK
+### Persistent Cloud Storage (v3.4.0+)
+**CRITICAL FIX:** All autosaves now sync to Lighthouse (IPFS + Filecoin) in addition to local disk.
+This ensures user data survives Akash redeployments.
+
+**Data Flow:**
+```
+User Message → Autosave (2s debounce)
+    ├─→ Local Disk (fast, ephemeral on Akash)
+    └─→ Lighthouse Upload (IPFS + Filecoin, permanent)
+
+User Login (after redeploy):
+    1. Check local disk (fast)
+    2. If empty → Recover from Lighthouse (IPFS gateway)
+    3. Cache recovered data locally
+```
+
+### Storage Layers
+| Layer | Speed | Persistence | Purpose |
+|-------|-------|-------------|---------|
+| Local Disk | Fast | Lost on redeploy | Active cache |
+| Lighthouse/IPFS | Medium | Permanent | Cloud backup |
+| Filecoin Deals | Slow | 540+ days | Verified archival |
 
 ### Encryption
 - AES-256-GCM with PBKDF2 key derivation
 - Principal ID used as encryption password
 - 100k PBKDF2 iterations, random salt + nonce
+- Same encryption for local AND cloud storage
 
-### Autosave
+### Autosave (v3.4.0+)
 - 2-second debounce after each message
+- Dual-write: local disk + Lighthouse upload
+- CID stored in metadata for recovery
 - Exponential backoff retry (5 attempts max)
 - Rainbow wave animation during save
 
@@ -487,6 +509,48 @@ Hard refresh: `Cmd+Shift+R` (Mac) or `Ctrl+Shift+R` (Windows/Linux)
 - Lightweight RAG (FastEmbed + BM25)
 - Audio transcription (Groq Whisper API)
 - Document attachments (browser-side PDF parsing)
+
+---
+
+## 🐛 Known Issues & Fixes
+
+### TinyLlama Prompt Confusion (Critical - Jan 2026)
+
+**Symptom:** Model echoes system prompt in responses, hallucinates fake user/assistant dialogue, produces garbage like:
+```
+"[System] You are Trinity... User: Wow, I didn't think... Assistant: Yes, I am Trinity..."
+```
+
+**Root Cause:** 
+1. TinyLlama (1.1B params) is too small to properly follow multi-turn chat formatting
+2. The prompt uses `[System]`, `User:`, `Assistant:` labels that confuse the model
+3. Model sees these as patterns to continue/echo rather than role markers
+4. Context memory saves garbage responses → fed back next turn → feedback loop
+
+**Affected Files:**
+- `backend/inference_server.py` lines 1261-1310 (system prompt + prompt building)
+- `trinity-icp/src/state/contextMemory.js` (saves garbage to context)
+
+**Fix Required:**
+1. Strip all role markers (`[System]`, `User:`, `Assistant:`) for small models
+2. Use simple prompt format: just the user's question
+3. OR switch to a larger model (8B+) that handles chat formatting correctly
+
+**Prompt Flow (Current - Broken for TinyLlama):**
+```
+[System]
+You are Trinity, a decentralized AI assistant...
+
+User: previous message
+Assistant: previous response
+User: current message
+Assistant:
+```
+
+**Prompt Flow (Fixed for TinyLlama):**
+```
+{user's question}
+```
 
 ---
 

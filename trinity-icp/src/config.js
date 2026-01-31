@@ -42,6 +42,10 @@ const CONFIG = {
     // Current API endpoint (can be changed at runtime)
     API_URL: DEFAULT_API_URL,
     
+    // SIMPLE MODE: Use minimal generate endpoints (no context, no auth, no complexity)
+    // Enable this to bypass all the complex prompt building that breaks TinyLlama
+    USE_SIMPLE_GENERATE: true,  // ← Toggle this to switch between simple/complex paths
+    
     // ICP Canister settings
     // DISABLED: ICP HTTPS outcalls have ~20s timeout, Tier 3 (72B) needs 60s+
     // Direct HTTP path via Vercel proxy works without timeout issues

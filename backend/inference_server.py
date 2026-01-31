@@ -1259,19 +1259,24 @@ def session_check(session_id: str):
 
 
 # ===== TRINITY SYSTEM PROMPT =====
-# Concise prompt optimized for smaller models (TinyLlama, etc.)
-TRINITY_SYSTEM_PROMPT = f"""You are Trinity, a decentralized AI assistant.
+# Ultra-minimal prompt - let the model be natural, don't force personality
+TRINITY_SYSTEM_PROMPT = """You are a helpful AI assistant. Answer questions directly and concisely."""
 
-Stack: ICP (frontend) → Akash (AI compute) → Filecoin (storage)
-Model: {MODEL_NAME} on {GPU_TYPE}
-
-Be helpful, concise, and honest. You're open-source, privacy-focused, and run on decentralized infrastructure with no corporate control."""
+# Check if model is "small" (under 8B) - these need simpler prompts
+def is_small_model():
+    """Small models (TinyLlama, etc.) can't handle complex chat formatting"""
+    small_models = ['tinyllama', 'phi', 'gemma:2b', 'stablelm']
+    model_lower = MODEL_NAME.lower()
+    return any(s in model_lower for s in small_models)
 
 
 # ===== HELPER FUNCTIONS =====
 def build_prompt_with_context(user_prompt: str, context_messages: list, user_memory: Dict = None) -> str:
     """
     Build a prompt that includes Trinity identity, conversation context, and user memory.
+    
+    For SMALL models (TinyLlama, etc.): Just send the user prompt, no formatting.
+    For LARGE models (8B+): Use full chat format with roles.
     
     Args:
         user_prompt: The current user message
@@ -1281,9 +1286,16 @@ def build_prompt_with_context(user_prompt: str, context_messages: list, user_mem
     Returns:
         Full prompt string with context
     """
+    # SMALL MODEL PATH: Skip all formatting, just send the question
+    # TinyLlama gets confused by [System], User:, Assistant: markers
+    if is_small_model():
+        logger.info("🔧 Using simple prompt format for small model")
+        return user_prompt
+    
+    # LARGE MODEL PATH: Full chat format (8B+ models handle this correctly)
     conversation_parts = []
     
-    # System prompt - always Trinity
+    # System prompt
     conversation_parts.append(f"[System]\n{TRINITY_SYSTEM_PROMPT}\n")
     
     # Add user memory facts if available (persistent across all chats)
@@ -1485,6 +1497,137 @@ def generate():
 
 
 # ============================================================================
+# SIMPLE GENERATE ENDPOINT (Minimal, no decorators, no context building)
+# ============================================================================
+
+@app.route('/generate/simple', methods=['POST'])
+def generate_simple():
+    """
+    Ultra-minimal generate endpoint for testing and debugging.
+    No auth, no context, no user memory, no metrics - just prompt → Ollama → response.
+    
+    Request JSON:
+        - prompt: text to generate from (required)
+        - max_length: max tokens (default: 200)
+        - temperature: 0.1-2.0 (default: 0.7)
+    
+    Response JSON:
+        - response: AI-generated text
+        - model: model name
+        - ok: true/false
+    """
+    try:
+        data = request.json or {}
+        prompt = data.get('prompt', '').strip()
+        
+        if not prompt:
+            return jsonify({'ok': False, 'error': 'No prompt provided'}), 400
+        
+        max_length = min(data.get('max_length', 150), 300)  # Cap at 300 tokens
+        temperature = data.get('temperature', 0.7)
+        
+        # Add minimal framing to prevent hallucination (TinyLlama needs guidance)
+        framed_prompt = f"User: {prompt}\n\nAssistant:"
+        
+        # Direct Ollama call - nothing fancy
+        response = requests.post(
+            f"{OLLAMA_HOST}/api/generate",
+            json={
+                "model": MODEL_NAME,
+                "prompt": framed_prompt,
+                "stream": False,
+                "options": {
+                    "num_predict": max_length,
+                    "temperature": temperature,
+                    "stop": ["User:", "\n\nUser"]  # Stop before hallucinating next turn
+                }
+            },
+            timeout=120
+        )
+        
+        if response.status_code != 200:
+            return jsonify({'ok': False, 'error': f'Ollama error: {response.status_code}'}), 500
+        
+        result = response.json()
+        return jsonify({
+            'ok': True,
+            'response': result.get('response', ''),
+            'model': MODEL_NAME
+        })
+        
+    except Exception as e:
+        logger.error(f"Simple generate error: {e}")
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/generate/simple/stream', methods=['POST'])
+def generate_simple_stream():
+    """
+    Ultra-minimal streaming generate endpoint.
+    No auth, no context - just prompt → Ollama stream → SSE response.
+    """
+    try:
+        data = request.json or {}
+        prompt = data.get('prompt', '').strip()
+        
+        if not prompt:
+            return jsonify({'ok': False, 'error': 'No prompt provided'}), 400
+        
+        max_length = min(data.get('max_length', 150), 300)  # Cap at 300
+        temperature = data.get('temperature', 0.7)
+        
+        # Add minimal framing (TinyLlama needs guidance)
+        framed_prompt = f"User: {prompt}\n\nAssistant:"
+        
+        def stream_response():
+            try:
+                response = requests.post(
+                    f"{OLLAMA_HOST}/api/generate",
+                    json={
+                        "model": MODEL_NAME,
+                        "prompt": framed_prompt,
+                        "stream": True,
+                        "options": {
+                            "num_predict": max_length,
+                            "temperature": temperature,
+                            "stop": ["User:", "\n\nUser"]  # Stop before hallucinating
+                        }
+                    },
+                    stream=True,
+                    timeout=120
+                )
+                
+                for line in response.iter_lines():
+                    if line:
+                        try:
+                            chunk = json.loads(line)
+                            token = chunk.get('response', '')
+                            if token:
+                                yield f"data: {json.dumps({'token': token})}\n\n"
+                            if chunk.get('done'):
+                                yield f"data: {json.dumps({'done': True})}\n\n"
+                        except json.JSONDecodeError:
+                            pass
+            except Exception as e:
+                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        
+        return Response(
+            stream_response(),
+            mimetype='text/event-stream',
+            headers={
+                'Cache-Control': 'no-cache',
+                'Connection': 'keep-alive',
+                'X-Accel-Buffering': 'no',
+                'Access-Control-Allow-Origin': '*'
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Simple stream error: {e}")
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+# ============================================================================
 # STREAMING GENERATE ENDPOINT
 # ============================================================================
 
@@ -1607,7 +1750,7 @@ def generate_stream():
 @app.route('/chat/autosave', methods=['POST'])
 @require_auth
 def autosave_chat():
-    """Save chat after each message exchange"""
+    """Save chat after each message exchange - syncs to both local disk AND Lighthouse (IPFS/Filecoin)"""
     try:
         # Principal is set by @require_auth decorator
         principal = request.principal
@@ -1631,20 +1774,42 @@ def autosave_chat():
         chat_data = {
             'chatId': chat_id,
             'messages': messages,
-            'metadata': metadata
+            'metadata': metadata,
+            'principal': principal,  # Include for verification on restore
+            'savedAt': int(time.time() * 1000)
         }
         
         # Encrypt content
         encrypted = EncryptionUtils.encrypt_chat(chat_data, principal)
+        encrypted_json = json.dumps(encrypted)
         
-        # Save to disk
+        # Save to local disk (fast, but ephemeral on Akash redeploy)
         chat_filename = f"{chat_id}.json"
         chat_path = get_user_dir(principal) / chat_filename
         
         with open(chat_path, 'w') as f:
-            json.dump(encrypted, f)
+            f.write(encrypted_json)
         
-        # Update metadata
+        # ==========================================
+        # SYNC TO LIGHTHOUSE (IPFS + FILECOIN)
+        # This ensures data survives Akash redeployments
+        # ==========================================
+        cid = None
+        try:
+            # Upload encrypted chat to Lighthouse
+            lighthouse_filename = f"{principal[:16]}_{chat_id}.json"
+            cid = upload_to_filecoin(
+                encrypted_json.encode('utf-8'),
+                lighthouse_filename,
+                principal_id=principal
+            )
+            if cid:
+                logger.info(f'☁️  Synced to IPFS: {cid[:16]}...')
+        except Exception as sync_error:
+            # Don't fail the autosave if Lighthouse sync fails
+            logger.warning(f'⚠️  Lighthouse sync failed (local save OK): {sync_error}')
+        
+        # Update metadata with CID for later retrieval
         user_metadata = load_metadata(principal)
         
         # Find or create chat entry in metadata
@@ -1660,8 +1825,23 @@ def autosave_chat():
         
         chat_entry['lastUpdated'] = metadata.get('updatedAt', int(time.time() * 1000))
         chat_entry['messageCount'] = len(messages)
+        if cid:
+            chat_entry['cid'] = cid  # Store CID for retrieval after redeploy
         
         save_metadata(principal, user_metadata)
+        
+        # Also sync metadata to Lighthouse (so we can restore chat list)
+        try:
+            metadata_filename = f"{principal[:16]}_metadata.json"
+            metadata_encrypted = EncryptionUtils.encrypt_chat(user_metadata, principal)
+            upload_to_filecoin(
+                json.dumps(metadata_encrypted).encode('utf-8'),
+                metadata_filename,
+                principal_id=principal,
+                is_master_bundle=True
+            )
+        except Exception as meta_sync_error:
+            logger.warning(f'⚠️  Metadata sync failed: {meta_sync_error}')
         
         # Privacy: Single minimal log line for successful autosave
         logger.info(f'💾 Autosaved chat {chat_id[:8]}... ({len(messages)} msgs)')
@@ -1670,6 +1850,7 @@ def autosave_chat():
             'success': True,
             'chatId': chat_id,
             'savedAt': int(time.time() * 1000),
+            'cid': cid,  # Return CID to frontend
             'nextAutoDeleteAt': int(time.time() * 1000) + (7 * 24 * 60 * 60 * 1000)
         })
     
@@ -1680,19 +1861,75 @@ def autosave_chat():
 @app.route('/chat/list', methods=['GET'])
 @require_auth
 def list_chats():
-    """List all chats for user (includes both active and archived)"""
+    """List all chats for user - merges local metadata with Lighthouse recovery"""
     try:
         principal = request.principal
         user_metadata = load_metadata(principal)
+        local_chats = user_metadata.get('chats', [])
         
-        # Return ALL chats (both active and archived) sorted by last updated
-        # Frontend will filter them into separate sections
-        chats = user_metadata.get('chats', [])
-        chats.sort(key=lambda x: x.get('lastUpdated', 0), reverse=True)
+        # ==========================================
+        # RECOVER FROM LIGHTHOUSE IF LOCAL IS EMPTY
+        # This restores user's chat list after Akash redeploy
+        # ==========================================
+        if not local_chats:
+            logger.info(f'🔍 No local chats, attempting Lighthouse recovery for {principal[:16]}...')
+            try:
+                # Look for user's metadata bundle in Lighthouse
+                uploads = get_lighthouse_uploads(principal)
+                metadata_cid = None
+                
+                for upload in uploads:
+                    filename = upload.get('fileName', '')
+                    if principal[:16] in filename and 'metadata' in filename:
+                        metadata_cid = upload.get('cid')
+                        break
+                
+                if metadata_cid:
+                    logger.info(f'☁️  Found metadata on IPFS: {metadata_cid[:16]}...')
+                    gateway_url = f'{LIGHTHOUSE_GATEWAY}/ipfs/{metadata_cid}'
+                    response = requests.get(gateway_url, timeout=30)
+                    
+                    if response.status_code == 200:
+                        encrypted_metadata = response.json()
+                        recovered_metadata = EncryptionUtils.decrypt_chat(encrypted_metadata, principal)
+                        
+                        # Merge recovered chats
+                        local_chats = recovered_metadata.get('chats', [])
+                        user_metadata['chats'] = local_chats
+                        save_metadata(principal, user_metadata)
+                        logger.info(f'✅ Recovered {len(local_chats)} chats from IPFS')
+                else:
+                    # No metadata bundle, but check for individual chat files
+                    recovered = []
+                    for upload in uploads[:50]:  # Limit to recent 50
+                        filename = upload.get('fileName', '')
+                        if principal[:16] in filename and 'metadata' not in filename:
+                            # Extract chat_id from filename pattern: principal_chatId.json
+                            parts = filename.replace('.json', '').split('_')
+                            if len(parts) >= 2:
+                                chat_id = parts[-1]
+                                recovered.append({
+                                    'chatId': chat_id,
+                                    'title': 'Recovered Chat',
+                                    'cid': upload.get('cid'),
+                                    'lastUpdated': upload.get('createdAt', 0),
+                                    'isArchived': False
+                                })
+                    if recovered:
+                        local_chats = recovered
+                        user_metadata['chats'] = local_chats
+                        save_metadata(principal, user_metadata)
+                        logger.info(f'✅ Recovered {len(recovered)} chats from individual IPFS files')
+                        
+            except Exception as recovery_error:
+                logger.warning(f'⚠️  Lighthouse recovery failed: {recovery_error}')
+        
+        # Sort by last updated (newest first)
+        local_chats.sort(key=lambda x: x.get('lastUpdated', 0), reverse=True)
         
         return jsonify({
-            'chats': chats,
-            'count': len(chats)
+            'chats': local_chats,
+            'count': len(local_chats)
         })
     
     except Exception as e:
@@ -1702,21 +1939,68 @@ def list_chats():
 @app.route('/chat/<chat_id>', methods=['GET'])
 @require_auth
 def get_chat(chat_id):
-    """Load specific chat"""
+    """Load specific chat - tries local disk first, then falls back to Lighthouse (IPFS)"""
     try:
         principal = request.principal
         chat_path = get_user_dir(principal) / f"{chat_id}.json"
         
-        if not chat_path.exists():
-            return jsonify({'error': 'Chat not found'}), 404
+        # Try local disk first (fastest)
+        if chat_path.exists():
+            logger.debug(f'📂 Loading chat from local disk: {chat_id[:8]}...')
+            with open(chat_path, 'r') as f:
+                encrypted_data = json.load(f)
+            decrypted = EncryptionUtils.decrypt_chat(encrypted_data, principal)
+            return jsonify(decrypted)
         
-        with open(chat_path, 'r') as f:
-            encrypted_data = json.load(f)
+        # ==========================================
+        # FALLBACK TO LIGHTHOUSE (IPFS)
+        # This recovers data after Akash redeployments
+        # ==========================================
+        logger.info(f'🔍 Chat not on local disk, checking Lighthouse: {chat_id[:8]}...')
         
-        # Decrypt
-        decrypted = EncryptionUtils.decrypt_chat(encrypted_data, principal)
+        # Check if we have a CID stored for this chat
+        user_metadata = load_metadata(principal)
+        chat_entry = next((c for c in user_metadata.get('chats', []) if c['chatId'] == chat_id), None)
         
-        return jsonify(decrypted)
+        cid = None
+        if chat_entry and chat_entry.get('cid'):
+            cid = chat_entry['cid']
+        else:
+            # Try to find CID by filename pattern in Lighthouse
+            try:
+                uploads = get_lighthouse_uploads(principal)
+                for upload in uploads:
+                    filename = upload.get('fileName', '')
+                    if chat_id in filename:
+                        cid = upload.get('cid')
+                        break
+            except Exception as e:
+                logger.warning(f'Could not search Lighthouse uploads: {e}')
+        
+        if cid:
+            logger.info(f'☁️  Found CID: {cid[:16]}..., downloading from IPFS')
+            try:
+                # Download from Lighthouse gateway
+                gateway_url = f'{LIGHTHOUSE_GATEWAY}/ipfs/{cid}'
+                response = requests.get(gateway_url, timeout=30)
+                
+                if response.status_code == 200:
+                    encrypted_data = response.json()
+                    decrypted = EncryptionUtils.decrypt_chat(encrypted_data, principal)
+                    
+                    # Cache locally for next time
+                    chat_path.parent.mkdir(parents=True, exist_ok=True)
+                    with open(chat_path, 'w') as f:
+                        json.dump(encrypted_data, f)
+                    logger.info(f'✅ Restored from IPFS and cached locally: {chat_id[:8]}...')
+                    
+                    return jsonify(decrypted)
+                else:
+                    logger.warning(f'IPFS gateway returned {response.status_code}')
+            except Exception as ipfs_error:
+                logger.error(f'Failed to download from IPFS: {ipfs_error}')
+        
+        return jsonify({'error': 'Chat not found (not on disk or IPFS)'}), 404
     
     except ValueError as e:
         return jsonify({'error': str(e)}), 401

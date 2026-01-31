@@ -156,6 +156,99 @@ const API = {
         return this.request('/health', { method: 'GET' });
     },
 
+    /**
+     * Simple generate - minimal path with no context/auth complexity
+     * Just sends prompt → gets response
+     */
+    async generateSimple(prompt, temperature = 0.7) {
+        console.log('🔧 Using SIMPLE generate (no context, no auth)');
+        const response = await fetch(`${CONFIG.API_URL}/generate/simple`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                prompt: prompt.trim(),
+                max_length: 500,
+                temperature
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        
+        const result = await response.json();
+        if (!result.ok) {
+            throw new Error(result.error || 'Generate failed');
+        }
+        
+        return { generated_text: result.response, model: result.model };
+    },
+
+    /**
+     * Simple streaming generate - minimal path
+     */
+    async generateSimpleStream(prompt, onToken, onDone, onError, temperature = 0.7) {
+        console.log('🔧 Using SIMPLE stream (no context, no auth)');
+        
+        try {
+            const response = await fetch(`${CONFIG.API_URL}/generate/simple/stream`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    prompt: prompt.trim(),
+                    max_length: 500,
+                    temperature
+                })
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let fullText = '';
+            let buffer = '';
+            
+            while (true) {
+                const { done, value } = await reader.read();
+                
+                if (done) {
+                    onDone(fullText);
+                    break;
+                }
+                
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+                
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const data = JSON.parse(line.slice(6));
+                            if (data.token) {
+                                fullText += data.token;
+                                onToken(data.token, fullText);
+                            }
+                            if (data.done) {
+                                onDone(fullText);
+                                return;
+                            }
+                            if (data.error) {
+                                onError(new Error(data.error));
+                                return;
+                            }
+                        } catch (e) {
+                            // Ignore parse errors
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            onError(error);
+        }
+    },
+
     async generate(prompt, temperature = 0.7, skipContext = false, documentContext = null) {
         // =====================================================================
         // ROUTING: ICP Canister (decentralized) vs Direct HTTP (local dev)
@@ -575,6 +668,34 @@ const Actions = {
                 generatedText = CONFIG.TEST_RESPONSES[State.testResponseIndex % CONFIG.TEST_RESPONSES.length];
                 State.incrementTestResponseIndex();
                 messageDiv.innerHTML = DOMPurify.sanitize(marked.parse(generatedText));
+            } else if (CONFIG.USE_SIMPLE_GENERATE) {
+                // SIMPLE MODE - minimal path, no context/auth complexity
+                console.log('🔧 Using SIMPLE generate mode (no context, minimal complexity)');
+                
+                await new Promise((resolve, reject) => {
+                    API.generateSimpleStream(
+                        prompt,
+                        // onToken
+                        (token, fullText) => {
+                            generatedText = fullText;
+                            messageDiv.innerHTML = DOMPurify.sanitize(marked.parse(fullText)) + 
+                                '<span class="streaming-cursor">▊</span>';
+                            chatArea.scrollTop = chatArea.scrollHeight;
+                        },
+                        // onDone
+                        (fullText) => {
+                            generatedText = fullText;
+                            messageDiv.innerHTML = DOMPurify.sanitize(marked.parse(fullText));
+                            chatArea.scrollTop = chatArea.scrollHeight;
+                            resolve();
+                        },
+                        // onError
+                        (error) => reject(error),
+                        0.7  // temperature
+                    );
+                });
+                
+                console.log('✅ Simple stream complete:', generatedText.length, 'chars');
             } else {
                 // Production - use streaming API
                 console.log('🌊 Using streaming API:', `${CONFIG.API_URL}/generate/stream`);
