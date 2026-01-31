@@ -40,17 +40,7 @@ from lighthouse import (
     get_filecoin_deal_status, download_from_filecoin
 )
 
-# Audio transcription
 import tempfile
-try:
-    import whisper
-    WHISPER_MODEL = None
-    WHISPER_AVAILABLE = True
-    logger.info('✅ Whisper library available')
-except ImportError:
-    WHISPER_AVAILABLE = False
-    WHISPER_MODEL = None
-    logger.warning('⚠️ Whisper not installed - audio transcription disabled')
 
 # ICP Authentication
 from icp_auth import require_auth, verify_request_auth
@@ -2158,76 +2148,6 @@ Cleaned transcript:"""
         return jsonify({'error': str(e)}), 500
 
 
-# ----- AUDIO TRANSCRIPTION -----
-
-# File size limit: 25MB (Whisper works best with files under this size)
-MAX_AUDIO_SIZE_MB = 25
-MAX_AUDIO_SIZE_BYTES = MAX_AUDIO_SIZE_MB * 1024 * 1024
-
-@app.route('/tools/audio/transcribe', methods=['POST'])
-def transcribe_audio():
-    """Transcribe audio file using Whisper."""
-    global WHISPER_MODEL
-    
-    if not WHISPER_AVAILABLE:
-        return jsonify({'error': 'Whisper not available on this server'}), 503
-    
-    try:
-        # Check if file was uploaded
-        if 'audio' not in request.files:
-            return jsonify({'error': 'No audio file provided'}), 400
-        
-        audio_file = request.files['audio']
-        if audio_file.filename == '':
-            return jsonify({'error': 'No file selected'}), 400
-        
-        # Check file size
-        audio_file.seek(0, 2)  # Seek to end
-        file_size = audio_file.tell()
-        audio_file.seek(0)  # Seek back to start
-        
-        if file_size > MAX_AUDIO_SIZE_BYTES:
-            return jsonify({
-                'error': f'File too large. Maximum size is {MAX_AUDIO_SIZE_MB}MB',
-                'fileSize': file_size,
-                'maxSize': MAX_AUDIO_SIZE_BYTES
-            }), 413
-        
-        # Lazy load Whisper model (base model is fast and good enough)
-        if WHISPER_MODEL is None:
-            logger.info('🎤 Loading Whisper model (first use)...')
-            WHISPER_MODEL = whisper.load_model('base')
-            logger.info('✅ Whisper model loaded')
-        
-        # Save to temp file (Whisper needs a file path)
-        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
-            audio_file.save(tmp.name)
-            tmp_path = tmp.name
-        
-        try:
-            # Transcribe
-            logger.info(f'🎤 Transcribing audio: {audio_file.filename} ({file_size / 1024:.1f}KB)')
-            result = WHISPER_MODEL.transcribe(tmp_path)
-            transcript = result['text'].strip()
-            
-            logger.info(f'✅ Transcription complete: {len(transcript)} chars')
-            return jsonify({
-                'transcript': transcript,
-                'language': result.get('language', 'unknown'),
-                'duration': result.get('duration', 0),
-                'fileSize': file_size,
-                'maxSize': MAX_AUDIO_SIZE_BYTES
-            })
-        finally:
-            # Clean up temp file
-            if os.path.exists(tmp_path):
-                os.unlink(tmp_path)
-                
-    except Exception as e:
-        logger.error(f'❌ Transcription error: {e}', exc_info=True)
-        return jsonify({'error': str(e)}), 500
-
-
 @app.route('/tools/status')
 def tools_status():
     """Check status of all AI tools."""
@@ -2237,11 +2157,7 @@ def tools_status():
         'model': MODEL_NAME,
         'tools': {
             'chatWithDocuments': {'available': ollama_ok},
-            'transcriptCleaner': {'available': ollama_ok},
-            'audioTranscription': {
-                'available': WHISPER_AVAILABLE,
-                'maxFileSizeMB': MAX_AUDIO_SIZE_MB
-            }
+            'transcriptCleaner': {'available': ollama_ok}
         },
         'activeDocumentSessions': len(document_store)
     })

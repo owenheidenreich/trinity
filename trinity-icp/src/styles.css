@@ -2192,18 +2192,6 @@ MOBILE RESPONSIVE STYLES
 .input-hint { display: flex; justify-content: center; padding: 4px 16px 8px; }
 #fileLimitHint { font-size: 11px; color: #666; }
 
-/* ===== TRANSCRIBING INDICATOR ===== */
-.transcribing-indicator {
-    display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px;
-    background: #3d3d3d; border-radius: 6px; font-size: 12px; color: #888;
-}
-.transcribing-indicator::before {
-    content: ""; width: 12px; height: 12px;
-    border: 2px solid #4a7dff; border-top-color: transparent;
-    border-radius: 50%; animation: transcribe-spin 1s linear infinite;
-}
-@keyframes transcribe-spin { to { transform: rotate(360deg); } }
-
 /* ===== PRIVATE SESSION LOADING SCREEN ===== */
 .loading-overlay {
     position: fixed;

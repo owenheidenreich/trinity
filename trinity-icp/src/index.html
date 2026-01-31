@@ -107,15 +107,15 @@
             <div class="input-container" id="inputContainer">
                 <div class="input-wrapper">
                         <!-- Attach Button with Hidden File Input -->
-                        <button class="attach-btn" id="attachBtn" title="Attach file (text, audio)">+</button>
-                        <input type="file" id="fileInput" accept=".txt,.md,.json,.pdf,.doc,.docx,audio/*,.mp3,.wav,.m4a,.ogg,.webm" style="display: none;">
+                        <button class="attach-btn" id="attachBtn" title="Attach file">+</button>
+                        <input type="file" id="fileInput" accept=".txt,.md,.json,.pdf,.doc,.docx,.py,.js,.ts,.html,.css" style="display: none;">
                         
                         <textarea id="promptInput" placeholder="Ask anything..." rows="1"
                             onkeydown="handleKeyDown(event)" oninput="autoResize(this)"></textarea>
                         <button class="send-btn" id="sendBtn" onclick="generate()" disabled>➤</button>
                     </div>
                     <div class="input-hint" id="inputHint">
-                        <span id="fileLimitHint">Files: text up to 100KB, audio up to 25MB</span>
+                        <span id="fileLimitHint">Files: up to 100KB</span>
                     </div>
                 </div>
             </div>

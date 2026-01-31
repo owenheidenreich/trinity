@@ -507,7 +507,6 @@ Hard refresh: `Cmd+Shift+R` (Mac) or `Ctrl+Shift+R` (Windows/Linux)
 
 ### ⏳ Planned
 - Lightweight RAG (FastEmbed + BM25)
-- Audio transcription (Groq Whisper API)
 - Document attachments (browser-side PDF parsing)
 
 ---
