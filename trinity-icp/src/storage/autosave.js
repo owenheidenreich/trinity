@@ -192,7 +192,7 @@ const AutosaveManager = {
                 chatId: currentChatId
             });
             
-            return this.handleAutosaveError(error, showIndicator, retryCallback);
+            return await this.handleAutosaveError(error, showIndicator, retryCallback);
         }
     },
 
@@ -203,7 +203,7 @@ const AutosaveManager = {
      * @param {Function} retryCallback - Function to call after delay for retry
      * @returns {Object} Result object {success: false, error, autosaveStatus, shouldRetry}
      */
-    handleAutosaveError(error, showIndicator, retryCallback) {
+    async handleAutosaveError(error, showIndicator, retryCallback) {
         this.retryCount++;
 
         if (this.retryCount <= this.MAX_RETRIES) {
