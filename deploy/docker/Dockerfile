@@ -104,6 +104,10 @@ ARG CACHEBUST=1
 
 COPY backend/inference_server.py .
 COPY backend/icp_auth.py .
+COPY backend/config.py .
+COPY backend/encryption.py .
+COPY backend/storage.py .
+COPY backend/lighthouse.py .
 COPY deploy/docker/startup.sh .
 
 # Make startup script executable (give it permission to run)
