@@ -3,8 +3,8 @@
 > **Purpose:** Comprehensive documentation for AI assistants to quickly understand the Trinity project  
 > **Last Updated:** January 31, 2026  
 > **Last Verified:** January 31, 2026  
-> **Status:** Production - Agentic Pipeline verified working  
-> **Version:** v3.7.0 (Streamlined UI + Live KaTeX Rendering)
+> **Status:** Production - Security Hardened  
+> **Version:** v3.7.1 (Security Hardening + Performance Optimizations)
 
 ---
 
@@ -17,7 +17,7 @@
 | **Primary URL** | https://trinityai.cc |
 | **Canister URL** | https://zc67k-kiaaa-aaaal-qtmiq-cai.icp0.io |
 | **Vercel Proxy** | https://vercel-proxy-swart-nine.vercel.app |
-| **Docker Image** | `gdubx/trinity-inference:v3-agent` |
+| **Docker Image** | `gdubx/trinity-inference:v3-secure` |
 | **Akash Wallet** | `akash155hphg6qyy3vtr584p38wlngtqxzdr0l6jutmp` |
 
 ---
@@ -502,18 +502,60 @@ dfx canister --network ic call au5zq-2qaaa-aaaal-qtowa-cai health
 **Security Features:**
 - All `/chat/*` endpoints validate input parameters (chat_id, principal_id, CID format)
 - All `/generate*` endpoints are rate-limited (30 requests/60 seconds per IP)
+- All `/chat/*` endpoints are rate-limited (10 requests/minute per IP)
+- Prompt length limited to 50KB max to prevent DoS
+- CORS restricted to known origins only
 
-| Endpoint | Method | Auth | Purpose |
-|----------|--------|------|---------|
-| `/health` | GET | No | Health check |
-| `/health/icp` | GET | No | ICP consensus health |
-| `/generate` | POST | No | LLM generation |
-| `/stats` | GET | No | Performance stats |
-| `/chat/autosave` | POST | ✅ | Save encrypted chat |
-| `/chat/list` | GET | ✅ | List user's chats |
-| `/chat/<id>` | GET | ✅ | Load specific chat |
-| `/chat/<id>` | DELETE | ✅ | Delete chat |
-| `/user/memory` | GET/POST | ✅ | User memory CRUD |
+| Endpoint | Method | Auth | Rate Limit | Purpose |
+|----------|--------|------|------------|---------|
+| `/health` | GET | No | None | Health check |
+| `/health/icp` | GET | No | None | ICP consensus health |
+| `/generate` | POST | No | 30/min | LLM generation |
+| `/generate/agent` | POST | No | 30/min | Agentic pipeline |
+| `/stats` | GET | No | None | Performance stats |
+| `/chat/autosave` | POST | ✅ | 10/min | Save encrypted chat |
+| `/chat/list` | GET | ✅ | 10/min | List user's chats |
+| `/chat/<id>` | GET | ✅ | 10/min | Load specific chat |
+| `/chat/<id>` | DELETE | ✅ | 10/min | Delete chat |
+| `/user/memory` | GET/POST | ✅ | 10/min | User memory CRUD |
+| `/tools/browse` | POST | No | 30/min | Web browsing (SSRF protected) |
+
+---
+
+## 🔒 Security Hardening (v3.7.1)
+
+### Backend Security
+| Feature | Implementation | File |
+|---------|----------------|------|
+| Storage rate limiting | `@storage_rate_limit` decorator (10 req/min) | `middleware/rate_limit.py` |
+| Prompt length validation | 50KB max, returns 400 if exceeded | `config.py`, `inference_server.py` |
+| SSRF protection | `is_safe_url()` blocks private IPs, metadata endpoints | `validation.py` |
+| CORS restriction | Whitelist of allowed origins | `inference_server.py` |
+| Connection pooling | `requests.Session` with HTTPAdapter | `config.py` |
+| Memory leak prevention | Auto-cleanup of stale rate limit IPs, document store TTL | `middleware/rate_limit.py` |
+
+### Frontend Security
+| Feature | Implementation | File |
+|---------|----------------|------|
+| Private key encryption | AES-GCM encryption in localStorage | `utils/crypto.js` |
+| Content Security Policy | Comprehensive CSP meta tag | `index.html` |
+| Ed25519 signatures | Constant-time verification (cryptography lib) | `icp_auth.py` |
+
+### Dependencies (Security Updates)
+```
+cryptography>=42.0.0     # Latest security patches
+flask-compress>=1.15     # Gzip response compression
+beautifulsoup4>=4.12.0   # Safe HTML parsing (replaces regex)
+argon2-cffi>=23.1.0      # Modern key derivation (ready for migration)
+urllib3>=2.0.0           # Security updates
+```
+
+### SSRF Protection
+The `/tools/browse` endpoint blocks:
+- Private IP ranges (10.x, 172.16-31.x, 192.168.x)
+- Localhost (127.x, ::1)
+- Link-local addresses (169.254.x)
+- Cloud metadata endpoints (169.254.169.254)
 
 ---
 
@@ -676,13 +718,13 @@ backend/
 trinity-icp/src/
 ├── app.js              # Main application entry
 ├── config.js           # Environment detection
-├── index.html          # HTML template
+├── index.html          # HTML template + CSP
 ├── styles.css          # All CSS
 ├── tools.js            # Tools dropdown
 ├── api/
 │   └── canister-client.js  # ICP backend client
 ├── auth/
-│   ├── authManager.js      # Keypair management
+│   ├── authManager.js      # Keypair management (encrypts keys in localStorage)
 │   └── keyExportModal.js   # Key display modal
 ├── state/
 │   ├── store.js            # Zustand store
@@ -697,8 +739,17 @@ trinity-icp/src/
 │   ├── modals.js           # Dialog boxes
 │   ├── notifications.js    # Toasts
 │   └── rainbowBorder.js    # Effects
+├── utils/
+│   ├── validation.js       # Input validation
+│   └── crypto.js           # AES-GCM encryption for localStorage
 └── modules/                # Feature modules (empty - archive/funding removed in v3.7)
 ```
+
+**UI Features:**
+- **Live KaTeX Rendering:** Math formulas render beautifully during streaming (every typing cycle)
+- **Smooth Typing:** 3 chars per 15ms interval for natural feel
+- **Rainbow Borders:** Hover effects on interactive elements
+- **Dark Theme:** `#1a1a1a` background, `#ffffff` text
 
 ---
 
