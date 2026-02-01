@@ -753,26 +753,12 @@ const Actions = {
             let displayedLength = 0;
             let tokenBuffer = '';
             let typingInterval = null;
-            let katexPending = false;  // Debounce KaTeX rendering
-            let lastKatexRender = 0;   // Timestamp of last KaTeX render
-            const KATEX_THROTTLE_MS = 100;  // Only render KaTeX every 100ms max
+            let lastTokenTime = 0;        // When we last received a token
+            let katexRenderTimer = null;  // Debounced KaTeX render
+            let lastRenderedText = '';    // Track what we last rendered to avoid re-rendering same content
                 
-                // Helper to render KaTeX on message div (throttled)
-                const renderKatex = (force = false) => {
-                    const now = Date.now();
-                    // Skip if we rendered recently (unless forced)
-                    if (!force && (now - lastKatexRender < KATEX_THROTTLE_MS)) {
-                        // Schedule a pending render
-                        if (!katexPending) {
-                            katexPending = true;
-                            setTimeout(() => {
-                                katexPending = false;
-                                renderKatex(true);
-                            }, KATEX_THROTTLE_MS);
-                        }
-                        return;
-                    }
-                    
+                // Helper to render KaTeX on message div
+                const renderKatex = () => {
                     const renderFunc = window.renderMathInElement || (typeof renderMathInElement === 'function' ? renderMathInElement : null);
                     if (renderFunc) {
                         try {
@@ -787,11 +773,27 @@ const Actions = {
                                 errorColor: '#cc0000',
                                 strict: false,
                             });
-                            lastKatexRender = now;
+                            lastRenderedText = tokenBuffer.substring(0, displayedLength);
                         } catch (e) {
-                            // Ignore errors during streaming - math may be incomplete
+                            // Ignore errors - math may be incomplete during streaming
                         }
                     }
+                };
+                
+                // Schedule KaTeX render after tokens pause (debounced)
+                const scheduleKatexRender = () => {
+                    if (katexRenderTimer) clearTimeout(katexRenderTimer);
+                    katexRenderTimer = setTimeout(() => {
+                        const visibleText = tokenBuffer.substring(0, displayedLength);
+                        // Only render if content has math and has changed since last render
+                        if ((visibleText.includes('$') || visibleText.includes('\\')) && 
+                            visibleText !== lastRenderedText) {
+                            // Re-set the innerHTML first to ensure we have fresh DOM
+                            messageDiv.innerHTML = DOMPurify.sanitize(parseMarkdownWithMath(visibleText)) + 
+                                '<span class="streaming-cursor">▊</span>';
+                            renderKatex();
+                        }
+                    }, 150); // Render after 150ms of no new content
                 };
                 
                 // Smooth typing function - types out buffered text gradually
@@ -803,13 +805,17 @@ const Actions = {
                             const charsToAdd = Math.min(3, tokenBuffer.length - displayedLength);
                             displayedLength += charsToAdd;
                             const visibleText = tokenBuffer.substring(0, displayedLength);
-                            messageDiv.innerHTML = DOMPurify.sanitize(parseMarkdownWithMath(visibleText)) + 
-                                '<span class="streaming-cursor">▊</span>';
                             
-                            // Render KaTeX (throttled to prevent thrashing)
-                            // Only if content might contain math
+                            // Only update innerHTML if we haven't just rendered KaTeX
+                            // This prevents overwriting rendered math immediately
+                            if (visibleText !== lastRenderedText) {
+                                messageDiv.innerHTML = DOMPurify.sanitize(parseMarkdownWithMath(visibleText)) + 
+                                    '<span class="streaming-cursor">▊</span>';
+                            }
+                            
+                            // Schedule KaTeX render (debounced - waits for pause in typing)
                             if (visibleText.includes('$') || visibleText.includes('\\')) {
-                                renderKatex();
+                                scheduleKatexRender();
                             }
                         }
                     }, 15); // ~66 chars/sec for natural typing feel
@@ -868,11 +874,17 @@ const Actions = {
                                     console.log('📐 Math content detected:', fullText.substring(0, 200));
                                 }
                             
+                                // Clear any pending KaTeX render timer
+                                if (katexRenderTimer) {
+                                    clearTimeout(katexRenderTimer);
+                                    katexRenderTimer = null;
+                                }
+                            
                                 messageDiv.innerHTML = DOMPurify.sanitize(parseMarkdownWithMath(fullText));
                             
-                                // Final KaTeX render (forced, no throttle)
+                                // Final KaTeX render
                                 setTimeout(() => {
-                                    renderKatex(true);
+                                    renderKatex();
                                     console.log('✅ KaTeX final render complete');
                                 }, 50);
                             
@@ -890,10 +902,14 @@ const Actions = {
                         },
                         // onError - handle failures
                         (error) => {
-                            // Stop typing interval on error
+                            // Stop typing interval and KaTeX timer on error
                             if (typingInterval) {
                                 clearInterval(typingInterval);
                                 typingInterval = null;
+                            }
+                            if (katexRenderTimer) {
+                                clearTimeout(katexRenderTimer);
+                                katexRenderTimer = null;
                             }
                             reject(error);
                         },
