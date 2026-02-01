@@ -272,7 +272,7 @@ const Messages = {
             // Update status indicators to show offline
             if (icpIndicator) icpIndicator.textContent = '○';
             if (akashIndicator) akashIndicator.textContent = '○';
-            if (filecoinIndicator) filecoinIndicator.textContent = '○';
+            if (ipfsIndicator) ipfsIndicator.textContent = '○';
             
             if (modelName) modelName.textContent = 'Offline';
             

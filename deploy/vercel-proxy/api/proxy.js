@@ -136,10 +136,12 @@ export default async function handler(req, res) {
     // Forward headers (filter out problematic ones)
     const forwardHeaders = {};
     for (const [key, value] of Object.entries(req.headers)) {
-      if (!['host', 'connection', 'content-length', 'transfer-encoding'].includes(key.toLowerCase())) {
+      if (!['host', 'connection', 'content-length', 'transfer-encoding', 'accept-encoding'].includes(key.toLowerCase())) {
         forwardHeaders[key] = value;
       }
     }
+    // Explicitly request uncompressed responses - the proxy handles text, not binary
+    forwardHeaders['accept-encoding'] = 'identity';
     if (body) {
       forwardHeaders['content-length'] = Buffer.byteLength(body);
     }
