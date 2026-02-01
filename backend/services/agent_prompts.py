@@ -3,11 +3,38 @@ Trinity Agentic Pipeline - Pass Prompts
 
 Prompts for each pass of the multi-pass reasoning pipeline.
 Uses XML tags for reliable parsing.
+
+v4.0 Enhancements:
+- Tool calling support with XML format
+- Enhanced context from semantic memory
 """
 
 import re
 from typing import Dict, Optional, List
 from dataclasses import dataclass
+
+
+# ============================================================================
+# TOOL DEFINITIONS (for prompt injection)
+# ============================================================================
+
+TOOL_PROMPT_SECTION = """
+You have access to these tools. Use them when needed:
+
+**calculator**: Evaluate mathematical expressions
+  Example: <tool_call name="calculator"><expression>sqrt(16) + 2^3</expression></tool_call>
+
+**web_search**: Search the web for current information
+  Example: <tool_call name="web_search"><query>Bitcoin price today</query></tool_call>
+
+**document_search**: Search through uploaded documents
+  Example: <tool_call name="document_search"><query>contract termination clause</query></tool_call>
+
+**code_display**: Display and optionally execute Python code
+  Example: <tool_call name="code_display"><language>python</language><code>def factorial(n): return 1 if n <= 1 else n * factorial(n-1)</code><execute>true</execute></tool_call>
+
+To use a tool, output it in this exact XML format. Tool results will be provided before your final answer.
+"""
 
 
 # ============================================================================
@@ -22,6 +49,7 @@ Respond in EXACTLY this format:
 <type>factual|analytical|creative|code|design|debug|explanation</type>
 <domains>comma-separated knowledge domains needed</domains>
 <complexity>1-10 rating</complexity>
+<tools_needed>calculator|web_search|document_search|code_display (comma-separated, or "none")</tools_needed>
 <summary>One sentence: what is actually being asked?</summary>
 <key_challenges>What makes this hard to answer well?</key_challenges>"""
 
@@ -65,7 +93,7 @@ Your analysis of this question:
 
 Your plan:
 {plan}
-
+{tools_section}
 Now execute your plan to answer this question thoroughly:
 {question}
 
@@ -81,6 +109,7 @@ Context about the user:
 Previous conversation:
 {context}
 {search_context}
+{tools_section}
 Question: {question}
 
 Formatting: Use Markdown for text. For ALL math, use LaTeX with dollar signs: $x^2$ for inline, $$\\sum_{{i=1}}^n i$$ for blocks. NEVER write math without $ delimiters.
@@ -143,6 +172,7 @@ class UnderstandingResult:
     summary: str
     key_challenges: str
     raw: str
+    tools_needed: List[str] = None  # v4.0: tools detected as needed
 
 
 @dataclass
@@ -219,13 +249,21 @@ def parse_understanding(response: str) -> UnderstandingResult:
     complexity = int(complexity_match.group()) if complexity_match else 5
     complexity = min(10, max(1, complexity))  # Clamp to 1-10
     
+    # Extract tools_needed (v4.0)
+    tools_str = parse_xml_tag(response, 'tools_needed', 'none')
+    if tools_str.lower() == 'none':
+        tools_needed = []
+    else:
+        tools_needed = [t.strip().lower() for t in tools_str.split(',') if t.strip()]
+    
     return UnderstandingResult(
         question_type=parse_xml_tag(response, 'type', 'unknown'),
         domains=[d.strip() for d in parse_xml_tag(response, 'domains', '').split(',') if d.strip()],
         complexity=complexity,
         summary=parse_xml_tag(response, 'summary', 'Question analysis unavailable'),
         key_challenges=parse_xml_tag(response, 'key_challenges', ''),
-        raw=response
+        raw=response,
+        tools_needed=tools_needed
     )
 
 
@@ -288,7 +326,8 @@ def build_execute_prompt(
     plan: Optional[PlanResult],
     context_messages: List[Dict],
     user_memory: Optional[Dict],
-    search_context: str = ""
+    search_context: str = "",
+    include_tools: bool = True
 ) -> str:
     """Build the execute pass prompt"""
     
@@ -316,12 +355,27 @@ def build_execute_prompt(
     else:
         formatted_search = ""
     
+    # Tools section (v4.0)
+    tools_section = ""
+    if include_tools:
+        # Only include tools if they might be needed
+        needs_tools = False
+        if understanding and understanding.tools_needed:
+            needs_tools = True
+        # Also check for math/code keywords
+        if any(kw in question.lower() for kw in ['calculate', 'compute', 'code', 'python', 'function']):
+            needs_tools = True
+        
+        if needs_tools:
+            tools_section = TOOL_PROMPT_SECTION
+    
     # Use simple prompt for simple questions
     if not understanding and not plan:
         return EXECUTE_PROMPT_SIMPLE.format(
             user_memory=memory,
             context=context,
             search_context=formatted_search,
+            tools_section=tools_section,
             question=question
         )
     
@@ -342,6 +396,7 @@ Summary: {understanding.summary}"""
         search_context=formatted_search,
         understanding=understanding_text or "Quick question - no deep analysis needed.",
         plan=plan_text or "Direct response - no complex plan needed.",
+        tools_section=tools_section,
         question=question
     )
 

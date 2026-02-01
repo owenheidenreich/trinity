@@ -796,9 +796,10 @@ const Actions = {
             let displayedLength = 0;
             let tokenBuffer = '';
             let typingInterval = null;
-            let katexDebounceTimer = null;
 
-                // Helper to render KaTeX on message div
+                // Helper to render KaTeX on message div (final pass only)
+                // During streaming, math is pre-rendered via katex.renderToString() in parseMarkdownWithMath()
+                // This renderKatex() is only called once at the end as a safety net
                 const renderKatex = () => {
                     const renderFunc = window.renderMathInElement || (typeof renderMathInElement === 'function' ? renderMathInElement : null);
                     if (renderFunc) {
@@ -820,16 +821,6 @@ const Actions = {
                     }
                 };
 
-                // PERFORMANCE: Debounced KaTeX render to avoid CPU spikes
-                // Renders at most once per 300ms during streaming
-                const debouncedRenderKatex = () => {
-                    if (katexDebounceTimer) return;
-                    katexDebounceTimer = setTimeout(() => {
-                        renderKatex();
-                        katexDebounceTimer = null;
-                    }, 300);
-                };
-
                 // Smooth typing function - types out buffered text gradually
                 const startTyping = () => {
                     if (typingInterval) return;
@@ -840,12 +831,11 @@ const Actions = {
                             displayedLength += charsToAdd;
                             const visibleText = tokenBuffer.substring(0, displayedLength);
 
-                            // Set the HTML content
+                            // Set the HTML content with pre-rendered math
+                            // parseMarkdownWithMath() uses katex.renderToString() to render math inline
+                            // This avoids flashing - no need for post-render debouncedRenderKatex()
                             messageDiv.innerHTML = DOMPurify.sanitize(parseMarkdownWithMath(visibleText)) +
                                 '<span class="streaming-cursor">▊</span>';
-
-                            // PERFORMANCE: Debounced KaTeX render (every 300ms instead of 15ms)
-                            debouncedRenderKatex();
                         }
                     }, 15); // ~66 chars/sec for natural typing feel
                 };

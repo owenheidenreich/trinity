@@ -14,3 +14,15 @@ yfinance==0.2.37
 feedparser==6.0.11
 beautifulsoup4==4.12.3
 argon2-cffi==23.1.0
+
+# ===== LLM INTELLIGENCE UPGRADES (v4.0) =====
+# RAG: FastEmbed for embeddings (ONNX, CPU-friendly, ~100MB)
+fastembed==0.7.4
+# NOTE: sqlite-vss requires special build, using pure Python fallback instead
+# sqlite-vss==0.1.2
+# NOTE: outlines requires Rust compiler, using fallback JSON parsing instead
+# outlines==0.1.0
+# Code execution: Sandboxed Python (blocks imports, file, network)
+RestrictedPython==8.1
+# Numpy for vector operations
+numpy==1.26.4

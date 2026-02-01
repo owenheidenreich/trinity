@@ -15,7 +15,7 @@ version: "2.0"
 
 services:
   trinity:
-    image: gdubx/trinity-inference:v2-search
+    image: gdubx/trinity-inference:v4-intelligence
     env:
       - PROVIDER_ID=trinity-tier1-test
       - MODEL_NAME=tinyllama:1.1b
@@ -23,6 +23,21 @@ services:
       - GPU_TYPE=NVIDIA-GPU
       - MAX_QUEUE_SIZE=10
       - OLLAMA_HOST=http://localhost:11434
+      # Multi-Model DISABLED for Tier 1 (single model only)
+      - MULTI_MODEL_ENABLED=false
+      # RAG & Semantic Memory (v4.0) - still enabled for Tier 1
+      - EMBEDDING_MODEL=BAAI/bge-small-en-v1.5
+      - RAG_TOP_K=5
+      - RAG_CHUNK_SIZE=512
+      - RAG_CHUNK_OVERLAP=50
+      - WORKING_MEMORY_SIZE=3
+      - SEMANTIC_MEMORY_SIZE=5
+      - RECENCY_WEIGHT=0.3
+      # Tool Use & Code Execution (v4.0)
+      - CODE_EXECUTION_ENABLED=true
+      - CODE_EXECUTION_TIMEOUT=5
+      # Voting DISABLED for Tier 1 (too slow with small model)
+      - VOTING_ENABLED=false
       # API Keys - SET THESE VIA DEPLOYMENT SCRIPT OR SECRETS
       # SECURITY: Do NOT commit actual API keys to version control
       # These placeholder values must be replaced at deployment time

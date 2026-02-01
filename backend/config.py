@@ -98,6 +98,49 @@ MAX_PROMPT_LENGTH = 50000  # 50KB max prompt to prevent DoS
 PBKDF2_ITERATIONS = 100000
 ENCRYPTION_KEY_LENGTH = 32  # 256 bits
 
+# ===== MULTI-MODEL CONFIGURATION (Tier 2 & 3 only) =====
+# Fast model for classification/summarization (Tier 2+)
+FAST_MODEL = os.getenv('FAST_MODEL', 'phi3:mini')
+# Smart model for general tasks (Tier 2+)
+SMART_MODEL = os.getenv('SMART_MODEL', 'llama3.1:8b')
+# Reasoning model for complex tasks (Tier 3 only)
+REASONING_MODEL = os.getenv('REASONING_MODEL', 'qwen2.5:32b')
+
+# Enable multi-model only on Tier 2 and 3
+MULTI_MODEL_ENABLED = DEPLOYMENT_TIER >= 2
+
+# ===== RAG CONFIGURATION =====
+# FastEmbed model for embeddings (33MB, 384 dimensions)
+EMBEDDING_MODEL = 'BAAI/bge-small-en-v1.5'
+EMBEDDING_DIM = 384
+# Chunk size for document splitting (tokens)
+CHUNK_SIZE = 500
+CHUNK_OVERLAP = 50
+# Number of chunks to retrieve
+RAG_TOP_K = 5
+
+# ===== MEMORY CONFIGURATION =====
+# Working memory: most recent messages always included
+WORKING_MEMORY_SIZE = 3
+# Semantic memory: retrieved based on relevance
+SEMANTIC_MEMORY_SIZE = 5
+# Recency weight for retrieval scoring (0-1)
+RECENCY_WEIGHT = 0.3
+
+# ===== TOOL CONFIGURATION =====
+# Enable code execution (RestrictedPython sandbox)
+CODE_EXECUTION_ENABLED = True
+CODE_EXECUTION_TIMEOUT = 5  # seconds
+CODE_EXECUTION_MEMORY_LIMIT = 10 * 1024 * 1024  # 10MB
+
+# ===== SELF-CONSISTENCY VOTING =====
+# Number of candidates to generate for voting
+VOTING_CANDIDATES = 3
+# Temperatures for diversity
+VOTING_TEMPERATURES = [0.3, 0.7, 1.0]
+# Minimum complexity to trigger voting
+VOTING_MIN_COMPLEXITY = 7
+
 # ===== PATHS =====
 # Only create directories in production (not during import for tests)
 try:

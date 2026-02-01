@@ -65,6 +65,80 @@ from services import (
     SESSION_TYPE, SESSION_ID, SESSION_EXPIRY, SESSION_FUNDED_AKT
 )
 
+# V4.0 Intelligence Upgrades - Semantic Memory, Tools, Voting
+# Import each module separately to identify which one fails
+V4_IMPORT_ERROR = None
+V4_EMBEDDINGS_AVAILABLE = False
+V4_VECTOR_STORE_AVAILABLE = False
+V4_MEMORY_AVAILABLE = False
+V4_TOOLS_AVAILABLE = False
+V4_CODE_EXECUTOR_AVAILABLE = False
+V4_VOTING_AVAILABLE = False
+V4_STRUCTURED_AVAILABLE = False
+
+try:
+    from services.embeddings import embed_text, embed_batch, cosine_similarity, V4_EMBEDDINGS_AVAILABLE
+    logger.info(f"✅ embeddings: V4_EMBEDDINGS_AVAILABLE={V4_EMBEDDINGS_AVAILABLE}")
+except Exception as e:
+    V4_IMPORT_ERROR = f"embeddings: {e}"
+    logger.error(f"❌ embeddings import failed: {e}")
+
+try:
+    from services.vector_store import VectorStore, get_user_vector_store, V4_VECTOR_STORE_AVAILABLE
+    logger.info(f"✅ vector_store: V4_VECTOR_STORE_AVAILABLE={V4_VECTOR_STORE_AVAILABLE}")
+except Exception as e:
+    V4_IMPORT_ERROR = f"vector_store: {e}"
+    logger.error(f"❌ vector_store import failed: {e}")
+
+try:
+    from services.memory import SemanticMemory, build_enhanced_context, V4_MEMORY_AVAILABLE
+    logger.info(f"✅ memory: V4_MEMORY_AVAILABLE={V4_MEMORY_AVAILABLE}")
+except Exception as e:
+    V4_IMPORT_ERROR = f"memory: {e}"
+    logger.error(f"❌ memory import failed: {e}")
+
+try:
+    from services.tools import parse_tool_calls, detect_tools_needed, get_tool_definitions_for_prompt, V4_TOOLS_AVAILABLE
+    logger.info(f"✅ tools: V4_TOOLS_AVAILABLE={V4_TOOLS_AVAILABLE}")
+except Exception as e:
+    V4_IMPORT_ERROR = f"tools: {e}"
+    logger.error(f"❌ tools import failed: {e}")
+
+try:
+    from services.code_executor import execute_tool, V4_CODE_EXECUTOR_AVAILABLE
+    logger.info(f"✅ code_executor: V4_CODE_EXECUTOR_AVAILABLE={V4_CODE_EXECUTOR_AVAILABLE}")
+except Exception as e:
+    V4_IMPORT_ERROR = f"code_executor: {e}"
+    logger.error(f"❌ code_executor import failed: {e}")
+
+try:
+    from services.voting import run_voting_pipeline, should_use_voting, V4_VOTING_AVAILABLE
+    logger.info(f"✅ voting: V4_VOTING_AVAILABLE={V4_VOTING_AVAILABLE}")
+except Exception as e:
+    V4_IMPORT_ERROR = f"voting: {e}"
+    logger.error(f"❌ voting import failed: {e}")
+
+try:
+    from services.structured import generate_structured, V4_STRUCTURED_AVAILABLE
+    logger.info(f"✅ structured: V4_STRUCTURED_AVAILABLE={V4_STRUCTURED_AVAILABLE}")
+except Exception as e:
+    V4_IMPORT_ERROR = f"structured: {e}"
+    logger.error(f"❌ structured import failed: {e}")
+
+try:
+    from lighthouse import upload_vector_db, download_vector_db, sync_vector_db_on_login
+except Exception as e:
+    logger.warning(f"⚠️ lighthouse vector_db functions not available: {e}")
+
+V4_FEATURES_AVAILABLE = all([
+    V4_EMBEDDINGS_AVAILABLE,
+    V4_VECTOR_STORE_AVAILABLE, 
+    V4_MEMORY_AVAILABLE,
+    V4_TOOLS_AVAILABLE,
+    V4_CODE_EXECUTOR_AVAILABLE
+])
+logger.info(f"🧠 V4.0 Intelligence features: {'ENABLED' if V4_FEATURES_AVAILABLE else 'PARTIAL'}")
+
 # Input validation
 from validation import validate_chat_id, validate_principal_id, validate_cid, is_safe_url
 
@@ -538,7 +612,7 @@ def generate():
             raise ValueError("No JSON data provided")
         
         user_prompt = data.get('prompt', '')
-        max_length = data.get('max_length', 800)  # Default to 800 tokens for longer responses
+        max_length = data.get('max_length', 4000)  # Default to 4000 tokens for longer responses
         context_memory = data.get('contextMemory', [])
         principal = data.get('principal')  # Optional for unauthenticated requests
         document_context = data.get('documentContext')  # Optional attached document
@@ -583,8 +657,8 @@ def generate():
         # Build prompt - use reasoning mode for complex questions
         if reasoning_mode and not is_small_model():
             full_prompt = build_reasoning_prompt(user_prompt, context_memory, user_memory)
-            # Deep thinking needs MUCH more tokens - at least 4000 for thorough reasoning
-            max_length = max(max_length, 4000)
+            # Deep thinking needs MUCH more tokens - at least 8000 for thorough reasoning
+            max_length = max(max_length, 8000)
             logger.info("🧠 Using DEEP REASONING mode with extended output")
         else:
             full_prompt = build_prompt_with_context(user_prompt, context_memory, user_memory)
@@ -619,7 +693,7 @@ def generate():
                 "stream": False,
                 "options": ollama_options
             },
-            timeout=300  # 5 minutes for large models like Qwen 72B
+            timeout=600  # 10 minutes for large models like Qwen 32B/72B
         )
         
         if response.status_code != 200:
@@ -965,6 +1039,12 @@ def generate_agent():
     """
     Agentic multi-pass generation with streaming.
     
+    V4.0 Enhancements:
+    - Semantic memory retrieval (if available)
+    - Tool detection and execution
+    - Multi-model routing (Tier 2+)
+    - Self-consistency voting for complex questions
+    
     Automatically routes by complexity:
     - Simple: 1 pass (direct answer)
     - Medium: 3 passes (understand → execute → critique)
@@ -975,6 +1055,7 @@ def generate_agent():
         - contextMemory: list of previous messages (optional)
         - principal: user principal ID for memory lookup (optional)
         - force_mode: "simple", "medium", "complex", or null for auto (optional)
+        - enable_voting: boolean to force voting on/off (optional)
     
     Response: SSE stream with:
         - {"phase": "understanding", "message": "🤔 Analyzing..."}
@@ -1000,6 +1081,7 @@ def generate_agent():
         context_memory = data.get('contextMemory', [])
         principal = data.get('principal')
         force_mode = data.get('force_mode')  # "simple", "medium", "complex", or None
+        enable_voting = data.get('enable_voting')  # True/False/None
         
         if not user_prompt:
             return jsonify({'error': 'No prompt provided'}), 400
@@ -1012,23 +1094,59 @@ def generate_agent():
             except Exception:
                 pass
         
-        # Create pipeline instance
+        # V4.0: Build enhanced context with semantic memory
+        enhanced_context = context_memory
+        semantic_context = None
+        if V4_FEATURES_AVAILABLE and principal:
+            try:
+                enhanced_context, semantic_context = build_enhanced_context(
+                    principal_id=principal,
+                    query=user_prompt,
+                    recent_messages=context_memory
+                )
+                if semantic_context:
+                    logger.info(f"🧠 V4.0 semantic context: {len(semantic_context)} relevant items retrieved")
+            except Exception as e:
+                logger.warning(f"⚠️ Semantic memory fallback: {e}")
+                enhanced_context = context_memory
+        
+        # Create pipeline instance with V4.0 options
         pipeline = AgentPipeline(OLLAMA_HOST, MODEL_NAME)
         
-        logger.info(f"🧠 Agent request: {len(user_prompt.split())} words, force_mode={force_mode}")
+        # V4.0: Pass additional context to pipeline
+        v4_options = {
+            'semantic_context': semantic_context,
+            'enable_voting': enable_voting,
+            'principal_id': principal
+        } if V4_FEATURES_AVAILABLE else {}
+        
+        logger.info(f"🧠 Agent request: {len(user_prompt.split())} words, force_mode={force_mode}, v4={V4_FEATURES_AVAILABLE}")
         
         def generate_sse():
             """Generator that yields SSE-formatted chunks"""
             try:
                 for event in pipeline.process_streaming(
                     question=user_prompt,
-                    context_messages=context_memory,
+                    context_messages=enhanced_context,
                     user_memory=user_memory,
-                    force_complexity=force_mode
+                    force_complexity=force_mode,
+                    **v4_options
                 ):
                     yield f"data: {json.dumps(event)}\n\n"
                 
                 metrics.record_request(True, 0, 0)
+                
+                # V4.0: Index the interaction for future retrieval
+                if V4_FEATURES_AVAILABLE and principal:
+                    try:
+                        vector_store = get_user_vector_store(principal)
+                        vector_store.add_message_embedding(
+                            content=user_prompt,
+                            role='user',
+                            timestamp=time.time()
+                        )
+                    except Exception as idx_error:
+                        logger.debug(f"V4.0 indexing skipped: {idx_error}")
                 
             except Exception as e:
                 logger.error(f"Agent streaming error: {e}")
@@ -2083,6 +2201,329 @@ def delete_memory_fact(index):
     except Exception as e:
         logger.error(f'❌ Error deleting memory fact: {e}', exc_info=True)
         return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# V4.0 INTELLIGENCE ENDPOINTS - Semantic Memory, Vector DB, Tools
+# ============================================================================
+
+@app.route('/v4/vector/index', methods=['POST'])
+@require_auth
+@storage_rate_limit
+def index_chat_history():
+    """
+    Bulk index chat history into the user's vector database for semantic retrieval.
+    
+    Request JSON:
+        - messages: list of {role, content, timestamp} objects
+        - chatId: optional chat ID for organization
+    
+    Response JSON:
+        - success: boolean
+        - indexed: number of messages indexed
+        - vectorDbSize: current total embeddings
+    """
+    if not V4_FEATURES_AVAILABLE:
+        return jsonify({'error': 'V4.0 features not available', 'v4_available': False}), 503
+    
+    try:
+        principal = request.principal
+        data = request.json or {}
+        messages = data.get('messages', [])
+        chat_id = data.get('chatId', 'default')
+        
+        if not messages:
+            return jsonify({'error': 'No messages provided'}), 400
+        
+        # Get or create user's vector store
+        vector_store = get_user_vector_store(principal)
+        
+        # Index each message
+        indexed_count = 0
+        for msg in messages:
+            content = msg.get('content', '')
+            role = msg.get('role', 'user')
+            timestamp = msg.get('timestamp', time.time())
+            
+            if content and len(content) > 10:  # Skip very short messages
+                vector_store.add_message_embedding(
+                    content=content,
+                    role=role,
+                    timestamp=timestamp,
+                    chat_id=chat_id
+                )
+                indexed_count += 1
+        
+        # Get total count
+        total_embeddings = vector_store.get_total_embeddings()
+        
+        logger.info(f'📊 Indexed {indexed_count} messages for {principal[:16]}... (total: {total_embeddings})')
+        
+        return jsonify({
+            'success': True,
+            'indexed': indexed_count,
+            'vectorDbSize': total_embeddings
+        })
+        
+    except Exception as e:
+        logger.error(f'❌ Vector indexing error: {e}', exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/v4/vector/document', methods=['POST'])
+@require_auth
+@storage_rate_limit
+def embed_document():
+    """
+    Embed and store document chunks for RAG retrieval.
+    
+    Request JSON:
+        - content: document text content
+        - filename: document filename
+        - chunkSize: optional chunk size (default from config)
+    
+    Response JSON:
+        - success: boolean
+        - chunks: number of chunks created
+        - documentId: unique identifier for the document
+    """
+    if not V4_FEATURES_AVAILABLE:
+        return jsonify({'error': 'V4.0 features not available', 'v4_available': False}), 503
+    
+    try:
+        principal = request.principal
+        data = request.json or {}
+        content = data.get('content', '')
+        filename = data.get('filename', 'document.txt')
+        
+        if not content:
+            return jsonify({'error': 'No content provided'}), 400
+        
+        if len(content) > MAX_DOCUMENT_SIZE:
+            return jsonify({'error': f'Document too large (max {MAX_DOCUMENT_SIZE} bytes)'}), 400
+        
+        from config import RAG_CHUNK_SIZE, RAG_CHUNK_OVERLAP
+        from services.embeddings import chunk_text
+        
+        # Chunk the document
+        chunks = chunk_text(content, RAG_CHUNK_SIZE, RAG_CHUNK_OVERLAP)
+        
+        # Get user's vector store
+        vector_store = get_user_vector_store(principal)
+        
+        # Generate document ID
+        document_id = f"{filename}_{int(time.time())}"
+        
+        # Store chunks with embeddings
+        vector_store.add_document_chunks(
+            chunks=chunks,
+            document_id=document_id,
+            filename=filename
+        )
+        
+        logger.info(f'📄 Embedded document "{filename}" ({len(chunks)} chunks) for {principal[:16]}...')
+        
+        return jsonify({
+            'success': True,
+            'chunks': len(chunks),
+            'documentId': document_id,
+            'filename': filename
+        })
+        
+    except Exception as e:
+        logger.error(f'❌ Document embedding error: {e}', exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/v4/vector/search', methods=['POST'])
+@require_auth
+def semantic_search():
+    """
+    Search the user's vector database for semantically similar content.
+    
+    Request JSON:
+        - query: search query string
+        - top_k: number of results (default 5)
+        - search_type: 'all', 'messages', or 'documents' (default 'all')
+    
+    Response JSON:
+        - results: list of {content, score, type, metadata}
+        - query: the original query
+    """
+    if not V4_FEATURES_AVAILABLE:
+        return jsonify({'error': 'V4.0 features not available', 'v4_available': False}), 503
+    
+    try:
+        principal = request.principal
+        data = request.json or {}
+        query = data.get('query', '').strip()
+        top_k = min(int(data.get('top_k', 5)), 20)  # Cap at 20
+        search_type = data.get('search_type', 'all')
+        
+        if not query:
+            return jsonify({'error': 'No query provided'}), 400
+        
+        vector_store = get_user_vector_store(principal)
+        results = []
+        
+        # Search messages
+        if search_type in ['all', 'messages']:
+            msg_results = vector_store.search_messages(query, top_k=top_k)
+            for r in msg_results:
+                results.append({
+                    'content': r['content'],
+                    'score': r['score'],
+                    'type': 'message',
+                    'metadata': {'role': r.get('role'), 'timestamp': r.get('timestamp')}
+                })
+        
+        # Search documents
+        if search_type in ['all', 'documents']:
+            doc_results = vector_store.search_documents(query, top_k=top_k)
+            for r in doc_results:
+                results.append({
+                    'content': r['content'],
+                    'score': r['score'],
+                    'type': 'document',
+                    'metadata': {'filename': r.get('filename'), 'document_id': r.get('document_id')}
+                })
+        
+        # Sort by score and limit
+        results.sort(key=lambda x: x['score'], reverse=True)
+        results = results[:top_k]
+        
+        logger.info(f'🔍 Semantic search for {principal[:16]}...: "{query[:50]}" → {len(results)} results')
+        
+        return jsonify({
+            'results': results,
+            'query': query
+        })
+        
+    except Exception as e:
+        logger.error(f'❌ Semantic search error: {e}', exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/v4/vector/sync', methods=['POST'])
+@require_auth
+@storage_rate_limit
+def sync_vector_db():
+    """
+    Sync user's vector database to/from IPFS.
+    
+    Request JSON:
+        - action: 'upload' or 'download'
+    
+    Response JSON:
+        - success: boolean
+        - cid: IPFS CID (for upload)
+        - embeddings: count restored (for download)
+    """
+    if not V4_FEATURES_AVAILABLE:
+        return jsonify({'error': 'V4.0 features not available', 'v4_available': False}), 503
+    
+    try:
+        principal = request.principal
+        data = request.json or {}
+        action = data.get('action', 'upload')
+        
+        if action == 'upload':
+            cid = upload_vector_db(principal)
+            if cid:
+                logger.info(f'☁️ Uploaded vector DB for {principal[:16]}... → {cid[:16]}')
+                return jsonify({'success': True, 'cid': cid})
+            else:
+                return jsonify({'success': False, 'error': 'Upload failed'}), 500
+        
+        elif action == 'download':
+            success, count = sync_vector_db_on_login(principal)
+            if success:
+                logger.info(f'☁️ Downloaded vector DB for {principal[:16]}... ({count} embeddings)')
+                return jsonify({'success': True, 'embeddings': count})
+            else:
+                return jsonify({'success': False, 'error': 'Download failed or no data'}), 404
+        
+        else:
+            return jsonify({'error': 'Invalid action. Use "upload" or "download"'}), 400
+        
+    except Exception as e:
+        logger.error(f'❌ Vector DB sync error: {e}', exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/v4/tools/execute', methods=['POST'])
+@require_auth
+def execute_tool_endpoint():
+    """
+    Execute a tool and return the result.
+    
+    Request JSON:
+        - tool: tool name (calculator, code_execute, web_search, etc.)
+        - args: tool arguments
+    
+    Response JSON:
+        - success: boolean
+        - result: tool output
+        - error: error message if failed
+    """
+    if not V4_FEATURES_AVAILABLE:
+        return jsonify({'error': 'V4.0 features not available', 'v4_available': False}), 503
+    
+    try:
+        principal = request.principal
+        data = request.json or {}
+        tool_name = data.get('tool', '')
+        tool_args = data.get('args', {})
+        
+        if not tool_name:
+            return jsonify({'error': 'No tool specified'}), 400
+        
+        # Execute the tool
+        result = execute_tool(tool_name, tool_args, principal_id=principal)
+        
+        logger.info(f'🔧 Executed tool "{tool_name}" for {principal[:16]}...')
+        
+        return jsonify({
+            'success': True,
+            'tool': tool_name,
+            'result': result
+        })
+        
+    except Exception as e:
+        logger.error(f'❌ Tool execution error: {e}', exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/v4/status', methods=['GET'])
+def v4_status():
+    """
+    Get V4.0 feature availability status.
+    
+    Response JSON:
+        - available: boolean (all features available)
+        - features: dict of individual feature status
+        - import_error: last import error if any
+    """
+    features = {
+        'embeddings': V4_EMBEDDINGS_AVAILABLE,
+        'vector_store': V4_VECTOR_STORE_AVAILABLE,
+        'semantic_memory': V4_MEMORY_AVAILABLE,
+        'tools': V4_TOOLS_AVAILABLE,
+        'code_executor': V4_CODE_EXECUTOR_AVAILABLE,
+        'voting': V4_VOTING_AVAILABLE,
+        'structured': V4_STRUCTURED_AVAILABLE
+    }
+    
+    response = {
+        'available': V4_FEATURES_AVAILABLE,
+        'features': features,
+        'version': '4.0.0'
+    }
+    
+    if V4_IMPORT_ERROR:
+        response['import_error'] = V4_IMPORT_ERROR
+    
+    return jsonify(response)
 
 
 # ============================================================================

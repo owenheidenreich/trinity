@@ -88,6 +88,9 @@ WORKDIR /app
 # If requirements.txt doesn't change, Docker can cache this step
 COPY backend/requirements.txt .
 
+# Upgrade pip and setuptools first (required for fastembed)
+RUN pip3 install --upgrade pip setuptools wheel
+
 # Install Python packages
 # --no-cache-dir: Don't save downloaded files (makes image smaller)
 RUN pip3 install --no-cache-dir -r requirements.txt

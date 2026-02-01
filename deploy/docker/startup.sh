@@ -82,7 +82,7 @@ for i in {1..60}; do
 done
 
 # ============================================================================
-# STEP 3: Pull/Download the AI Model
+# STEP 3: Pull/Download the AI Model(s)
 # ============================================================================
 # Download the AI model specified in MODEL_NAME environment variable
 # This might take a while on first run (models are several GB)
@@ -92,7 +92,12 @@ done
 # - Mixtral 8x22B: ~90GB, takes 20-30 minutes
 # On subsequent runs, if the model is already downloaded, this is fast
 
-echo "Pulling model: $MODEL_NAME"
+# v4.0: Multi-model support for Tier 2+
+# FAST_MODEL: Used for classification/summarization (smaller, faster)
+# SMART_MODEL: Used for general tasks
+# REASONING_MODEL: Used for complex reasoning (larger, slower)
+
+echo "Pulling primary model: $MODEL_NAME"
 echo "⚠️  WARNING: Large models (70B+) can take 10-20 minutes to download"
 echo "Please be patient..."
 echo ""
@@ -102,8 +107,7 @@ echo "Available disk space:"
 df -h / || true
 echo ""
 
-# Pull the model and show output so we can see progress
-# Using timeout to prevent hanging forever
+# Pull the primary model
 echo "Starting model download at $(date)"
 if ! timeout 1800 ollama pull "$MODEL_NAME"; then
     echo "ERROR: Model pull timed out or failed after 30 minutes"
@@ -116,10 +120,40 @@ if ! timeout 1800 ollama pull "$MODEL_NAME"; then
     df -h / || true
     exit 1
 fi
-echo "Model download completed at $(date)"
+echo "Primary model download completed at $(date)"
 echo ""
 
-# Verify the model was downloaded successfully
+# Pull additional models for multi-model support (Tier 2+)
+if [ -n "$FAST_MODEL" ] && [ "$FAST_MODEL" != "$MODEL_NAME" ]; then
+    echo "Pulling fast model for classification: $FAST_MODEL"
+    if timeout 600 ollama pull "$FAST_MODEL"; then
+        echo "✓ Fast model $FAST_MODEL downloaded"
+    else
+        echo "⚠️ Failed to pull fast model $FAST_MODEL - will use primary model"
+    fi
+fi
+
+if [ -n "$SMART_MODEL" ] && [ "$SMART_MODEL" != "$MODEL_NAME" ] && [ "$SMART_MODEL" != "$FAST_MODEL" ]; then
+    echo "Pulling smart model: $SMART_MODEL"
+    if timeout 1200 ollama pull "$SMART_MODEL"; then
+        echo "✓ Smart model $SMART_MODEL downloaded"
+    else
+        echo "⚠️ Failed to pull smart model $SMART_MODEL - will use primary model"
+    fi
+fi
+
+if [ -n "$REASONING_MODEL" ] && [ "$REASONING_MODEL" != "$MODEL_NAME" ] && [ "$REASONING_MODEL" != "$SMART_MODEL" ]; then
+    echo "Pulling reasoning model: $REASONING_MODEL"
+    if timeout 1800 ollama pull "$REASONING_MODEL"; then
+        echo "✓ Reasoning model $REASONING_MODEL downloaded"
+    else
+        echo "⚠️ Failed to pull reasoning model $REASONING_MODEL - will use primary model"
+    fi
+fi
+
+echo ""
+
+# Verify the primary model was downloaded successfully
 echo "Verifying model..."
 if ollama list | grep -q "$MODEL_NAME"; then
     echo "✓ Model $MODEL_NAME is available"
@@ -127,6 +161,10 @@ else
     echo "ERROR: Model $MODEL_NAME not found after pull"
     exit 1
 fi
+
+# Show all available models
+echo "Available models:"
+ollama list
 
 # ============================================================================
 # STEP 4: Start Flask Inference Server

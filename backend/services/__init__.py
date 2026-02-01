@@ -39,6 +39,22 @@ from .agent import AgentPipeline, AgentResponse, get_agent_pipeline
 from .loading_messages import get_loading_message, get_loading_sequence, format_phase_update
 from .search import search_web, format_search_context, is_search_available
 
+# ===== LLM INTELLIGENCE UPGRADES (v4.0) =====
+from .embeddings import embed_text, embed_batch, chunk_text, cosine_similarity
+from .vector_store import VectorStore, get_vector_store, get_user_vector_store
+from .memory import SemanticMemory, get_semantic_memory, build_enhanced_context
+from .tools import (
+    TOOL_DEFINITIONS, 
+    get_tool_definitions_for_prompt, 
+    parse_tool_calls, 
+    detect_tools_needed,
+    ToolCall,
+    ToolResult
+)
+from .code_executor import evaluate_math_expression, execute_python_code, execute_tool
+from .voting import run_voting_pipeline, VotingResult, should_use_voting
+from .structured import generate_structured, generate_with_schema, SCHEMAS
+
 __all__ = [
     'MetricsCollector',
     'metrics',
@@ -81,5 +97,38 @@ __all__ = [
     # Search
     'search_web',
     'format_search_context',
-    'is_search_available'
+    'is_search_available',
+    # ===== LLM INTELLIGENCE UPGRADES (v4.0) =====
+    # Embeddings
+    'embed_text',
+    'embed_batch',
+    'chunk_text',
+    'cosine_similarity',
+    # Vector Store
+    'VectorStore',
+    'get_vector_store',
+    'get_user_vector_store',
+    # Semantic Memory
+    'SemanticMemory',
+    'get_semantic_memory',
+    'build_enhanced_context',
+    # Tools
+    'TOOL_DEFINITIONS',
+    'get_tool_definitions_for_prompt',
+    'parse_tool_calls',
+    'detect_tools_needed',
+    'ToolCall',
+    'ToolResult',
+    # Code Executor
+    'evaluate_math_expression',
+    'execute_python_code',
+    'execute_tool',
+    # Voting
+    'run_voting_pipeline',
+    'VotingResult',
+    'should_use_voting',
+    # Structured Output
+    'generate_structured',
+    'generate_with_schema',
+    'SCHEMAS'
 ]

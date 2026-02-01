@@ -141,15 +141,52 @@ export function protectMath(content) {
 
 /**
  * Restore protected math blocks after markdown parsing
- * 
+ * Pre-renders math to HTML using katex.renderToString() to avoid flashing
+ *
  * @param {string} html - The HTML after markdown parsing
  * @param {Map} mathBlocks - The protected math blocks
- * @returns {string} - HTML with math restored
+ * @param {boolean} preRender - If true, render math to HTML inline (default: true)
+ * @returns {string} - HTML with math restored (and optionally pre-rendered)
  */
-export function restoreMath(html, mathBlocks) {
+export function restoreMath(html, mathBlocks, preRender = true) {
     let result = html;
+
     for (const [placeholder, math] of mathBlocks) {
-        result = result.replace(placeholder, math);
+        if (preRender && window.katex) {
+            // Pre-render math to HTML to avoid flashing during streaming
+            try {
+                const isBlock = placeholder.includes('BLOCK');
+                // Extract the math content from delimiters
+                let mathContent = math;
+                if (mathContent.startsWith('$$') && mathContent.endsWith('$$')) {
+                    mathContent = mathContent.slice(2, -2);
+                } else if (mathContent.startsWith('$') && mathContent.endsWith('$')) {
+                    mathContent = mathContent.slice(1, -1);
+                }
+
+                const rendered = window.katex.renderToString(mathContent, {
+                    displayMode: isBlock,
+                    throwOnError: false,
+                    errorColor: '#cc0000',
+                    strict: false,
+                    trust: true,
+                    macros: {
+                        '\\R': '\\mathbb{R}',
+                        '\\N': '\\mathbb{N}',
+                        '\\Z': '\\mathbb{Z}',
+                        '\\Q': '\\mathbb{Q}',
+                        '\\C': '\\mathbb{C}',
+                    }
+                });
+                result = result.replace(placeholder, rendered);
+            } catch (e) {
+                // If rendering fails (incomplete expression during streaming), keep raw math
+                result = result.replace(placeholder, math);
+            }
+        } else {
+            // No pre-rendering, restore raw math for post-processing
+            result = result.replace(placeholder, math);
+        }
     }
     return result;
 }

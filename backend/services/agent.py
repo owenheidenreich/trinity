@@ -4,6 +4,12 @@ Trinity Agentic Pipeline - Orchestrator
 Multi-pass reasoning pipeline that makes Trinity feel intelligent.
 Automatically routes simple vs complex questions and manages pass execution.
 Integrates web search when current/real-time information is needed.
+
+v4.0 Enhancements:
+- Multi-model support (Tier 2+): Fast model for classification, smart for execution
+- Tool integration: Calculator, code display, document search
+- Self-consistency voting for complex questions
+- Semantic memory retrieval
 """
 
 import asyncio
@@ -24,6 +30,19 @@ from .agent_prompts import (
 from .search import search_web, format_search_context, is_search_available, SearchResponse
 from .loading_messages import get_loading_message, format_phase_update
 
+# Import new v4.0 modules (with graceful fallback)
+try:
+    from .tools import parse_tool_calls, detect_tools_needed, get_tool_definitions_for_prompt
+    from .code_executor import execute_tool
+    from .voting import run_voting_pipeline, should_use_voting, VotingResult
+    from .memory import get_semantic_memory, build_enhanced_context
+    from .embeddings import embed_text
+    from .vector_store import get_vector_store
+    V4_FEATURES_AVAILABLE = True
+except ImportError as e:
+    logging.warning(f"v4.0 features not fully available: {e}")
+    V4_FEATURES_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -38,18 +57,18 @@ PASS_TIMEOUTS = {
     'understand': 120,   # 2 min - may need to reason about complex questions
     'plan': 120,         # 2 min - planning complex multi-step solutions
     'execute': 300,      # 5 min - main response generation, can be very long
-    'critique': 120,     # 2 min - thorough critique takes time
-    'refine': 300,       # 5 min - complete rewrite if needed
+    'critique': 180,     # 3 min - thorough critique takes time
+    'refine': 600,       # 10 min - complete rewrite if needed
     'search': 30         # 30s - web search timeout
 }
 
-# Token limits per pass - generous for thorough responses
+# Token limits per pass - very generous for thorough responses
 PASS_TOKEN_LIMITS = {
-    'understand': 1000,  # Detailed understanding
-    'plan': 1000,        # Comprehensive plans
-    'execute': 4000,     # Long, detailed responses
-    'critique': 1000,    # Thorough critique
-    'refine': 4000       # Complete improved response
+    'understand': 2000,  # Detailed understanding
+    'plan': 2000,        # Comprehensive plans
+    'execute': 8000,     # Long, detailed responses (code, essays)
+    'critique': 2000,    # Thorough critique
+    'refine': 8000       # Complete improved response
 }
 
 # Critique threshold - if score >= this, skip refinement
@@ -57,6 +76,38 @@ CRITIQUE_THRESHOLD = 7
 
 # Max refinement attempts
 MAX_REFINE_ATTEMPTS = 2
+
+# Multi-model configuration (Tier 2+ only)
+# These are set from config.py at runtime
+MULTI_MODEL_ENABLED = False
+FAST_MODEL = None
+SMART_MODEL = None
+REASONING_MODEL = None
+
+def init_multi_model_config():
+    """Initialize multi-model configuration from config.py"""
+    global MULTI_MODEL_ENABLED, FAST_MODEL, SMART_MODEL, REASONING_MODEL
+    try:
+        import sys
+        import os
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        from config import (
+            MULTI_MODEL_ENABLED as MME, 
+            FAST_MODEL as FM, 
+            SMART_MODEL as SM, 
+            REASONING_MODEL as RM
+        )
+        MULTI_MODEL_ENABLED = MME
+        FAST_MODEL = FM
+        SMART_MODEL = SM
+        REASONING_MODEL = RM
+        if MULTI_MODEL_ENABLED:
+            logger.info(f"🎯 Multi-model enabled: fast={FM}, smart={SM}, reasoning={RM}")
+    except ImportError:
+        logger.warning("Multi-model config not available")
+
+# Initialize on module load
+init_multi_model_config()
 
 
 # ============================================================================
@@ -75,6 +126,10 @@ class AgentResponse:
     search_performed: bool = False
     search_query: Optional[str] = None
     total_time_seconds: float = 0.0
+    # v4.0 fields
+    tools_used: List[str] = None
+    voting_confidence: Optional[float] = None
+    model_used: Optional[str] = None
     
     def to_dict(self) -> Dict:
         """Convert to dictionary for JSON serialization"""
@@ -104,6 +159,13 @@ class AgentResponse:
                 'score': self.critique.score,
                 'verdict': self.critique.verdict
             }
+        # v4.0 fields
+        if self.tools_used:
+            result['tools_used'] = self.tools_used
+        if self.voting_confidence is not None:
+            result['voting_confidence'] = self.voting_confidence
+        if self.model_used:
+            result['model_used'] = self.model_used
         return result
 
 
@@ -112,19 +174,47 @@ class AgentResponse:
 # ============================================================================
 
 class OllamaClient:
-    """Client for Ollama API calls"""
+    """Client for Ollama API calls with multi-model support"""
     
     def __init__(self, host: str = "http://localhost:11434", model: str = "llama3.1:8b"):
         self.host = host
-        self.model = model
+        self.model = model  # Default model
     
-    def generate(self, prompt: str, max_tokens: int = 1000, temperature: float = 0.7, timeout: int = 30) -> str:
+    def _get_model_for_pass(self, pass_name: str, complexity: int = 5) -> str:
+        """
+        Select the appropriate model based on pass type and complexity.
+        
+        For Tier 2+, uses specialized models:
+        - Fast model (phi3:mini): understand, plan, critique
+        - Smart model (llama3.1:8b): simple/medium execute
+        - Reasoning model (qwen2.5:32b): complex execute, refine
+        
+        For Tier 1, always uses the default model.
+        """
+        if not MULTI_MODEL_ENABLED:
+            return self.model
+        
+        # Fast model for classification passes
+        if pass_name in ['understand', 'plan', 'critique']:
+            return FAST_MODEL or self.model
+        
+        # Reasoning model for complex tasks
+        if pass_name in ['refine'] or (pass_name == 'execute' and complexity >= 7):
+            return REASONING_MODEL or SMART_MODEL or self.model
+        
+        # Smart model for general execution
+        return SMART_MODEL or self.model
+    
+    def generate(self, prompt: str, max_tokens: int = 1000, temperature: float = 0.7, 
+                timeout: int = 30, pass_name: str = None, complexity: int = 5) -> str:
         """Generate a response (non-streaming)"""
+        model = self._get_model_for_pass(pass_name, complexity) if pass_name else self.model
+        
         try:
             response = requests.post(
                 f"{self.host}/api/generate",
                 json={
-                    "model": self.model,
+                    "model": model,
                     "prompt": prompt,
                     "stream": False,
                     "options": {
@@ -149,13 +239,16 @@ class OllamaClient:
             logger.error(f"Ollama error: {e}")
             return ""
     
-    def generate_stream(self, prompt: str, max_tokens: int = 1000, temperature: float = 0.7, timeout: int = 60) -> Generator[str, None, None]:
+    def generate_stream(self, prompt: str, max_tokens: int = 1000, temperature: float = 0.7, 
+                        timeout: int = 60, pass_name: str = None, complexity: int = 5) -> Generator[str, None, None]:
         """Generate a response with streaming"""
+        model = self._get_model_for_pass(pass_name, complexity) if pass_name else self.model
+        
         try:
             response = requests.post(
                 f"{self.host}/api/generate",
                 json={
-                    "model": self.model,
+                    "model": model,
                     "prompt": prompt,
                     "stream": True,
                     "options": {
@@ -312,10 +405,19 @@ class AgentPipeline:
         question: str,
         context_messages: List[Dict] = None,
         user_memory: Dict = None,
-        force_complexity: ComplexityLevel = None
+        force_complexity: ComplexityLevel = None,
+        semantic_context: List[Dict] = None,
+        enable_voting: bool = None,
+        principal_id: str = None,
+        **kwargs  # Accept additional v4.0 options
     ) -> Generator[Dict, None, None]:
         """
         Process with streaming - yields progress updates and tokens.
+        
+        V4.0 Enhancements:
+        - semantic_context: Pre-retrieved relevant context from vector DB
+        - enable_voting: Override for self-consistency voting
+        - principal_id: User ID for tool execution context
         
         Yields whimsical loading messages during thinking phases,
         then streams tokens during generation.
