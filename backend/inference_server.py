@@ -15,6 +15,7 @@ See backend/ structure:
 
 from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
+from flask_compress import Compress
 from functools import wraps
 import requests
 import logging
@@ -35,8 +36,9 @@ from config import (
     PROVIDER_ID, MODEL_NAME, MODEL_BACKEND, GPU_TYPE, OLLAMA_HOST,
     MAX_QUEUE_SIZE, CHATS_DIR, LIGHTHOUSE_API_KEY, LIGHTHOUSE_NODE,
     LIGHTHOUSE_API, LIGHTHOUSE_GATEWAY, AKASH_WALLET_ADDRESS,
-    ICP_BACKEND_CANISTER, DEPLOYMENT_TIER, BUILD_TIMESTAMP,
-    AUTH_TIMESTAMP_WINDOW_MS, BRAVE_SEARCH_API_KEY, logger
+    ICP_BACKEND_CANISTER, ICP_FRONTEND_CANISTER, DEPLOYMENT_TIER, BUILD_TIMESTAMP,
+    AUTH_TIMESTAMP_WINDOW_MS, BRAVE_SEARCH_API_KEY, MAX_PROMPT_LENGTH,
+    http_session, logger
 )
 from encryption import EncryptionUtils
 from storage import (
@@ -49,7 +51,7 @@ from lighthouse import (
 )
 
 # Import new modular middleware and services
-from middleware import rate_limit, icp_idempotent, icp_cache
+from middleware import rate_limit, storage_rate_limit, icp_idempotent, icp_cache
 from services import (
     MetricsCollector, metrics, get_system_info,
     TRINITY_SYSTEM_PROMPT, REASONING_SYSTEM_PROMPT,
@@ -64,7 +66,7 @@ from services import (
 )
 
 # Input validation
-from validation import validate_chat_id, validate_principal_id, validate_cid
+from validation import validate_chat_id, validate_principal_id, validate_cid, is_safe_url
 
 import tempfile
 
@@ -72,12 +74,55 @@ import tempfile
 from icp_auth import require_auth, verify_request_auth
 
 app = Flask(__name__)
-CORS(app)
+
+# Enable gzip compression for responses
+# Reduces bandwidth usage and improves performance
+Compress(app)
+
+# SECURITY: Restrict CORS to known origins
+# In production, this prevents random websites from making requests
+ALLOWED_ORIGINS = [
+    'https://zc67k-kiaaa-aaaal-qtmiq-cai.icp0.io',  # ICP canister frontend
+    'https://zc67k-kiaaa-aaaal-qtmiq-cai.raw.icp0.io',
+    'https://trinityai.cc',
+    'https://www.trinityai.cc',
+    'https://vercel-proxy-swart-nine.vercel.app',
+    'http://localhost:3000',  # Local development
+    'http://localhost:5173',  # Vite dev server
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:5173',
+]
+
+CORS(app, origins=ALLOWED_ORIGINS, supports_credentials=True)
 
 # ===== GLOBAL STATE =====
 
 # In-memory document storage for Chat With Documents (per-session)
+# Includes TTL tracking to prevent memory leaks
 document_store = {}
+DOCUMENT_STORE_MAX_AGE = 3600  # 1 hour max lifetime per document
+DOCUMENT_STORE_MAX_SIZE = 100  # Max documents to store
+
+
+def cleanup_document_store():
+    """Remove expired documents to prevent memory leaks."""
+    import time
+    now = time.time()
+    expired = [
+        session_id for session_id, doc in document_store.items()
+        if now - doc.get('uploaded_at_ts', now) > DOCUMENT_STORE_MAX_AGE
+    ]
+    for session_id in expired:
+        del document_store[session_id]
+        logger.info(f'🗑️ Cleaned up expired document session: {session_id}')
+    
+    # Also enforce max size (FIFO)
+    while len(document_store) > DOCUMENT_STORE_MAX_SIZE:
+        oldest = min(document_store.keys(), 
+                     key=lambda k: document_store[k].get('uploaded_at_ts', 0))
+        del document_store[oldest]
+        logger.info(f'🗑️ Cleaned up document store overflow: {oldest}')
+
 
 # Note: Validation functions now in validation.py
 # Note: MetricsCollector, metrics, get_system_info now imported from services.metrics
@@ -501,6 +546,15 @@ def generate():
         if not user_prompt:
             raise ValueError("Prompt cannot be empty")
         
+        # SECURITY: Limit prompt length to prevent DoS attacks
+        if len(user_prompt) > MAX_PROMPT_LENGTH:
+            logger.warning(f"⚠️ Prompt too long: {len(user_prompt)} chars (max: {MAX_PROMPT_LENGTH})")
+            return jsonify({
+                'error': f'Prompt too long. Maximum {MAX_PROMPT_LENGTH} characters allowed.',
+                'received': len(user_prompt),
+                'max_allowed': MAX_PROMPT_LENGTH
+            }), 400
+        
         # Load user memory if principal provided (for authenticated requests)
         user_memory = None
         if principal:
@@ -548,7 +602,7 @@ def generate():
             ollama_options["seed"] = int(seed)
             logger.info(f"🎲 Using deterministic seed: {seed}")
         
-        response = requests.post(
+        response = http_session.post(
             f"{OLLAMA_HOST}/api/generate",
             json={
                 "model": MODEL_NAME,
@@ -670,7 +724,7 @@ def generate_simple():
         framed_prompt = f"User: {prompt}\n\nAssistant:"
         
         # Direct Ollama call - nothing fancy
-        response = requests.post(
+        response = http_session.post(
             f"{OLLAMA_HOST}/api/generate",
             json={
                 "model": MODEL_NAME,
@@ -722,7 +776,7 @@ def generate_simple_stream():
         
         def stream_response():
             try:
-                response = requests.post(
+                response = http_session.post(
                     f"{OLLAMA_HOST}/api/generate",
                     json={
                         "model": MODEL_NAME,
@@ -831,7 +885,7 @@ def generate_stream():
             """Generator that yields SSE-formatted chunks"""
             try:
                 # Call Ollama with streaming enabled
-                response = requests.post(
+                response = http_session.post(
                     f"{OLLAMA_HOST}/api/generate",
                     json={
                         "model": MODEL_NAME,
@@ -1023,7 +1077,7 @@ def web_search():
             return jsonify({'error': 'No search query provided', 'results': []}), 400
         
         # Call Brave Search API
-        response = requests.get(
+        response = http_session.get(
             'https://api.search.brave.com/res/v1/web/search',
             headers={
                 'Accept': 'application/json',
@@ -1098,8 +1152,14 @@ def browse_url():
         if not url.startswith(('http://', 'https://')):
             return jsonify({'error': 'URL must start with http:// or https://'}), 400
         
+        # SECURITY: SSRF protection - block internal/private URLs
+        is_safe, error_msg = is_safe_url(url)
+        if not is_safe:
+            logger.warning(f"🚨 SSRF blocked: {url} - {error_msg}")
+            return jsonify({'error': error_msg, 'url': url}), 403
+        
         # Fetch the page
-        response = requests.get(
+        response = http_session.get(
             url,
             headers={
                 'User-Agent': 'Mozilla/5.0 (compatible; TrinityBot/1.0; +https://trinityai.cc)',
@@ -1132,24 +1192,23 @@ def browse_url():
             except:
                 pass
         
-        # HTML content - extract text
-        html = response.text
+        # HTML content - extract text using BeautifulSoup (more reliable than regex)
+        from bs4 import BeautifulSoup
         
-        # Simple HTML to text extraction
-        # Remove script and style elements
-        import re
-        clean = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL | re.IGNORECASE)
-        clean = re.sub(r'<style[^>]*>.*?</style>', '', clean, flags=re.DOTALL | re.IGNORECASE)
-        clean = re.sub(r'<head[^>]*>.*?</head>', '', clean, flags=re.DOTALL | re.IGNORECASE)
+        soup = BeautifulSoup(response.text, 'html.parser')
         
         # Extract title
-        title_match = re.search(r'<title[^>]*>(.*?)</title>', html, re.IGNORECASE | re.DOTALL)
-        title = title_match.group(1).strip() if title_match else ''
+        title = soup.title.string.strip() if soup.title and soup.title.string else ''
         
-        # Remove HTML tags
-        clean = re.sub(r'<[^>]+>', ' ', clean)
+        # Remove script, style, and other non-content elements
+        for element in soup(['script', 'style', 'head', 'meta', 'link', 'noscript', 'iframe']):
+            element.decompose()
         
-        # Clean up whitespace
+        # Get text content with proper spacing
+        clean = soup.get_text(separator=' ', strip=True)
+        
+        # Normalize whitespace
+        import re
         clean = re.sub(r'\s+', ' ', clean)
         clean = clean.strip()[:max_length]
         
@@ -1202,7 +1261,7 @@ def search_and_summarize():
             return jsonify({'error': 'No search query provided'}), 400
         
         # Step 1: Search
-        search_response = requests.get(
+        search_response = http_session.get(
             'https://api.search.brave.com/res/v1/web/search',
             headers={
                 'Accept': 'application/json',
@@ -1223,6 +1282,8 @@ def search_and_summarize():
         web_results = search_data.get('web', {}).get('results', [])[:num_results]
         
         # Step 2: Fetch content from each result
+        from bs4 import BeautifulSoup
+        
         sources = []
         context_parts = [f"Web search results for: {query}\n"]
         
@@ -1235,7 +1296,7 @@ def search_and_summarize():
             
             # Try to fetch full content
             try:
-                page_response = requests.get(
+                page_response = http_session.get(
                     url,
                     headers={'User-Agent': 'Mozilla/5.0 (compatible; TrinityBot/1.0)'},
                     timeout=8,
@@ -1243,12 +1304,12 @@ def search_and_summarize():
                 )
                 
                 if page_response.status_code == 200:
-                    # Extract text (simplified)
-                    html = page_response.text
+                    # Extract text using BeautifulSoup
+                    soup = BeautifulSoup(page_response.text, 'html.parser')
+                    for element in soup(['script', 'style', 'head', 'meta', 'noscript']):
+                        element.decompose()
+                    clean = soup.get_text(separator=' ', strip=True)
                     import re
-                    clean = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL | re.IGNORECASE)
-                    clean = re.sub(r'<style[^>]*>.*?</style>', '', clean, flags=re.DOTALL | re.IGNORECASE)
-                    clean = re.sub(r'<[^>]+>', ' ', clean)
                     clean = re.sub(r'\s+', ' ', clean).strip()[:3000]  # 3k chars per source
                     
                     context_parts.append(f"\n[Source {i}: {title}]\n{clean}\n")
@@ -1279,6 +1340,7 @@ def search_and_summarize():
 
 @app.route('/chat/autosave', methods=['POST'])
 @require_auth
+@storage_rate_limit
 def autosave_chat():
     """Save chat - encrypts and uploads directly to IPFS via Lighthouse"""
     try:
@@ -1390,6 +1452,7 @@ def autosave_chat():
 
 @app.route('/chat/list', methods=['GET'])
 @require_auth
+@storage_rate_limit
 def list_chats():
     """List all chats for user - fetches from IPFS via Lighthouse"""
     try:
@@ -1416,7 +1479,7 @@ def list_chats():
             if metadata_cid:
                 logger.info(f'☁️  Found metadata on IPFS: {metadata_cid[:16]}...')
                 gateway_url = f'{LIGHTHOUSE_GATEWAY}/ipfs/{metadata_cid}'
-                response = requests.get(gateway_url, timeout=30)
+                response = http_session.get(gateway_url, timeout=30)
                 
                 if response.status_code == 200:
                     encrypted_metadata = response.json()
@@ -1459,6 +1522,7 @@ def list_chats():
 
 @app.route('/chat/<chat_id>', methods=['GET'])
 @require_auth
+@storage_rate_limit
 def get_chat(chat_id):
     """Load specific chat from IPFS"""
     try:
@@ -1492,7 +1556,7 @@ def get_chat(chat_id):
             try:
                 # Download from Lighthouse gateway
                 gateway_url = f'{LIGHTHOUSE_GATEWAY}/ipfs/{cid}'
-                response = requests.get(gateway_url, timeout=30)
+                response = http_session.get(gateway_url, timeout=30)
                 
                 if response.status_code == 200:
                     encrypted_data = response.json()
@@ -1514,6 +1578,7 @@ def get_chat(chat_id):
 
 @app.route('/chat/<chat_id>', methods=['DELETE'])
 @require_auth
+@storage_rate_limit
 def delete_chat(chat_id):
     """Delete chat - marks as deleted in metadata (IPFS is immutable, but we update the index)"""
     try:
@@ -1539,7 +1604,7 @@ def delete_chat(chat_id):
         
         if metadata_cid:
             gateway_url = f'{LIGHTHOUSE_GATEWAY}/ipfs/{metadata_cid}'
-            response = requests.get(gateway_url, timeout=30)
+            response = http_session.get(gateway_url, timeout=30)
             if response.status_code == 200:
                 encrypted_metadata = response.json()
                 user_metadata = EncryptionUtils.decrypt_chat(encrypted_metadata, principal)
@@ -1570,6 +1635,7 @@ def delete_chat(chat_id):
 
 @app.route('/chat/<chat_id>/archive', methods=['POST'])
 @require_auth
+@storage_rate_limit
 def archive_chat(chat_id):
     """Mark chat as archived - chat is already on IPFS, this just flags it as permanent"""
     try:
@@ -1599,7 +1665,7 @@ def archive_chat(chat_id):
         user_metadata = {'chats': []}
         if metadata_cid:
             gateway_url = f'{LIGHTHOUSE_GATEWAY}/ipfs/{metadata_cid}'
-            response = requests.get(gateway_url, timeout=30)
+            response = http_session.get(gateway_url, timeout=30)
             if response.status_code == 200:
                 encrypted_metadata = response.json()
                 user_metadata = EncryptionUtils.decrypt_chat(encrypted_metadata, principal)
@@ -1897,6 +1963,7 @@ def get_archive_status(cid):
 # ===== USER MEMORY ENDPOINTS =====
 @app.route('/user/memory', methods=['GET'])
 @require_auth
+@storage_rate_limit
 def get_user_memory():
     """Get user's persistent memory (facts, preferences)"""
     try:
@@ -1912,6 +1979,7 @@ def get_user_memory():
 
 @app.route('/user/memory', methods=['POST'])
 @require_auth
+@storage_rate_limit
 def update_user_memory():
     """Update user's persistent memory"""
     try:
@@ -1945,6 +2013,7 @@ def update_user_memory():
 
 @app.route('/user/memory/fact', methods=['POST'])
 @require_auth
+@storage_rate_limit
 def add_memory_fact():
     """Add a single fact to user's memory"""
     try:
@@ -1979,6 +2048,7 @@ def add_memory_fact():
 
 @app.route('/user/memory/fact/<int:index>', methods=['DELETE'])
 @require_auth
+@storage_rate_limit
 def delete_memory_fact(index):
     """Delete a fact from user's memory"""
     try:
@@ -2010,7 +2080,7 @@ def delete_memory_fact(index):
 def call_ollama_for_tools(prompt: str, temperature: float = 0.7) -> str:
     """Helper function to call Ollama API for tools."""
     try:
-        response = requests.post(
+        response = http_session.post(
             f"{OLLAMA_HOST}/api/generate",
             json={
                 "model": MODEL_NAME,
@@ -2041,10 +2111,14 @@ def upload_document():
         if not content:
             return jsonify({'error': 'No content provided'}), 400
 
+        # Run cleanup before adding new document
+        cleanup_document_store()
+
         document_store[session_id] = {
             'content': content,
             'filename': filename,
-            'uploaded_at': datetime.utcnow().isoformat()
+            'uploaded_at': datetime.utcnow().isoformat(),
+            'uploaded_at_ts': time.time()  # For TTL tracking
         }
 
         logger.info(f'📄 Document uploaded: {filename} ({len(content)} chars)')
@@ -2274,7 +2348,7 @@ def warmup_model():
     """
     logger.info("🔥 Warming up model - this may take a few minutes on first run...")
     try:
-        response = requests.post(
+        response = http_session.post(
             f"{OLLAMA_HOST}/api/generate",
             json={
                 "model": MODEL_NAME,

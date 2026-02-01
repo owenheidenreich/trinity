@@ -4,6 +4,9 @@ Validation functions for request parameters
 """
 
 import re
+import socket
+import ipaddress
+from urllib.parse import urlparse
 
 
 def validate_chat_id(chat_id: str) -> bool:
@@ -26,3 +29,73 @@ def validate_cid(cid: str) -> bool:
     if not cid or len(cid) > 100:
         return False
     return bool(re.match(r'^[a-zA-Z0-9]+$', cid))
+
+
+def is_safe_url(url: str) -> tuple[bool, str]:
+    """
+    SSRF Protection: Validate URL is safe to fetch.
+    
+    Blocks:
+    - Private/internal IP ranges (10.x, 172.16-31.x, 192.168.x, 127.x)
+    - Localhost and local hostnames
+    - Cloud metadata endpoints (169.254.169.254)
+    - Non-HTTP(S) schemes
+    
+    Returns:
+        (is_safe: bool, error_message: str)
+    """
+    try:
+        parsed = urlparse(url)
+        
+        # Only allow http/https
+        if parsed.scheme not in ('http', 'https'):
+            return False, "Only HTTP and HTTPS URLs are allowed"
+        
+        hostname = parsed.hostname
+        if not hostname:
+            return False, "Invalid URL: no hostname"
+        
+        # Block common localhost variations
+        localhost_patterns = [
+            'localhost', '127.0.0.1', '0.0.0.0', '::1',
+            'localtest.me', 'lvh.me', 'vcap.me'
+        ]
+        if hostname.lower() in localhost_patterns:
+            return False, "Access to localhost is not allowed"
+        
+        # Block cloud metadata endpoints
+        metadata_hosts = [
+            '169.254.169.254',  # AWS/GCP/Azure metadata
+            'metadata.google.internal',
+            'metadata.goog',
+        ]
+        if hostname.lower() in metadata_hosts:
+            return False, "Access to cloud metadata endpoints is not allowed"
+        
+        # Resolve hostname to check for internal IPs
+        try:
+            ip_addresses = socket.gethostbyname_ex(hostname)[2]
+        except socket.gaierror:
+            return False, "Could not resolve hostname"
+        
+        for ip_str in ip_addresses:
+            try:
+                ip = ipaddress.ip_address(ip_str)
+                
+                # Block private/internal ranges
+                if ip.is_private:
+                    return False, f"Access to private IP {ip_str} is not allowed"
+                if ip.is_loopback:
+                    return False, f"Access to loopback IP {ip_str} is not allowed"
+                if ip.is_link_local:
+                    return False, f"Access to link-local IP {ip_str} is not allowed"
+                if ip.is_reserved:
+                    return False, f"Access to reserved IP {ip_str} is not allowed"
+                    
+            except ValueError:
+                continue
+        
+        return True, ""
+        
+    except Exception as e:
+        return False, f"URL validation error: {str(e)}"

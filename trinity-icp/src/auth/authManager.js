@@ -5,6 +5,9 @@
 // - All API requests signed with Ed25519 signature
 // - Backend verifies signature + timestamp (prevents replay attacks)
 // - No passwords - just cryptographic keypairs
+// - Private keys encrypted in localStorage with browser-derived key
+
+import { encryptForStorage, decryptFromStorage, isEncrypted } from '../utils/crypto.js';
 
 const AuthManager = {
     isInitialized: false,
@@ -60,9 +63,22 @@ const AuthManager = {
     async restoreIdentity(savedKey, savedPrincipal) {
         const { Ed25519KeyIdentity } = window.ICPAuth;
         
+        // Decrypt if encrypted, otherwise use as-is (for migration)
+        let privateKeyHex;
+        if (isEncrypted(savedKey)) {
+            console.log('🔓 Decrypting stored key...');
+            privateKeyHex = await decryptFromStorage(savedKey);
+        } else {
+            // Migrate unencrypted key to encrypted storage
+            console.log('🔐 Migrating unencrypted key to encrypted storage...');
+            privateKeyHex = savedKey;
+            const encryptedKey = await encryptForStorage(privateKeyHex);
+            localStorage.setItem('trinity_identity_key', encryptedKey);
+        }
+        
         // Convert hex string back to Uint8Array
         const keyBytes = new Uint8Array(
-            savedKey.match(/.{1,2}/g).map(byte => parseInt(byte, 16))
+            privateKeyHex.match(/.{1,2}/g).map(byte => parseInt(byte, 16))
         );
         
         // Restore identity from private key
@@ -125,8 +141,10 @@ const AuthManager = {
                 .map(b => b.toString(16).padStart(2, '0'))
                 .join('');
             
-            // Store in localStorage (with user consent)
-            localStorage.setItem('trinity_identity_key', privateKeyHex);
+            // Encrypt and store in localStorage
+            console.log('🔐 Encrypting private key for storage...');
+            const encryptedKey = await encryptForStorage(privateKeyHex);
+            localStorage.setItem('trinity_identity_key', encryptedKey);
             localStorage.setItem('trinity_principal', principal);
             
             console.log('✅ New identity created:', principal);
@@ -134,7 +152,7 @@ const AuthManager = {
             return { 
                 success: true, 
                 principal: principal,
-                privateKeyHex: privateKeyHex,
+                privateKeyHex: privateKeyHex, // Return unencrypted for user export
                 authenticatedSince: Date.now()
             };
         } catch (error) {
@@ -173,8 +191,10 @@ const AuthManager = {
             this.identity = Ed25519KeyIdentity.fromSecretKey(keyBytes);
             const principal = this.identity.getPrincipal().toText();
             
-            // Save to localStorage
-            localStorage.setItem('trinity_identity_key', privateKeyHex);
+            // Encrypt and save to localStorage
+            console.log('🔐 Encrypting imported key for storage...');
+            const encryptedKey = await encryptForStorage(privateKeyHex);
+            localStorage.setItem('trinity_identity_key', encryptedKey);
             localStorage.setItem('trinity_principal', principal);
             
             console.log('✅ Identity imported:', principal);

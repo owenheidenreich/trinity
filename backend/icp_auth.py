@@ -109,6 +109,8 @@ def verify_icp_signature(
         return False, "Invalid signature hex format"
     
     # 5. Verify signature
+    # NOTE: Ed25519PublicKey.verify() uses constant-time comparison internally
+    # to prevent timing attacks. The cryptography library handles this correctly.
     try:
         public_key = ed25519.Ed25519PublicKey.from_public_bytes(public_key_bytes)
         public_key.verify(signature_bytes, message_bytes)

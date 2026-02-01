@@ -753,9 +753,26 @@ const Actions = {
             let displayedLength = 0;
             let tokenBuffer = '';
             let typingInterval = null;
+            let katexPending = false;  // Debounce KaTeX rendering
+            let lastKatexRender = 0;   // Timestamp of last KaTeX render
+            const KATEX_THROTTLE_MS = 100;  // Only render KaTeX every 100ms max
                 
-                // Helper to render KaTeX on message div
-                const renderKatex = () => {
+                // Helper to render KaTeX on message div (throttled)
+                const renderKatex = (force = false) => {
+                    const now = Date.now();
+                    // Skip if we rendered recently (unless forced)
+                    if (!force && (now - lastKatexRender < KATEX_THROTTLE_MS)) {
+                        // Schedule a pending render
+                        if (!katexPending) {
+                            katexPending = true;
+                            setTimeout(() => {
+                                katexPending = false;
+                                renderKatex(true);
+                            }, KATEX_THROTTLE_MS);
+                        }
+                        return;
+                    }
+                    
                     const renderFunc = window.renderMathInElement || (typeof renderMathInElement === 'function' ? renderMathInElement : null);
                     if (renderFunc) {
                         try {
@@ -770,6 +787,7 @@ const Actions = {
                                 errorColor: '#cc0000',
                                 strict: false,
                             });
+                            lastKatexRender = now;
                         } catch (e) {
                             // Ignore errors during streaming - math may be incomplete
                         }
@@ -788,9 +806,11 @@ const Actions = {
                             messageDiv.innerHTML = DOMPurify.sanitize(parseMarkdownWithMath(visibleText)) + 
                                 '<span class="streaming-cursor">▊</span>';
                             
-                            // Render KaTeX on every frame to keep math rendered
-                            // This prevents the "flashing" between raw and rendered states
-                            renderKatex();
+                            // Render KaTeX (throttled to prevent thrashing)
+                            // Only if content might contain math
+                            if (visibleText.includes('$') || visibleText.includes('\\')) {
+                                renderKatex();
+                            }
                         }
                     }, 15); // ~66 chars/sec for natural typing feel
                 };
@@ -850,9 +870,9 @@ const Actions = {
                             
                                 messageDiv.innerHTML = DOMPurify.sanitize(parseMarkdownWithMath(fullText));
                             
-                                // Final KaTeX render with debug logging
+                                // Final KaTeX render (forced, no throttle)
                                 setTimeout(() => {
-                                    renderKatex();
+                                    renderKatex(true);
                                     console.log('✅ KaTeX final render complete');
                                 }, 50);
                             

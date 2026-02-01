@@ -7,6 +7,9 @@ import os
 import logging
 from pathlib import Path
 from datetime import datetime
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 # Configure logging
 logging.basicConfig(
@@ -17,6 +20,34 @@ logger = logging.getLogger(__name__)
 
 # Reduce werkzeug HTTP request log spam
 logging.getLogger('werkzeug').setLevel(logging.WARNING)
+
+# ===== HTTP SESSION WITH CONNECTION POOLING =====
+# Reuse connections for better performance
+def create_http_session():
+    """Create a requests session with connection pooling and retries."""
+    session = requests.Session()
+    
+    # Configure retry strategy
+    retry_strategy = Retry(
+        total=3,
+        backoff_factor=0.5,
+        status_forcelist=[500, 502, 503, 504],
+    )
+    
+    # Configure adapters with connection pooling
+    adapter = HTTPAdapter(
+        max_retries=retry_strategy,
+        pool_connections=10,  # Number of connection pools
+        pool_maxsize=20,      # Connections per pool
+    )
+    
+    session.mount('http://', adapter)
+    session.mount('https://', adapter)
+    
+    return session
+
+# Global HTTP session for reuse
+http_session = create_http_session()
 
 # ===== SERVER CONFIGURATION =====
 PROVIDER_ID = os.getenv('PROVIDER_ID', 'local-mac-mini')
@@ -40,6 +71,7 @@ if not LIGHTHOUSE_API_KEY:
 # ===== AKASH CONFIGURATION =====
 AKASH_WALLET_ADDRESS = os.getenv('AKASH_WALLET_ADDRESS', 'akash155hphg6qyy3vtr584p38wlngtqxzdr0l6jutmp')
 ICP_BACKEND_CANISTER = os.getenv('ICP_BACKEND_CANISTER', 'au5zq-2qaaa-aaaal-qtowa-cai')
+ICP_FRONTEND_CANISTER = os.getenv('ICP_FRONTEND_CANISTER', 'zc67k-kiaaa-aaaal-qtmiq-cai')
 
 # Deployment tier detection
 tier_names = {
@@ -58,6 +90,9 @@ BRAVE_SEARCH_API_KEY = os.getenv('BRAVE_SEARCH_API_KEY', '')
 
 # ===== AUTHENTICATION =====
 AUTH_TIMESTAMP_WINDOW_MS = 5 * 60 * 1000  # 5 minutes
+
+# ===== PROMPT VALIDATION =====
+MAX_PROMPT_LENGTH = 50000  # 50KB max prompt to prevent DoS
 
 # ===== ENCRYPTION =====
 PBKDF2_ITERATIONS = 100000
