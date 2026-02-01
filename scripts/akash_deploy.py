@@ -19,6 +19,27 @@ import os
 import re
 from pathlib import Path
 
+def load_env_file():
+    """Load API keys from .env file"""
+    env_values = {}
+    script_dir = Path(__file__).parent.absolute()
+    env_path = script_dir.parent / '.env'
+
+    if env_path.exists():
+        with open(env_path, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    key, value = line.split('=', 1)
+                    env_values[key.strip()] = value.strip()
+    else:
+        print(f"⚠️  Warning: .env file not found at {env_path}")
+
+    return env_values
+
+# Load environment values on module import
+ENV_VALUES = load_env_file()
+
 # Configuration
 AKASH_NODE = "https://rpc.akashnet.net:443"
 AKASH_CHAIN_ID = "akashnet-2"
@@ -186,19 +207,37 @@ def cleanup_orphaned_deployments(wallet_addr, keep_dseq=None):
         print(f"  Warning: Could not check for orphaned deployments: {e}")
         return 0
 
+def inject_env_values(yaml_content):
+    """Inject API keys from .env into YAML content"""
+    # Replace ${VAR} placeholders with actual values from .env
+    if 'LIGHTHOUSE_API_KEY' in ENV_VALUES:
+        yaml_content = yaml_content.replace(
+            '${LIGHTHOUSE_API_KEY}',
+            ENV_VALUES['LIGHTHOUSE_API_KEY']
+        )
+    if 'BRAVE_SEARCH_API_KEY' in ENV_VALUES:
+        yaml_content = yaml_content.replace(
+            '${BRAVE_SEARCH_API_KEY}',
+            ENV_VALUES['BRAVE_SEARCH_API_KEY']
+        )
+    return yaml_content
+
 def create_deployment(yaml_path, image_tag):
     """Create a deployment and return DSEQ"""
     # Create temp YAML with updated image tag
     with open(yaml_path, 'r') as f:
         yaml_content = f.read()
-    
+
     # Replace any image tag with the new one
     yaml_content = re.sub(
         r'gdubx/trinity-inference:[^\s]*',
         f'gdubx/trinity-inference:{image_tag}',
         yaml_content
     )
-    
+
+    # SECURITY: Inject API keys from .env file
+    yaml_content = inject_env_values(yaml_content)
+
     with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
         f.write(yaml_content)
         temp_yaml = f.name
@@ -298,13 +337,16 @@ def send_manifest(yaml_path, dseq, provider, image_tag):
     # Create temp YAML with updated image tag
     with open(yaml_path, 'r') as f:
         yaml_content = f.read()
-    
+
     yaml_content = re.sub(
         r'gdubx/trinity-inference:[^\s]*',
         f'gdubx/trinity-inference:{image_tag}',
         yaml_content
     )
-    
+
+    # SECURITY: Inject API keys from .env file
+    yaml_content = inject_env_values(yaml_content)
+
     with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
         f.write(yaml_content)
         temp_yaml = f.name

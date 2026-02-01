@@ -1,10 +1,10 @@
 # Trinity Codebase Reference
 
-> **Purpose:** Comprehensive documentation for AI assistants to quickly understand the Trinity project  
-> **Last Updated:** January 31, 2026  
-> **Last Verified:** January 31, 2026  
-> **Status:** Production - Security Hardened  
-> **Version:** v3.7.1 (Security Hardening + Performance Optimizations)
+> **Purpose:** Comprehensive documentation for AI assistants to quickly understand the Trinity project
+> **Last Updated:** January 31, 2026
+> **Last Verified:** January 31, 2026
+> **Status:** Production - Security Hardened
+> **Version:** v3.8.0 (Major Security Audit + XSS/CORS/CSP Hardening)
 
 ---
 
@@ -522,7 +522,23 @@ dfx canister --network ic call au5zq-2qaaa-aaaal-qtowa-cai health
 
 ---
 
-## 🔒 Security Hardening (v3.7.1)
+## 🔒 Security Hardening (v3.8.0)
+
+### v3.8.0 Security Audit Fixes (January 2026)
+Major security audit identified 67 issues across the codebase. Key fixes implemented:
+
+| Category | Fix | File |
+|----------|-----|------|
+| **API Key Exposure** | Removed hardcoded keys, now injected from `.env` at deploy time | `deploy/akash/deploy-tier*.yaml` |
+| **XSS Prevention** | All innerHTML wrapped with DOMPurify sanitization | `trinity-icp/src/app.js` |
+| **CORS Hardening** | Removed wildcard, restricted to known origins | `deploy/vercel-proxy/api/proxy.js` |
+| **CSP Hardening** | Removed dangerous wildcard from connect-src | `trinity-icp/.ic-assets.json5` |
+| **Docker Security** | Added non-root user (trinity) to prevent container escape | `deploy/docker/Dockerfile` |
+| **Thread Safety** | Added locks to global state (document_store, funding_cache) | `backend/inference_server.py` |
+| **Replay Attack** | Reduced auth timestamp window from 5min to 30s | `backend/icp_auth.py` |
+| **DoS Prevention** | Added 5MB limit on document uploads | `backend/inference_server.py` |
+| **Exception Handling** | Replaced bare `except:` with specific exception types | `backend/inference_server.py` |
+| **Dependency Pinning** | Pinned exact versions (== instead of >=) | `backend/requirements.txt` |
 
 ### Backend Security
 | Feature | Implementation | File |
@@ -533,22 +549,54 @@ dfx canister --network ic call au5zq-2qaaa-aaaal-qtowa-cai health
 | CORS restriction | Whitelist of allowed origins | `inference_server.py` |
 | Connection pooling | `requests.Session` with HTTPAdapter | `config.py` |
 | Memory leak prevention | Auto-cleanup of stale rate limit IPs, document store TTL | `middleware/rate_limit.py` |
+| Thread-safe globals | `threading.Lock()` on document_store and funding_cache | `inference_server.py` |
+| Document size limit | 5MB max per upload, returns 413 if exceeded | `inference_server.py` |
+| Auth timestamp validation | 30-second window prevents replay attacks | `icp_auth.py` |
 
 ### Frontend Security
 | Feature | Implementation | File |
 |---------|----------------|------|
+| XSS prevention | DOMPurify sanitization on all dynamic HTML | `app.js` |
 | Private key encryption | AES-GCM encryption in localStorage | `utils/crypto.js` |
-| Content Security Policy | Comprehensive CSP meta tag | `index.html` |
+| Content Security Policy | Hardened CSP without wildcards | `index.html`, `.ic-assets.json5` |
 | Ed25519 signatures | Constant-time verification (cryptography lib) | `icp_auth.py` |
+| Request cancellation | AbortController on all fetch calls | `app.js` |
 
-### Dependencies (Security Updates)
+### Proxy Security Headers
+The Vercel proxy now includes:
+```javascript
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+X-XSS-Protection: 1; mode=block
+Referrer-Policy: strict-origin-when-cross-origin
 ```
-cryptography>=42.0.0     # Latest security patches
-flask-compress>=1.15     # Gzip response compression
-beautifulsoup4>=4.12.0   # Safe HTML parsing (replaces regex)
-argon2-cffi>=23.1.0      # Modern key derivation (ready for migration)
-urllib3>=2.0.0           # Security updates
+
+### Dependencies (Pinned Versions)
 ```
+flask==3.0.3
+flask-cors==4.0.0
+flask-compress==1.15
+requests==2.31.0
+urllib3==2.2.1
+psutil==5.9.8
+APScheduler==3.10.4
+pycryptodome==3.20.0
+python-dotenv==1.0.1
+cryptography==42.0.5
+yfinance==0.2.37
+feedparser==6.0.11
+beautifulsoup4==4.12.3
+argon2-cffi==23.1.0
+```
+
+### API Key Management
+**CRITICAL:** API keys are now managed via `.env` file and injected at deploy time:
+```bash
+# .env file (never commit to git!)
+LIGHTHOUSE_API_KEY=your-key-here
+BRAVE_SEARCH_API_KEY=your-key-here
+```
+The `scripts/akash_deploy.py` script reads `.env` and injects values into YAML before deployment.
 
 ### SSRF Protection
 The `/tools/browse` endpoint blocks:
@@ -746,10 +794,11 @@ trinity-icp/src/
 ```
 
 **UI Features:**
-- **Live KaTeX Rendering:** Math formulas render beautifully during streaming (every typing cycle)
+- **Live KaTeX Rendering:** Math formulas render with 300ms debounce for performance
 - **Smooth Typing:** 3 chars per 15ms interval for natural feel
 - **Rainbow Borders:** Hover effects on interactive elements
 - **Dark Theme:** `#1a1a1a` background, `#ffffff` text
+- **Request Cancellation:** AbortController allows stopping in-flight requests
 
 ---
 
@@ -953,4 +1002,4 @@ Assistant:
 
 ---
 
-*This document is maintained for AI assistants to quickly understand Trinity without re-exploring files. Last updated January 30, 2026.*
+*This document is maintained for AI assistants to quickly understand Trinity without re-exploring files. Last updated January 31, 2026 (v3.8.0 security audit).*

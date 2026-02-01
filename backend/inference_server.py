@@ -97,31 +97,37 @@ CORS(app, origins=ALLOWED_ORIGINS, supports_credentials=True)
 
 # ===== GLOBAL STATE =====
 
+# Thread-safe locks for global state (Flask runs threaded=True)
+# SECURITY: Prevents race conditions in concurrent requests
+_document_store_lock = threading.Lock()
+_funding_cache_lock = threading.Lock()
+
 # In-memory document storage for Chat With Documents (per-session)
 # Includes TTL tracking to prevent memory leaks
 document_store = {}
 DOCUMENT_STORE_MAX_AGE = 3600  # 1 hour max lifetime per document
 DOCUMENT_STORE_MAX_SIZE = 100  # Max documents to store
+MAX_DOCUMENT_SIZE = 5_000_000  # 5MB max per document upload
 
 
 def cleanup_document_store():
-    """Remove expired documents to prevent memory leaks."""
-    import time
+    """Remove expired documents to prevent memory leaks. Thread-safe."""
     now = time.time()
-    expired = [
-        session_id for session_id, doc in document_store.items()
-        if now - doc.get('uploaded_at_ts', now) > DOCUMENT_STORE_MAX_AGE
-    ]
-    for session_id in expired:
-        del document_store[session_id]
-        logger.info(f'🗑️ Cleaned up expired document session: {session_id}')
-    
-    # Also enforce max size (FIFO)
-    while len(document_store) > DOCUMENT_STORE_MAX_SIZE:
-        oldest = min(document_store.keys(), 
-                     key=lambda k: document_store[k].get('uploaded_at_ts', 0))
-        del document_store[oldest]
-        logger.info(f'🗑️ Cleaned up document store overflow: {oldest}')
+    with _document_store_lock:
+        expired = [
+            session_id for session_id, doc in document_store.items()
+            if now - doc.get('uploaded_at_ts', now) > DOCUMENT_STORE_MAX_AGE
+        ]
+        for session_id in expired:
+            del document_store[session_id]
+            logger.info(f'🗑️ Cleaned up expired document session: {session_id}')
+
+        # Also enforce max size (FIFO)
+        while len(document_store) > DOCUMENT_STORE_MAX_SIZE:
+            oldest = min(document_store.keys(),
+                         key=lambda k: document_store[k].get('uploaded_at_ts', 0))
+            del document_store[oldest]
+            logger.info(f'🗑️ Cleaned up document store overflow: {oldest}')
 
 
 # Note: Validation functions now in validation.py
@@ -216,12 +222,14 @@ def funding_status():
     Cached for 5 minutes to avoid API rate limits.
     """
     global _funding_cache
-    
+
     now = time.time()
-    
-    # Return cached data if still fresh
-    if _funding_cache['data'] and (now - _funding_cache['timestamp']) < _funding_cache['ttl']:
-        return jsonify(_funding_cache['data'])
+
+    # Thread-safe cache check
+    with _funding_cache_lock:
+        # Return cached data if still fresh
+        if _funding_cache['data'] and (now - _funding_cache['timestamp']) < _funding_cache['ttl']:
+            return jsonify(_funding_cache['data'])
     
     # Fetch fresh data
     akt_price = get_akt_price_usd()
@@ -284,10 +292,11 @@ def funding_status():
         }
     }
     
-    # Update cache
-    _funding_cache['data'] = funding_data
-    _funding_cache['timestamp'] = now
-    
+    # Thread-safe cache update
+    with _funding_cache_lock:
+        _funding_cache['data'] = funding_data
+        _funding_cache['timestamp'] = now
+
     return jsonify(funding_data)
 
 
@@ -1189,8 +1198,9 @@ def browse_url():
                     'content': content,
                     'content_type': 'application/json'
                 })
-            except:
-                pass
+            except (json.JSONDecodeError, ValueError, TypeError) as e:
+                # Not JSON content, continue to HTML parsing
+                logger.debug(f"Response is not JSON: {e}")
         
         # HTML content - extract text using BeautifulSoup (more reliable than regex)
         from bs4 import BeautifulSoup
@@ -1316,7 +1326,9 @@ def search_and_summarize():
                 else:
                     # Use snippet if page fetch fails
                     context_parts.append(f"\n[Source {i}: {title}]\n{snippet}\n")
-            except:
+            except (requests.RequestException, ValueError, AttributeError) as e:
+                # Use snippet if page fetch or parsing fails
+                logger.debug(f"Failed to fetch source {i}: {e}")
                 context_parts.append(f"\n[Source {i}: {title}]\n{snippet}\n")
         
         context = "\n".join(context_parts)
@@ -2100,6 +2112,7 @@ def call_ollama_for_tools(prompt: str, temperature: float = 0.7) -> str:
 # ----- CHAT WITH DOCUMENTS -----
 
 @app.route('/tools/documents/upload', methods=['POST'])
+@rate_limit  # Apply rate limiting to prevent abuse
 def upload_document():
     """Upload a document for querying."""
     try:
@@ -2111,15 +2124,25 @@ def upload_document():
         if not content:
             return jsonify({'error': 'No content provided'}), 400
 
+        # SECURITY: Enforce document size limit to prevent DoS
+        if len(content) > MAX_DOCUMENT_SIZE:
+            return jsonify({
+                'error': f'Document too large (max {MAX_DOCUMENT_SIZE // 1_000_000}MB)',
+                'received': len(content),
+                'max_allowed': MAX_DOCUMENT_SIZE
+            }), 413
+
         # Run cleanup before adding new document
         cleanup_document_store()
 
-        document_store[session_id] = {
-            'content': content,
-            'filename': filename,
-            'uploaded_at': datetime.utcnow().isoformat(),
-            'uploaded_at_ts': time.time()  # For TTL tracking
-        }
+        # Thread-safe document store access
+        with _document_store_lock:
+            document_store[session_id] = {
+                'content': content,
+                'filename': filename,
+                'uploaded_at': datetime.now(tz=None).isoformat(),  # Use timezone-aware
+                'uploaded_at_ts': time.time()  # For TTL tracking
+            }
 
         logger.info(f'📄 Document uploaded: {filename} ({len(content)} chars)')
         return jsonify({
@@ -2141,12 +2164,15 @@ def query_document():
         session_id = data.get('sessionId', '')
         query = data.get('query', '')
 
-        if not session_id or session_id not in document_store:
-            return jsonify({'error': 'No document found. Please upload first.'}), 400
         if not query:
             return jsonify({'error': 'No query provided'}), 400
 
-        doc = document_store[session_id]
+        # Thread-safe document store access
+        with _document_store_lock:
+            if not session_id or session_id not in document_store:
+                return jsonify({'error': 'No document found. Please upload first.'}), 400
+            doc = document_store[session_id].copy()  # Copy to release lock quickly
+
         doc_content = doc['content'][:30000]
 
         prompt = f"""You are a helpful document analysis assistant.

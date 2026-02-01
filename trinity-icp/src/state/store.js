@@ -68,7 +68,7 @@ const useStore = create((set, get) => ({
      * Generate unique chat ID
      */
     generateChatId: () => {
-        return 'chat-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+        return 'chat-' + Date.now() + '-' + Math.random().toString(36).substring(2, 11);
     },
     
     /**
@@ -82,7 +82,7 @@ const useStore = create((set, get) => ({
         
         let userId = localStorage.getItem('trinity_user_id');
         if (!userId) {
-            userId = 'user-' + Math.random().toString(36).substr(2, 9);
+            userId = 'user-' + Math.random().toString(36).substring(2, 11);
             localStorage.setItem('trinity_user_id', userId);
         }
         set({ currentUserId: userId });
@@ -94,7 +94,7 @@ const useStore = create((set, get) => ({
      */
     addMessage: (role, content) => {
         const message = {
-            id: 'msg-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
+            id: 'msg-' + Date.now() + '-' + Math.random().toString(36).substring(2, 11),
             role,
             content,
             timestamp: Date.now()

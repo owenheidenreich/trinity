@@ -10,9 +10,11 @@ services:
       - GPU_TYPE=NVIDIA-GPU
       - MAX_QUEUE_SIZE=10
       - OLLAMA_HOST=http://localhost:11434
-      # API Keys - loaded from .env (gitignored)
-      - LIGHTHOUSE_API_KEY=cac651de.89f60066a4434ee98844288e220ad6dc
-      - BRAVE_SEARCH_API_KEY=BSA0opgLKaFETyvaBCfSrRfbEXktSJS
+      # API Keys - SET THESE VIA DEPLOYMENT SCRIPT OR SECRETS
+      # SECURITY: Do NOT commit actual API keys to version control
+      # These placeholder values must be replaced at deployment time
+      - LIGHTHOUSE_API_KEY=${LIGHTHOUSE_API_KEY}
+      - BRAVE_SEARCH_API_KEY=${BRAVE_SEARCH_API_KEY}
       # Deployment tracking (set by deploy script, used for /funding/status)
       - DEPLOYMENT_TIER=2
       - DEPLOYMENT_TIER_NAME=Standard

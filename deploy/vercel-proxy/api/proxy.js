@@ -9,20 +9,42 @@ import { URL } from 'url';
 
 // Akash backend URL from environment variable
 // Set via: vercel env add AKASH_URL production
-// Supports both http:// and https:// schemes
-const AKASH_BASE = process.env.AKASH_URL || 'https://6i2rtl1m35a47bb0n47jr7c17c.ingress.a100.dsm.val.akash.pub';
+// SECURITY: Remove hardcoded fallback URL in production
+const AKASH_BASE = process.env.AKASH_URL;
+if (!AKASH_BASE) {
+  console.error('CRITICAL: AKASH_URL environment variable is not set');
+}
 
 // Auto-detect protocol from URL
-const isHttps = AKASH_BASE.startsWith('https://');
+const isHttps = AKASH_BASE?.startsWith('https://') ?? true;
 
-function setCorsHeaders(res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+// Allowed origins for CORS - restrict to known frontends
+const ALLOWED_ORIGINS = [
+  'https://trinityai.cc',
+  'https://zc67k-kiaaa-aaaal-qtmiq-cai.icp0.io',
+  'https://zc67k-kiaaa-aaaal-qtmiq-cai.raw.icp0.io',
+  'http://localhost:5173', // Development
+  'http://localhost:3000', // Development
+  'http://127.0.0.1:5173',
+];
+
+function setCorsHeaders(res, origin) {
+  // Check if origin is allowed
+  const allowedOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
+  res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept, ICP-Principal, ICP-Timestamp, ICP-Signature, ICP-PublicKey, X-Trinity-Session, X-Request-ID');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+
+  // Security headers
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
 }
 
 // Streaming request handler - pipes chunks directly to client
-function makeStreamingRequest(url, options, body, res) {
+function makeStreamingRequest(url, options, body, res, origin) {
   return new Promise((resolve, reject) => {
     const parsed = new URL(url);
     const protocol = parsed.protocol === 'https:' ? https : http;
@@ -37,12 +59,15 @@ function makeStreamingRequest(url, options, body, res) {
     };
     
     if (parsed.protocol === 'https:') {
+      // SECURITY NOTE: SSL verification is disabled because Akash providers
+      // use self-signed certificates. This is an intentional trade-off.
+      // TODO: Implement certificate pinning for trusted Akash providers
       requestOptions.rejectUnauthorized = false;
     }
     
     const req = protocol.request(requestOptions, (response) => {
       // Set SSE headers on client response
-      setCorsHeaders(res);
+      setCorsHeaders(res, origin);
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
@@ -80,9 +105,11 @@ function makeRequest(url, options, body) {
       headers: options.headers || {},
     };
     
-    // Only add rejectUnauthorized for HTTPS requests
+    // SECURITY NOTE: SSL verification is disabled because Akash providers
+    // use self-signed certificates. This is an intentional trade-off.
+    // TODO: Implement certificate pinning for trusted Akash providers
     if (parsed.protocol === 'https:') {
-      requestOptions.rejectUnauthorized = false; // Skip SSL verification
+      requestOptions.rejectUnauthorized = false;
     }
     
     const req = protocol.request(requestOptions, (response) => {
@@ -101,9 +128,11 @@ function makeRequest(url, options, body) {
 }
 
 export default async function handler(req, res) {
+  const origin = req.headers.origin || '';
+
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
-    setCorsHeaders(res);
+    setCorsHeaders(res, origin);
     res.status(204).end();
     return;
   }
@@ -151,7 +180,7 @@ export default async function handler(req, res) {
       await makeStreamingRequest(targetUrl, {
         method: req.method,
         headers: forwardHeaders,
-      }, body, res);
+      }, body, res, origin);
       return;
     }
 
@@ -161,14 +190,16 @@ export default async function handler(req, res) {
       headers: forwardHeaders,
     }, body);
 
-    setCorsHeaders(res);
+    setCorsHeaders(res, origin);
     res.setHeader('Content-Type', response.headers['content-type'] || 'application/json');
     res.status(response.status).send(response.body);
   } catch (error) {
-    setCorsHeaders(res);
+    console.error('Proxy error:', error.message);
+    setCorsHeaders(res, origin);
+    // SECURITY: Don't expose internal error details to clients
     res.status(502).json({
       error: 'Proxy error',
-      message: error.message
+      message: 'Failed to connect to backend service'
     });
   }
 }

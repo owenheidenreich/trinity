@@ -1,14 +1,16 @@
-flask>=3.0.0
-flask-cors>=4.0.0
-flask-compress>=1.15
-requests>=2.31.0
-urllib3>=2.0.0
-psutil>=5.9.0
-APScheduler>=3.10.4
-pycryptodome>=3.18.0
-python-dotenv>=1.0.0
-cryptography>=42.0.0
-yfinance>=0.2.0
-feedparser>=6.0.0
-beautifulsoup4>=4.12.0
-argon2-cffi>=23.1.0
+# SECURITY: Pin exact versions to prevent supply chain attacks
+# and ensure reproducible builds. Update these periodically with security audits.
+flask==3.0.3
+flask-cors==4.0.0
+flask-compress==1.15
+requests==2.31.0
+urllib3==2.2.1
+psutil==5.9.8
+APScheduler==3.10.4
+pycryptodome==3.20.0
+python-dotenv==1.0.1
+cryptography==42.0.5
+yfinance==0.2.37
+feedparser==6.0.11
+beautifulsoup4==4.12.3
+argon2-cffi==23.1.0

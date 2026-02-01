@@ -72,10 +72,11 @@ def verify_icp_signature(
         current_ms = int(time.time() * 1000)
         time_diff = abs(current_ms - timestamp_ms)
         
-        # Allow 5 minutes tolerance
-        if time_diff > 300000:  # 5 minutes in milliseconds
+        # SECURITY: 30-second window to prevent replay attacks
+        # Shorter window = harder for attackers to capture and replay signatures
+        if time_diff > 30000:  # 30 seconds in milliseconds
             logger.warning(f"⚠️ Timestamp expired: {time_diff}ms difference")
-            return False, f"Timestamp expired (diff: {time_diff}ms)"
+            return False, "Request timestamp expired"
     except ValueError:
         return False, "Invalid timestamp format"
     

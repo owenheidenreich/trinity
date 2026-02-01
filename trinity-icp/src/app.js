@@ -111,6 +111,21 @@ function parseMarkdownWithMath(content) {
 // - contextMemory: Last 6 messages (includes conversation summaries)
 // - Backend loads user_memory.json and includes facts in prompt
 const API = {
+    // PERFORMANCE: AbortController for cancelling in-flight requests
+    // Prevents resource waste when user navigates away or sends new message
+    _currentAbortController: null,
+
+    /**
+     * Cancel any ongoing API request (streaming or regular)
+     */
+    cancelRequest() {
+        if (this._currentAbortController) {
+            this._currentAbortController.abort();
+            this._currentAbortController = null;
+            console.log('🛑 Request cancelled');
+        }
+    },
+
     async request(endpoint, options = {}) {
         const url = `${CONFIG.API_URL}${endpoint}`;
         
@@ -314,7 +329,12 @@ const API = {
         
         const url = `${CONFIG.API_URL}/generate/stream`;
         console.log('🌊 Starting stream:', url);
-        
+
+        // Cancel any existing request before starting a new one
+        this.cancelRequest();
+        this._currentAbortController = new AbortController();
+        const signal = this._currentAbortController.signal;
+
         try {
             const response = await fetch(url, {
                 method: 'POST',
@@ -323,6 +343,7 @@ const API = {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify(body),
+                signal, // PERFORMANCE: Allow request cancellation
             });
             
             if (!response.ok) {
@@ -376,8 +397,15 @@ const API = {
                 }
             }
         } catch (error) {
+            // Don't report abort errors as failures
+            if (error.name === 'AbortError') {
+                console.log('🌊 Stream cancelled by user');
+                return;
+            }
             console.error('🌊 Stream error:', error);
             onError(error);
+        } finally {
+            this._currentAbortController = null;
         }
     },
 
@@ -414,7 +442,12 @@ const API = {
         
         const url = `${CONFIG.API_URL}/generate/agent`;
         console.log('🧠 Starting agent pipeline:', url);
-        
+
+        // Cancel any existing request before starting a new one
+        this.cancelRequest();
+        this._currentAbortController = new AbortController();
+        const signal = this._currentAbortController.signal;
+
         try {
             const response = await fetch(url, {
                 method: 'POST',
@@ -423,6 +456,7 @@ const API = {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify(body),
+                signal, // PERFORMANCE: Allow request cancellation
             });
             
             if (!response.ok) {
@@ -498,8 +532,15 @@ const API = {
                 }
             }
         } catch (error) {
+            // Don't report abort errors as failures
+            if (error.name === 'AbortError') {
+                console.log('🧠 Agent request cancelled by user');
+                return;
+            }
             console.error('🧠 Agent error:', error);
             onError(error);
+        } finally {
+            this._currentAbortController = null;
         }
     },
 
@@ -726,14 +767,16 @@ const Actions = {
         messagesContainer.appendChild(messageDiv);
         
         // Show whimsical thinking indicator initially
-        messageDiv.innerHTML = `
-            <div class="thinking-indicator">
-                <span class="phase-badge">Thinking</span>
-                <div class="thinking-message active">
-                    Examining the question<span class="thinking-dots"><span></span><span></span><span></span></span>
-                </div>
+        // SECURITY: Use textContent for user-facing strings to prevent XSS
+        const thinkingIndicator = document.createElement('div');
+        thinkingIndicator.className = 'thinking-indicator';
+        thinkingIndicator.innerHTML = `
+            <span class="phase-badge">Thinking</span>
+            <div class="thinking-message active">
+                Examining the question<span class="thinking-dots"><span></span><span></span><span></span></span>
             </div>
         `;
+        messageDiv.appendChild(thinkingIndicator);
         chatArea.scrollTop = chatArea.scrollHeight;
 
         try {
@@ -753,7 +796,8 @@ const Actions = {
             let displayedLength = 0;
             let tokenBuffer = '';
             let typingInterval = null;
-                
+            let katexDebounceTimer = null;
+
                 // Helper to render KaTeX on message div
                 const renderKatex = () => {
                     const renderFunc = window.renderMathInElement || (typeof renderMathInElement === 'function' ? renderMathInElement : null);
@@ -775,7 +819,17 @@ const Actions = {
                         }
                     }
                 };
-                
+
+                // PERFORMANCE: Debounced KaTeX render to avoid CPU spikes
+                // Renders at most once per 300ms during streaming
+                const debouncedRenderKatex = () => {
+                    if (katexDebounceTimer) return;
+                    katexDebounceTimer = setTimeout(() => {
+                        renderKatex();
+                        katexDebounceTimer = null;
+                    }, 300);
+                };
+
                 // Smooth typing function - types out buffered text gradually
                 const startTyping = () => {
                     if (typingInterval) return;
@@ -785,13 +839,13 @@ const Actions = {
                             const charsToAdd = Math.min(3, tokenBuffer.length - displayedLength);
                             displayedLength += charsToAdd;
                             const visibleText = tokenBuffer.substring(0, displayedLength);
-                            
+
                             // Set the HTML content
-                            messageDiv.innerHTML = DOMPurify.sanitize(parseMarkdownWithMath(visibleText)) + 
+                            messageDiv.innerHTML = DOMPurify.sanitize(parseMarkdownWithMath(visibleText)) +
                                 '<span class="streaming-cursor">▊</span>';
-                            
-                            // Render KaTeX immediately on every cycle for smooth math rendering
-                            renderKatex();
+
+                            // PERFORMANCE: Debounced KaTeX render (every 300ms instead of 15ms)
+                            debouncedRenderKatex();
                         }
                     }, 15); // ~66 chars/sec for natural typing feel
                 };
@@ -813,15 +867,17 @@ const Actions = {
                         // onPhase - update thinking indicator
                         (phase, message) => {
                             if (!isReceivingTokens) {
-                                const phaseName = phase.charAt(0).toUpperCase() + phase.slice(1);
-                                messageDiv.innerHTML = `
+                                // SECURITY: Sanitize phase and message to prevent XSS
+                                const phaseName = DOMPurify.sanitize(phase.charAt(0).toUpperCase() + phase.slice(1));
+                                const safeMessage = DOMPurify.sanitize(message);
+                                messageDiv.innerHTML = DOMPurify.sanitize(`
                                     <div class="thinking-indicator">
                                         <span class="phase-badge">${phaseName}</span>
                                         <div class="thinking-message active">
-                                            ${message}<span class="thinking-dots"><span></span><span></span><span></span></span>
+                                            ${safeMessage}<span class="thinking-dots"><span></span><span></span><span></span></span>
                                         </div>
                                     </div>
-                                `;
+                                `);
                                 chatArea.scrollTop = chatArea.scrollHeight;
                             }
                         },
@@ -1292,12 +1348,20 @@ const Actions = {
     },
 
     // Recover archived chats from IPFS (auto-called on login)
+    // NOTE: Archive feature was removed in v3.7.0 - this is now a no-op
     async recoverArchivedChats() {
         if (!State.isAuthenticated) {
             console.log('❌ recoverArchivedChats() skipped - not authenticated');
             return;
         }
 
+        // Archive feature removed in v3.7.0 - skip recovery
+        // Chats are now auto-saved directly to IPFS via autosave
+        console.log('ℹ️ Archive recovery skipped (feature removed in v3.7.0)');
+        return;
+
+        // Legacy code below - kept for reference
+        /*
         try {
             console.log('📦 Recovering archived chats from IPFS...');
             const response = await API.recoverArchives();
@@ -1348,6 +1412,7 @@ const Actions = {
             // Don't show error to user - this is a background operation
             // They can still use the app, just without recovered archives
         }
+        */
     },
 
     // Load specific chat

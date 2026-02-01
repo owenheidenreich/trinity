@@ -118,19 +118,32 @@ COPY deploy/docker/startup.sh .
 RUN chmod +x startup.sh
 
 # ============================================================================
-# STEP 8: Create directory for Ollama models
+# STEP 8: Create non-root user for security
 # ============================================================================
-# Ollama stores downloaded models here
-RUN mkdir -p /root/.ollama
+# SECURITY: Running as root in containers is a security risk
+# Container escape vulnerabilities could lead to full host compromise
+# Creating a dedicated user limits potential damage from exploits
+RUN groupadd -r trinity && useradd -r -g trinity -d /app -s /sbin/nologin trinity
 
 # ============================================================================
-# STEP 8.5: Create directory for chat storage
+# STEP 8.5: Create directory for Ollama models
+# ============================================================================
+# Ollama stores downloaded models here
+# Note: Using /home/trinity/.ollama instead of /root/.ollama
+RUN mkdir -p /home/trinity/.ollama && chown -R trinity:trinity /home/trinity/.ollama
+ENV OLLAMA_MODELS=/home/trinity/.ollama
+
+# ============================================================================
+# STEP 8.6: Create directory for chat storage
 # ============================================================================
 # Create persistent storage directory for chat data
-RUN mkdir -p /data/chats
+RUN mkdir -p /data/chats && chown -R trinity:trinity /data/chats
 
 # Declare volumes for persistent storage
 VOLUME ["/data/chats"]
+
+# Set ownership of app directory
+RUN chown -R trinity:trinity /app
 
 # ============================================================================
 # STEP 9: Expose the port
@@ -155,7 +168,13 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=1200s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
 # ============================================================================
-# STEP 11: Define the startup command
+# STEP 11: Switch to non-root user
+# ============================================================================
+# SECURITY: Run as non-root user to limit container escape damage
+USER trinity
+
+# ============================================================================
+# STEP 12: Define the startup command
 # ============================================================================
 # When the container starts, run the startup.sh script
 # This script will:
