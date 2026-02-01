@@ -170,23 +170,11 @@ def require_auth(f):
         def autosave():
             principal = request.principal  # Available after verification
             ...
-    
-    In test mode (TRINITY_TEST_MODE=true), authentication is bypassed
-    and a test principal is used. This enables local testing of storage
-    features without cryptographic signature verification.
     """
     from functools import wraps
-    import os
     
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        # Check for test mode - bypass auth for local development
-        if os.getenv('TRINITY_TEST_MODE', '').lower() == 'true':
-            test_principal = request.headers.get('ICP-Principal', 'test-principal-local-dev')
-            request.principal = test_principal
-            logger.info(f"🧪 TEST MODE: Bypassing auth for principal: {test_principal[:30]}...")
-            return f(*args, **kwargs)
-        
         success, principal, error = verify_request_auth()
         
         if not success:

@@ -14,7 +14,6 @@ services:
       - GPU_TYPE=CPU
       - MAX_QUEUE_SIZE=10
       - OLLAMA_HOST=http://localhost:11434
-      - TRINITY_TEST_MODE=true
       - CHATS_DIR=/var/lib/trinity/chats
     
     volumes:

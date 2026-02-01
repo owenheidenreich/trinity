@@ -35,7 +35,6 @@
 // IMPORTS
 // ============================================================================
 import CONFIG from './config.js';
-import MockStorage from './storage/mock.js';
 import UI from './ui/index.js';
 import Modals from './ui/modals.js';
 import AuthManager from './auth/authManager.js';
@@ -743,26 +742,17 @@ const Actions = {
 
             console.log('🧠 Using Agentic Pipeline:', CONFIG.API_URL);
 
-            if (CONFIG.TEST_MODE) {
-                // Test mode - use mock responses
-                console.warn('⚠️ Using TEST_MODE - mock responses');
-                await new Promise(r => setTimeout(r, 1000));
-                generatedText = CONFIG.TEST_RESPONSES[State.testResponseIndex % CONFIG.TEST_RESPONSES.length];
-                State.incrementTestResponseIndex();
-                messageDiv.innerHTML = DOMPurify.sanitize(marked.parse(generatedText));
-            } else {
-                // Production - use Agentic Pipeline
-                const documentContent = getAttachedContent();
-                
-                if (documentContent) {
-                    console.log('📎 Including attached content:', documentContent.length, 'chars');
-                }
-                
-                // Use agent pipeline for intelligent responses
-                // Token buffer for smoother typing effect
-                let displayedLength = 0;
-                let tokenBuffer = '';
-                let typingInterval = null;
+            // Agentic Pipeline for intelligent responses
+            const documentContent = getAttachedContent();
+            
+            if (documentContent) {
+                console.log('📎 Including attached content:', documentContent.length, 'chars');
+            }
+            
+            // Token buffer for smoother typing effect
+            let displayedLength = 0;
+            let tokenBuffer = '';
+            let typingInterval = null;
                 
                 // Helper to render KaTeX on message div
                 const renderKatex = () => {
@@ -894,7 +884,6 @@ const Actions = {
                 // Clear attachment after sending
                 clearAttachment();
                 console.log('✅ Streamed text length:', generatedText.length);
-            }
 
             if (generatedText) {
                 console.log('💬 Adding to state...');
@@ -1246,15 +1235,8 @@ const Actions = {
         try {
             console.log('📋 Loading chats...');
             
-            let chats;
-            if (CONFIG.TEST_MODE) {
-                // Use mock storage for test mode
-                chats = MockStorage.listChats();
-            } else {
-                // Use real API for production
-                const response = await API.listChats();
-                chats = response.chats || [];
-            }
+            const response = await API.listChats();
+            const chats = response.chats || [];
             
             console.log('📋 Chats loaded:', chats.length);
             State.setAllChats(chats);
@@ -1271,10 +1253,8 @@ const Actions = {
             currentChatId: State.currentChatId,
             chatHistory: State.chatHistory,
             isAuthenticated: State.isAuthenticated,
-            testMode: CONFIG.TEST_MODE,
             principal: State.principal,
             apiSave: (chatData) => API.autosave(chatData),
-            mockSave: (chatId, data) => MockStorage.saveChat(chatId, data),
             showIndicator: UI.showAutosaveIndicator,
             hideIndicator: UI.hideAutosaveIndicator,
             retryCallback: () => this.executeAutosave()
@@ -1378,14 +1358,8 @@ const Actions = {
         }
         
         try {
-            let chatData;
-            if (CONFIG.TEST_MODE) {
-                chatData = MockStorage.loadChat(chatId);
-                if (!chatData) throw new Error('Chat not found');
-            } else {
-                const response = await API.loadChat(chatId);
-                chatData = response;
-            }
+            const response = await API.loadChat(chatId);
+            const chatData = response;
             
             State.setChatHistory(chatData.messages || []);
             State.setCurrentChatId(chatData.chatId || chatId);
@@ -1420,11 +1394,7 @@ const Actions = {
         if (!confirmed) return;
 
         try {
-            if (CONFIG.TEST_MODE) {
-                MockStorage.deleteChat(chatId);
-            } else {
-                await API.deleteChat(chatId);
-            }
+            await API.deleteChat(chatId);
             
             State.setAllChats(State.allChats.filter(c => c.chatId !== chatId));
             if (State.currentChatId === chatId) {
@@ -1535,30 +1505,6 @@ const Actions = {
         } catch (error) {
             UI.showError('Failed to delete fact: ' + error.message);
         }
-    },
-
-    // Archive current chat
-    async archiveCurrentChat() {
-        if (!State.currentChatId) {
-            UI.showError('No chat to archive');
-            return;
-        }
-        
-        if (CONFIG.TEST_MODE) {
-            // Mock archive in test mode
-            const response = MockStorage.archiveChat(State.currentChatId);
-            if (response.success) {
-                Archive.showRecoveryIdDialog(response.filepointId);
-                State.setAllChats(State.allChats.filter(c => c.chatId !== State.currentChatId));
-                State.setCurrentChatId(null);
-                UI.resetToNewChat();
-                UI.renderSidebar(State);
-            }
-            return;
-        }
-        
-        // Real archive implementation would go here
-        UI.showError('Archive feature coming soon');
     }
 };
 
@@ -1620,25 +1566,23 @@ async function detectEnvironment() {
     if (isProductionDomain) {
         // Force production on public domains
         console.log('🔒 Production domain - using Akash backend');
-        CONFIG.setAPIURL(prodURL, false);
+        CONFIG.setAPIURL(prodURL);
     } else if (preferredEnv === 'local' && localAvailable) {
         // User preference: local (and it's available)
         console.log('🔧 Using preferred LOCAL environment');
-        console.log('⚙️ Setting TEST_MODE to FALSE');
-        CONFIG.setAPIURL('http://localhost:8000', false);
+        CONFIG.setAPIURL('http://localhost:8000');
     } else if (preferredEnv === 'production') {
         // User preference: production
         console.log('🔧 Using preferred PRODUCTION environment');
-        CONFIG.setAPIURL(prodURL, false);
+        CONFIG.setAPIURL(prodURL);
     } else if (localAvailable) {
         // Default to local in development if available
         console.log('🔧 Defaulting to LOCAL environment');
-        console.log('⚙️ Setting TEST_MODE to FALSE');
-        CONFIG.setAPIURL('http://localhost:8000', false);
+        CONFIG.setAPIURL('http://localhost:8000');
     } else {
         // Fallback to production
         console.log('🔧 Using PRODUCTION environment');
-        CONFIG.setAPIURL(prodURL, false);
+        CONFIG.setAPIURL(prodURL);
     }
     
     console.log('🎯 Final API URL:', CONFIG.API_URL);

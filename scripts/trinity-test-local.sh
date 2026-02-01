@@ -73,15 +73,13 @@ mkdir -p "$STORAGE_DIR/memory"
 echo ""
 echo -e "${GREEN}🚀 Starting Trinity test container...${NC}"
 echo -e "${YELLOW}   Model: TinyLlama 1.1B (fast, for testing)${NC}"
-echo -e "${YELLOW}   Auth:  TEST MODE (no signature verification)${NC}"
 echo -e "${YELLOW}   Data:  ${STORAGE_DIR}${NC}"
 echo ""
 
-# Run container with test mode
+# Run container
 docker run -d \
     --name trinity-test \
     -p 8000:8000 \
-    -e TRINITY_TEST_MODE=true \
     -e MODEL_NAME=tinyllama \
     -e OLLAMA_HOST=http://localhost:11434 \
     -e CHATS_DIR=/var/lib/trinity/chats \

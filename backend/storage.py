@@ -15,8 +15,27 @@ logger = logging.getLogger(__name__)
 
 
 def get_user_dir(principal_id: str) -> Path:
-    """Get user's chat directory"""
-    user_dir = Path(CHATS_DIR) / principal_id
+    """
+    Get user's chat directory with path traversal protection.
+    
+    Security: Prevents malicious principal IDs containing '..' or other
+    path manipulation characters from escaping the CHATS_DIR sandbox.
+    Even if a principal somehow contains '../../../etc/passwd', the
+    resolved path check ensures we stay within CHATS_DIR.
+    """
+    # Sanitize: remove any path traversal attempts
+    safe_principal = principal_id.replace('..', '').replace('\x00', '').replace('/', '').replace('\\', '')
+    
+    # Construct the path
+    chats_base = Path(CHATS_DIR).resolve()
+    user_dir = chats_base / safe_principal
+    
+    # CRITICAL: Ensure resolved path is still under CHATS_DIR
+    # This catches any edge cases the sanitization might miss
+    if not user_dir.resolve().is_relative_to(chats_base):
+        logger.error(f"🚨 PATH TRAVERSAL ATTEMPT: {principal_id}")
+        raise ValueError("Invalid principal: path traversal detected")
+    
     user_dir.mkdir(parents=True, exist_ok=True)
     return user_dir
 

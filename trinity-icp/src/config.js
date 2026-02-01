@@ -53,16 +53,6 @@ const CONFIG = {
     USE_CANISTER: false,  // Route through ICP backend canister for decentralization
     BACKEND_CANISTER_ID: BACKEND_CANISTER_ID,
     
-    // Test mode - when true, uses mock responses instead of real API
-    TEST_MODE: false,
-    
-    // Mock responses for TEST_MODE
-    TEST_RESPONSES: [
-        "I'm Trinity AI running in test mode. This is a mock response to verify the UI is working correctly.",
-        "Test mode active! The frontend is functioning properly. Connect to a real backend for AI responses.",
-        "Mock response #3: All systems nominal. Ready for production deployment."
-    ],
-    
     // =========================================================================
     // TIMING CONSTANTS
     // =========================================================================
@@ -104,13 +94,11 @@ const CONFIG = {
     // =========================================================================
     
     /**
-     * Set the API URL and optionally enable test mode
+     * Set the API URL
      * @param {string} url - The API URL to use
-     * @param {boolean} testMode - Whether to enable test mode (mock responses)
      */
-    setAPIURL(url, testMode = false) {
+    setAPIURL(url) {
         this.API_URL = url;
-        this.TEST_MODE = testMode;
         
         // Determine which environment this is
         if (url.includes('localhost') || url.includes('127.0.0.1')) {
@@ -122,7 +110,7 @@ const CONFIG = {
         // Save preference
         this.setPreferredEnvironment(this._currentEnvironment);
         
-        console.log(`⚙️ CONFIG: API_URL=${url}, TEST_MODE=${testMode}, env=${this._currentEnvironment}`);
+        console.log(`⚙️ CONFIG: API_URL=${url}, env=${this._currentEnvironment}`);
     },
     
     /**
