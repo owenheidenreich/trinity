@@ -483,8 +483,9 @@ class AgentPipeline:
                 
                 if critique and critique.score < CRITIQUE_THRESHOLD:
                     yield {"phase": "refining", "message": f"Enhancing quality (score: {critique.score}/10)..."}
+                    original_response = full_response  # Save before clearing
                     full_response = ""
-                    prompt = build_refine_prompt(question, full_response, critique)
+                    prompt = build_refine_prompt(question, original_response, critique)
                     for token in self.client.generate_stream(prompt, PASS_TOKEN_LIMITS['refine'], timeout=PASS_TIMEOUTS['refine']):
                         full_response += token
                         yield {"token": token}
@@ -517,9 +518,10 @@ class AgentPipeline:
                     
                     # Clear and stream refined response
                     yield {"clear": True}  # Signal frontend to clear previous response
+                    original_response = full_response  # Save before clearing
                     full_response = ""
                     
-                    prompt = build_refine_prompt(question, full_response, critique)
+                    prompt = build_refine_prompt(question, original_response, critique)
                     for token in self.client.generate_stream(prompt, PASS_TOKEN_LIMITS['refine'], timeout=PASS_TIMEOUTS['refine']):
                         full_response += token
                         yield {"token": token}

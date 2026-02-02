@@ -156,8 +156,12 @@ Critique:
 - Score: {score}/10
 - Verdict: {verdict}
 
-Now write an IMPROVED response that addresses these weaknesses.
-Keep what was good, fix what was weak. Be thorough."""
+Write an IMPROVED response that addresses these weaknesses.
+Keep what was good, fix what was weak. Be thorough.
+
+CRITICAL: Start your response immediately with the actual content.
+Do NOT include phrases like "Here is my improved response" or "Based on the critique".
+Do NOT reference this refinement process. Just write the answer directly."""
 
 
 # ============================================================================
