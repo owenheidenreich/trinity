@@ -1,0 +1,20 @@
+# Trinity Cloudflare Worker Proxy Configuration
+# Proxies api.dubya.ai/* → Akash Backend
+
+name = "trinity-proxy"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+# Development mode (workers.dev subdomain)
+workers_dev = true
+
+# Production route - uncomment after adding domain to Cloudflare
+# routes = [
+#   { pattern = "api.dubya.ai/*", zone_name = "dubya.ai" }
+# ]
+
+# Secrets (set via CLI, not in this file):
+#   wrangler secret put AKASH_URL
+#
+# Example:
+#   echo "https://abc123.provider.akash.network" | wrangler secret put AKASH_URL

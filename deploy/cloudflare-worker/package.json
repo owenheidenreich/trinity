@@ -1,0 +1,15 @@
+{
+  "name": "trinity-cloudflare-proxy",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cloudflare Worker proxy for Trinity - routes api.dubya.ai to Akash backend",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail",
+    "secret:akash": "wrangler secret put AKASH_URL"
+  },
+  "devDependencies": {
+    "wrangler": "^3.0.0"
+  }
+}

@@ -6,14 +6,13 @@
 # Usage: ./scripts/switch-provider.sh <akash-url>
 #
 # Examples:
-#   ./scripts/switch-provider.sh https://xyz.ingress.akash.pub
-#   ./scripts/switch-provider.sh http://abc.ingress.leet.haus
+#   ./scripts/switch-provider.sh http://xyz.ingress.akash.pub
+#   ./scripts/switch-provider.sh http://abc.ingress.hurricane.akash.pub
 #
 # This script:
-# 1. Updates the AKASH_URL environment variable in Vercel
-# 2. Redeploys the Vercel proxy
+# 1. Updates the AKASH_URL secret in Cloudflare Worker
 #
-# The proxy auto-detects HTTP vs HTTPS from the URL scheme.
+# IMPORTANT: Use HTTP (not HTTPS) - Akash providers have invalid SSL certs
 # ============================================================================
 
 set -e
@@ -31,8 +30,10 @@ if [ -z "$1" ]; then
     echo "Usage: ./scripts/switch-provider.sh <akash-url>"
     echo ""
     echo "Examples:"
-    echo "  ./scripts/switch-provider.sh https://xyz.ingress.akash.pub"
-    echo "  ./scripts/switch-provider.sh http://abc.ingress.leet.haus"
+    echo "  ./scripts/switch-provider.sh http://xyz.ingress.akash.pub"
+    echo "  ./scripts/switch-provider.sh http://abc.ingress.hurricane.akash.pub"
+    echo ""
+    echo -e "${YELLOW}IMPORTANT: Use http:// (not https://) - Akash providers have invalid SSL certs${NC}"
     exit 1
 fi
 
@@ -42,6 +43,21 @@ AKASH_URL="$1"
 if [[ ! "$AKASH_URL" =~ ^https?:// ]]; then
     echo -e "${RED}Error: URL must start with http:// or https://${NC}"
     exit 1
+fi
+
+# Warn about HTTPS
+if [[ "$AKASH_URL" == https://* ]]; then
+    echo ""
+    echo -e "${YELLOW}⚠️  WARNING: You specified HTTPS but Akash providers have invalid SSL certs!${NC}"
+    echo -e "${YELLOW}   This will cause Cloudflare 526 errors.${NC}"
+    echo -e "${YELLOW}   Consider using http:// instead.${NC}"
+    echo ""
+    read -p "Continue with HTTPS anyway? (y/N) " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo "Aborted. Rerun with http:// URL"
+        exit 1
+    fi
 fi
 
 # Warn about problematic providers
@@ -69,7 +85,7 @@ echo ""
 # Get script directory and project root
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-VERCEL_DIR="$PROJECT_ROOT/deploy/vercel-proxy"
+CLOUDFLARE_DIR="$PROJECT_ROOT/deploy/cloudflare-worker"
 
 echo ""
 echo "=========================================="
@@ -79,37 +95,26 @@ echo ""
 echo -e "New URL: ${GREEN}$AKASH_URL${NC}"
 echo ""
 
-# Check if vercel CLI is available
-if ! command -v vercel &> /dev/null; then
-    echo -e "${RED}Error: vercel CLI not found${NC}"
-    echo "Install with: npm i -g vercel"
+# Check if npx is available
+if ! command -v npx &> /dev/null; then
+    echo -e "${RED}Error: npx not found${NC}"
+    echo "Install Node.js first"
     exit 1
 fi
 
-# Navigate to vercel proxy directory
-cd "$VERCEL_DIR"
+# Navigate to cloudflare worker directory
+cd "$CLOUDFLARE_DIR"
 
-# Remove existing env var (ignore errors if doesn't exist)
-echo "Updating AKASH_URL environment variable..."
-vercel env rm AKASH_URL production --yes 2>/dev/null || true
-
-# Add new env var
-echo "$AKASH_URL" | vercel env add AKASH_URL production
-
-echo ""
-echo "Deploying to Vercel..."
-echo ""
-
-# Deploy
-npx vercel --yes --prod
+echo "Updating AKASH_URL secret in Cloudflare Worker..."
+echo "$AKASH_URL" | npx wrangler secret put AKASH_URL
 
 echo ""
 echo "=========================================="
 echo -e "${GREEN}✓ Provider switch complete!${NC}"
 echo "=========================================="
 echo ""
-echo "Vercel proxy now points to: $AKASH_URL"
+echo "Cloudflare Worker now points to: $AKASH_URL"
 echo ""
 echo "Test with:"
-echo "  curl https://vercel-proxy-swart-nine.vercel.app/health"
+echo "  curl https://api.dubya.ai/health"
 echo ""

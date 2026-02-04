@@ -292,9 +292,7 @@ const Modals = {
                 <div class="about-section">
                     <h4>🔗 The Flow</h4>
                     <pre style="background: #1a1a1a; padding: 12px; border-radius: 6px; font-size: 11px; overflow-x: auto;">
-You → ICP Frontend → ICP Backend Canister
-              ↓
-      Vercel Proxy (SSL)
+You → ICP Frontend → Cloudflare Worker
               ↓
       Akash Backend (GPU + Ollama)
               ↓

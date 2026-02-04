@@ -218,8 +218,8 @@ const API = {
         // =====================================================================
         // ROUTING: ICP Canister (decentralized) vs Direct HTTP (local dev)
         // =====================================================================
-        // Default: ICP canister for full decentralization
-        // Canister makes HTTPS outcalls → Vercel Proxy → Akash backend
+        // Default: Cloudflare Worker for production
+        // Worker forwards requests → Akash backend
         // =====================================================================
         
         // Sanitize prompt input
@@ -1579,8 +1579,8 @@ async function detectEnvironment() {
                          hostname === '127.0.0.1' ||
                          hostname === '';
     
-    const isProductionDomain = hostname === 'trinityai.cc' || 
-                               hostname === 'www.trinityai.cc' ||
+    const isProductionDomain = hostname === 'dubya.ai' || 
+                               hostname === 'www.dubya.ai' ||
                                hostname.includes('icp0.io') ||
                                hostname.includes('ic0.app');
     

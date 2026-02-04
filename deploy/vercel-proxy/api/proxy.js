@@ -20,7 +20,7 @@ const isHttps = AKASH_BASE?.startsWith('https://') ?? true;
 
 // Allowed origins for CORS - restrict to known frontends
 const ALLOWED_ORIGINS = [
-  'https://trinityai.cc',
+  'https://dubya.ai',
   'https://zc67k-kiaaa-aaaal-qtmiq-cai.icp0.io',
   'https://zc67k-kiaaa-aaaal-qtmiq-cai.raw.icp0.io',
   'http://localhost:5173', // Development

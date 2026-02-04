@@ -104,9 +104,9 @@ pub struct ErrorResponse {
 
 thread_local! {
     /// Akash backend URL - configurable by canister controller
-    /// Default points to Vercel proxy (handles SSL for Akash)
+    /// Default points to Cloudflare Worker (handles SSL for Akash)
     static AKASH_URL: RefCell<String> = RefCell::new(
-        "https://vercel-proxy-swart-nine.vercel.app".to_string()
+        "https://api.dubya.ai".to_string()
     );
     
     /// Response cache for idempotency

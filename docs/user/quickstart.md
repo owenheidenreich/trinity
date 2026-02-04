@@ -81,7 +81,7 @@ curl http://hdol1m0mohfll4s4t8mhip33sg.ingress.a100.dsm.val.akash.pub/health
 
 ### Frontend (Production)
 ```bash
-curl https://trinityai.cc/
+curl https://dubya.ai/
 ```
 
 ### Verify ICP Domain
@@ -208,7 +208,7 @@ dfx canister --network ic info trinity_frontend
 2. **Validates locally** - Python syntax, imports, Docker build, /health test
 3. **Pushes image** - To DockerHub with version tag
 4. **Deploys to Akash** - Creates deployment, selects provider, sends manifest
-5. **Updates Vercel proxy** - Points frontend to new backend URL
+5. **Updates Cloudflare Worker** - Points frontend to new backend URL
 6. **Verifies production** - Tests /health and /generate endpoints
 
 ### Manual Verification
@@ -238,7 +238,7 @@ cd trinity-icp
 dfx deploy --network ic trinity_frontend
 
 # 4. Verify (wait 1-2 minutes)
-open https://trinityai.cc
+open https://dubya.ai
 # Hard refresh: Cmd+Shift+R
 ```
 
@@ -260,7 +260,7 @@ cd ../prod
 # Follow "Akash Backend Deployment" steps above
 
 # 5. Verify
-curl https://api.trinityai.cc/health | jq .
+curl https://api.dubya.ai/health | jq .
 ```
 
 ### Cloudflare Worker Update
@@ -274,7 +274,7 @@ vim cloudflare/workers/trinity-api-proxy.js
 # Paste updated code → Save and Deploy
 
 # 3. Verify
-curl https://api.trinityai.cc/health
+curl https://api.dubya.ai/health
 ```
 
 ### Environment Variable Update (Backend)
@@ -373,8 +373,8 @@ ollama run tinyllama:1.1b "Say hello"
 
 ### Check Network Connectivity
 ```bash
-ping trinityai.cc
-curl -I https://trinityai.cc
+ping dubya.ai
+curl -I https://dubya.ai
 ```
 
 ### Force Cache Clear (Browser)
@@ -413,8 +413,8 @@ env:
 
 | Component | URL |
 |-----------|-----|
-| Frontend | https://trinityai.cc |
-| API Proxy | https://api.trinityai.cc |
+| Frontend | https://dubya.ai |
+| API Proxy | https://api.dubya.ai |
 | ICP Canister (Direct) | https://zc67k-kiaaa-aaaal-qtmiq-cai.icp0.io |
 | Akash Backend | http://hdol1m0mohfll4s4t8mhip33sg.ingress.a100.dsm.val.akash.pub |
 | Akash Console | https://console.akash.network |
@@ -460,8 +460,8 @@ cd deployment/prod && ./build.sh
 ### Quick Health Check All
 ```bash
 echo "Local:" && curl -s http://localhost:8000/health | jq .status
-echo "Akash:" && curl -s https://api.trinityai.cc/health | jq .status
-echo "Frontend:" && curl -s https://trinityai.cc | head -1
+echo "Akash:" && curl -s https://api.dubya.ai/health | jq .status
+echo "Frontend:" && curl -s https://dubya.ai | head -1
 ```
 
 ### Quick Log Tail All

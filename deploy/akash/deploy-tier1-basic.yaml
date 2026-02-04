@@ -38,9 +38,7 @@ services:
       - CODE_EXECUTION_TIMEOUT=5
       # Voting DISABLED for Tier 1 (too slow with small model)
       - VOTING_ENABLED=false
-      # API Keys - SET THESE VIA DEPLOYMENT SCRIPT OR SECRETS
-      # SECURITY: Do NOT commit actual API keys to version control
-      # These placeholder values must be replaced at deployment time
+      # API Keys - Injected from .env at deployment time
       - LIGHTHOUSE_API_KEY=${LIGHTHOUSE_API_KEY}
       - BRAVE_SEARCH_API_KEY=${BRAVE_SEARCH_API_KEY}
       # Deployment tracking (set by deploy script, used for /funding/status)

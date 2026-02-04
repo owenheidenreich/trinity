@@ -158,9 +158,9 @@ Compress(app)
 ALLOWED_ORIGINS = [
     'https://zc67k-kiaaa-aaaal-qtmiq-cai.icp0.io',  # ICP canister frontend
     'https://zc67k-kiaaa-aaaal-qtmiq-cai.raw.icp0.io',
-    'https://trinityai.cc',
-    'https://www.trinityai.cc',
-    'https://vercel-proxy-swart-nine.vercel.app',
+    'https://dubya.ai',
+    'https://www.dubya.ai',
+    'https://api.dubya.ai',  # Cloudflare Worker
     'http://localhost:3000',  # Local development
     'http://localhost:5173',  # Vite dev server
     'http://127.0.0.1:3000',
@@ -1289,7 +1289,7 @@ def browse_url():
         response = http_session.get(
             url,
             headers={
-                'User-Agent': 'Mozilla/5.0 (compatible; TrinityBot/1.0; +https://trinityai.cc)',
+                'User-Agent': 'Mozilla/5.0 (compatible; TrinityBot/1.0; +https://dubya.ai)',
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
             },
             timeout=15,

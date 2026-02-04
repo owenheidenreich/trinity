@@ -5,17 +5,17 @@
 // detection. This module manages switching between different backends/models.
 //
 // ARCHITECTURE:
-//   - All API requests route through ICP Backend Canister → Vercel Proxy → Akash
+//   - All API requests route through Cloudflare Worker → Akash
 //   - Model switching will be implemented via this config (future: multiple Akash URLs)
-//   - Local development bypasses ICP canister for faster iteration
+//   - Local development bypasses proxy for faster iteration
 // ============================================================================
 
 // Current app version - increment to force cache clear on updates
-const APP_VERSION = '2.7.0';
+const APP_VERSION = '2.8.0';
 
-// Default production API URL (Vercel Proxy → Akash)
-// Note: Akash URLs change on each deployment, Vercel proxy abstracts this
-const PRODUCTION_API_URL = 'https://vercel-proxy-swart-nine.vercel.app';
+// Default production API URL (Cloudflare Worker → Akash)
+// Note: Akash URLs change on each deployment, Cloudflare Worker abstracts this
+const PRODUCTION_API_URL = 'https://api.dubya.ai';
 const MOCK_API_URL = 'http://localhost:8000';
 
 // Auto-detect mock mode: use localhost if mock server is running or if explicitly set
@@ -49,7 +49,7 @@ const CONFIG = {
     
     // ICP Canister settings
     // DISABLED: ICP HTTPS outcalls have ~20s timeout, Tier 3 (72B) needs 60s+
-    // Direct HTTP path via Vercel proxy works without timeout issues
+    // Direct HTTP path via Cloudflare Worker works without timeout issues
     USE_CANISTER: false,  // Route through ICP backend canister for decentralization
     BACKEND_CANISTER_ID: BACKEND_CANISTER_ID,
     
@@ -74,7 +74,7 @@ const CONFIG = {
     // Available environments (populated at runtime)
     _availableEnvironments: {
         local: null,      // Set to 'http://localhost:8000' if local backend detected
-        production: null  // Set to Vercel proxy URL
+        production: null  // Set to Cloudflare Worker URL
     },
     
     // Current active environment

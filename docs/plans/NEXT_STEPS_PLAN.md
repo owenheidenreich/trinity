@@ -328,7 +328,7 @@ def verify_signature_constant_time(verify_key, signed_message):
 **Implementation:**
 ```python
 ALLOWED_ORIGINS = [
-    'https://trinityai.cc',
+    'https://dubya.ai',
     'https://zc67k-kiaaa-aaaal-qtmiq-cai.icp0.io',
     'https://zc67k-kiaaa-aaaal-qtmiq-cai.raw.icp0.io',
     'http://localhost:3000',  # Local dev

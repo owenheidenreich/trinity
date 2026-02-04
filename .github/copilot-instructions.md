@@ -12,12 +12,12 @@ Trinity is a **fully decentralized AI chat application** with self-custody authe
 ### Key Components
 - `trinity-icp/src/`: Modular frontend (13 modules, Zustand state management)
 - `backend/inference_server.py`: Flask backend with auth decorators
-- `deploy/vercel-proxy/`: Vercel proxy for SSL termination (replaced Cloudflare)
+- `deploy/cloudflare-worker/`: Cloudflare Worker for SSL termination
 - `backend/icp_auth.py`: Ed25519 signature verification
 
 ### Data Flow
 ```
-User Input → Frontend (ICP) → ICP Backend Canister → Vercel Proxy → Akash Backend → Ollama LLM
+User Input → Frontend (ICP) → Cloudflare Worker → Akash Backend → Ollama LLM
                                       ↓
                                Autosave (2s debounce) → Encrypted JSON on Akash disk
 ```
@@ -44,12 +44,12 @@ User Input → Frontend (ICP) → ICP Backend Canister → Vercel Proxy → Akas
 ./scripts/trinity-deploy-production.sh 1     # Auto-select Tier 1 (TinyLlama ~$25/mo)
 ./scripts/trinity-deploy-production.sh 2     # Auto-select Tier 2 (Llama 8B ~$50/mo)
 ./scripts/trinity-deploy-production.sh 3     # Auto-select Tier 3 (Qwen 72B ~$200/mo)
-# Handles: Docker build → Push → Akash CLI deploy → Vercel update → ICP deploy → Verify
+# Handles: Docker build → Push → Akash CLI deploy → Cloudflare update → ICP deploy → Verify
 ```
 
 ### Testing
 ```bash
-curl https://vercel-proxy-swart-nine.vercel.app/health  # Backend health check
+curl https://api.dubya.ai/health  # Backend health check
 ./test-prod  # Test production in browser
 ```
 
@@ -163,7 +163,7 @@ Reference: `trinity-icp/src/storage/autosave.js`
 - **Ollama**: Model inference (local + Akash)
 - **Lighthouse SDK**: IPFS backup storage
 - **KaTeX**: Live LaTeX math rendering (via jsdelivr CDN)
-- **Vercel Proxy**: SSL termination for Akash (replaced Cloudflare)
+- **Cloudflare Workers**: SSL termination and proxy for Akash
 - **Akash Network**: Decentralized compute (CLI deployment via `provider-services`)
 - **ICP**: Frontend + backend canister hosting (dfx deploy)
 

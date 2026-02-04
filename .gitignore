@@ -59,4 +59,4 @@ tests/__pycache__/
 target/
 trinity-icp/target/
 *.wasm
-Cargo.lock
+Cargo.lock*.txt

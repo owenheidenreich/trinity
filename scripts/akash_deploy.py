@@ -40,6 +40,16 @@ def load_env_file():
 # Load environment values on module import
 ENV_VALUES = load_env_file()
 
+# Confirm API keys are loaded (without revealing them)
+if 'LIGHTHOUSE_API_KEY' in ENV_VALUES and 'BRAVE_SEARCH_API_KEY' in ENV_VALUES:
+    print(f"✓ API keys loaded from .env (Lighthouse: {ENV_VALUES['LIGHTHOUSE_API_KEY'][:8]}..., Brave: {ENV_VALUES['BRAVE_SEARCH_API_KEY'][:8]}...)")
+elif 'LIGHTHOUSE_API_KEY' in ENV_VALUES:
+    print(f"✓ Lighthouse API key loaded, Brave API key missing")
+elif 'BRAVE_SEARCH_API_KEY' in ENV_VALUES:
+    print(f"✓ Brave API key loaded, Lighthouse API key missing")
+else:
+    print("⚠️  No API keys found in .env file")
+
 # Configuration
 AKASH_NODE = "https://rpc.akashnet.net:443"
 AKASH_CHAIN_ID = "akashnet-2"
@@ -209,13 +219,22 @@ def cleanup_orphaned_deployments(wallet_addr, keep_dseq=None):
 
 def inject_env_values(yaml_content):
     """Inject API keys from .env into YAML content"""
-    # Replace ${VAR} placeholders with actual values from .env
+    # Replace empty env vars or ${VAR} placeholders with actual values from .env
     if 'LIGHTHOUSE_API_KEY' in ENV_VALUES:
+        # Handle both formats: empty value and ${VAR} placeholder
+        yaml_content = yaml_content.replace(
+            '- LIGHTHOUSE_API_KEY=\n',
+            f'- LIGHTHOUSE_API_KEY={ENV_VALUES["LIGHTHOUSE_API_KEY"]}\n'
+        )
         yaml_content = yaml_content.replace(
             '${LIGHTHOUSE_API_KEY}',
             ENV_VALUES['LIGHTHOUSE_API_KEY']
         )
     if 'BRAVE_SEARCH_API_KEY' in ENV_VALUES:
+        yaml_content = yaml_content.replace(
+            '- BRAVE_SEARCH_API_KEY=\n',
+            f'- BRAVE_SEARCH_API_KEY={ENV_VALUES["BRAVE_SEARCH_API_KEY"]}\n'
+        )
         yaml_content = yaml_content.replace(
             '${BRAVE_SEARCH_API_KEY}',
             ENV_VALUES['BRAVE_SEARCH_API_KEY']

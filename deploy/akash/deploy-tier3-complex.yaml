@@ -19,7 +19,7 @@ version: "2.0"
 
 services:
   trinity:
-    image: gdubx/trinity-inference:v4-fix
+    image: gdubx/trinity-inference:v4-intelligence
     env:
       - PROVIDER_ID=trinity-tier3-complex
       - MODEL_NAME=qwen2.5:32b
@@ -50,9 +50,7 @@ services:
       - VOTING_ENABLED=true
       - VOTING_CANDIDATES=3
       - VOTING_COMPLEXITY_THRESHOLD=7
-      # API Keys - SET THESE VIA DEPLOYMENT SCRIPT OR SECRETS
-      # SECURITY: Do NOT commit actual API keys to version control
-      # These placeholder values must be replaced at deployment time
+      # API Keys - Injected from .env at deployment time
       - LIGHTHOUSE_API_KEY=${LIGHTHOUSE_API_KEY}
       - BRAVE_SEARCH_API_KEY=${BRAVE_SEARCH_API_KEY}
       # Deployment tracking (set by deploy script, used for /funding/status)

@@ -32,8 +32,15 @@ DOCKER_IMAGE="gdubx/trinity-inference"
 AKASH_NODE="https://rpc.akashnet.net:443"
 AKASH_CHAIN_ID="akashnet-2"
 WALLET_NAME="trinity-wallet"
-VERCEL_PROXY_URL="https://vercel-proxy-swart-nine.vercel.app"
+
+# Cloudflare Worker Proxy (replaces Vercel)
+CLOUDFLARE_WORKER_DIR="$DEPLOY_DIR/cloudflare-worker"
+CLOUDFLARE_WORKER_URL="https://api.dubya.ai"
+API_PROXY_URL="https://api.dubya.ai"  # Custom domain (once DNS configured)
+
+# Frontend URLs
 ICP_FRONTEND_URL="https://zc67k-kiaaa-aaaal-qtmiq-cai.icp0.io"
+CUSTOM_FRONTEND_URL="https://dubya.ai"
 
 # Tier configurations (zsh associative arrays)
 typeset -A TIER_YAML
@@ -131,13 +138,22 @@ check_prerequisites() {
         log_success "Python3 available"
     fi
     
-    # Check Vercel CLI (optional)
-    if command -v vercel &> /dev/null; then
-        log_success "Vercel CLI available"
-        VERCEL_AVAILABLE=true
+    # Check Wrangler CLI (for Cloudflare Workers)
+    if command -v wrangler &> /dev/null; then
+        log_success "Wrangler CLI available"
+        WRANGLER_AVAILABLE=true
+        
+        # Check if authenticated
+        if wrangler whoami &> /dev/null 2>&1; then
+            log_success "Wrangler authenticated"
+        else
+            log_warning "Wrangler not authenticated - run 'wrangler login'"
+            WRANGLER_AVAILABLE=false
+        fi
     else
-        log_warning "Vercel CLI not found - will provide manual update command"
-        VERCEL_AVAILABLE=false
+        log_warning "Wrangler CLI not found - will provide manual update command"
+        log_info "Install with: npm install -g wrangler"
+        WRANGLER_AVAILABLE=false
     fi
     
     if [ ${#missing[@]} -gt 0 ]; then
@@ -299,57 +315,42 @@ push_image() {
 }
 
 # =============================================================================
-# UPDATE VERCEL PROXY
+# UPDATE CLOUDFLARE WORKER
 # =============================================================================
 
-update_vercel_proxy() {
-    log_step "Updating Vercel Proxy"
+update_cloudflare_worker() {
+    log_step "Updating Cloudflare Worker Proxy"
     
     # Ensure the URL has https:// prefix
     FULL_AKASH_URL="https://$DEPLOYED_URI"
     
-    if [ "$VERCEL_AVAILABLE" = true ]; then
-        cd "$DEPLOY_DIR/vercel-proxy"
+    if [ "$WRANGLER_AVAILABLE" = true ]; then
+        cd "$CLOUDFLARE_WORKER_DIR"
         
-        echo "Updating AKASH_URL environment variable..."
+        echo "Updating AKASH_URL secret..."
         
-        # Remove existing env var (ignore errors)
-        vercel env rm AKASH_URL production --yes 2>/dev/null || true
-        
-        # Add new env var with full URL including https://
-        if echo "$FULL_AKASH_URL" | vercel env add AKASH_URL production --yes 2>/dev/null; then
-            log_success "Environment variable updated: AKASH_URL=$FULL_AKASH_URL"
+        # Update the secret (instant, no redeploy needed)
+        if echo "$FULL_AKASH_URL" | wrangler secret put AKASH_URL 2>/dev/null; then
+            log_success "AKASH_URL secret updated: $FULL_AKASH_URL"
         else
-            log_warning "vercel env add failed - updating proxy.js fallback"
-            sed -i.bak "s|https://[a-z0-9]*\.ingress\.[^'\"]*|$FULL_AKASH_URL|g" api/proxy.js
-            rm -f api/proxy.js.bak
-        fi
-        
-        # Redeploy
-        echo ""
-        echo "Redeploying Vercel proxy..."
-        if vercel --prod --yes 2>&1 | tail -5; then
-            log_success "Vercel proxy redeployed"
-        else
-            log_warning "Vercel deploy may have issues - check output"
+            log_error "Failed to update AKASH_URL secret"
+            echo ""
+            echo "Manual command:"
+            echo "  cd $CLOUDFLARE_WORKER_DIR"
+            echo "  echo '$FULL_AKASH_URL' | wrangler secret put AKASH_URL"
         fi
         
         cd "$PROJECT_ROOT"
     else
-        # Update fallback URL in proxy.js directly
-        PROXY_FILE="$DEPLOY_DIR/vercel-proxy/api/proxy.js"
-        if [ -f "$PROXY_FILE" ]; then
-            sed -i.bak "s|https://[a-z0-9]*\.ingress\.[^'\"]*|$FULL_AKASH_URL|g" "$PROXY_FILE"
-            rm -f "${PROXY_FILE}.bak"
-            log_warning "Updated proxy.js fallback - manual Vercel deploy needed"
-            echo "  Run: cd $DEPLOY_DIR/vercel-proxy && vercel --prod"
-        fi
+        log_warning "Wrangler not available - manual Cloudflare update needed"
+        echo ""
+        echo "Run these commands to update:"
+        echo "  cd $CLOUDFLARE_WORKER_DIR"
+        echo "  echo '$FULL_AKASH_URL' | wrangler secret put AKASH_URL"
     fi
     
-    # Wait for Vercel to propagate
-    echo ""
-    echo "Waiting 10s for Vercel to propagate..."
-    sleep 10
+    # No propagation wait needed - Cloudflare secrets are instant
+    log_info "Cloudflare Worker update complete (instant propagation)"
 }
 
 # =============================================================================
@@ -387,16 +388,16 @@ update_icp_canisters() {
         return 1
     fi
     
-    # Verify the full chain works (ICP → Vercel → Akash)
+    # Verify the full chain works (ICP → Cloudflare → Akash)
     echo ""
-    echo "Verifying ICP canister can reach Akash via Vercel proxy..."
+    echo "Verifying ICP canister can reach Akash via Cloudflare Worker..."
     HEALTH_RESULT=$(dfx canister --ic call trinity_backend health 2>&1 || echo "error")
     
     if echo "$HEALTH_RESULT" | grep -q 'healthy'; then
         log_success "ICP backend canister connected to Akash"
         echo "  $(echo "$HEALTH_RESULT" | grep -o 'model = "[^"]*"' | head -1)"
     else
-        log_warning "ICP canister health check pending - Vercel may still be propagating"
+        log_warning "ICP canister health check pending - Cloudflare may still be propagating"
     fi
     
     # Deploy frontend canister
@@ -470,15 +471,16 @@ verify_production() {
         echo "  Response: $GENERATE_RESPONSE"
     fi
     
-    # Test via Vercel Proxy
+    # Test via Cloudflare Worker Proxy
     echo ""
-    echo "Testing Vercel proxy /health..."
-    PROXY_HEALTH=$(curl -s --max-time 10 "$VERCEL_PROXY_URL/health" 2>/dev/null || echo "")
+    echo "Testing Cloudflare Worker proxy /health..."
+    PROXY_HEALTH=$(curl -s --max-time 10 "$CLOUDFLARE_WORKER_URL/health" 2>/dev/null || echo "")
     
     if echo "$PROXY_HEALTH" | grep -q '"status":"healthy"'; then
-        log_success "Vercel proxy → Akash connection OK"
+        log_success "Cloudflare Worker → Akash connection OK"
     else
-        log_warning "Vercel proxy health check issue"
+        log_warning "Cloudflare Worker health check issue"
+        echo "  Response: $PROXY_HEALTH"
     fi
     
     # Test ICP Canister (if dfx available)
@@ -489,7 +491,7 @@ verify_production() {
         ICP_HEALTH=$(dfx canister --ic call trinity_backend health 2>&1 || echo "")
         
         if echo "$ICP_HEALTH" | grep -q 'healthy'; then
-            log_success "ICP canister → Vercel → Akash connection OK"
+            log_success "ICP canister → Cloudflare → Akash connection OK"
         else
             log_warning "ICP canister health check issue"
         fi
@@ -518,8 +520,9 @@ print_summary() {
     echo "  Provider:   $DEPLOYED_PROVIDER"
     echo ""
     echo "  Akash:      https://$DEPLOYED_URI"
-    echo "  Vercel:     $VERCEL_PROXY_URL"
-    echo "  Frontend:   $ICP_FRONTEND_URL"
+    echo "  Proxy:      $CLOUDFLARE_WORKER_URL"
+    echo "  API:        $API_PROXY_URL (once DNS configured)"
+    echo "  Frontend:   $CUSTOM_FRONTEND_URL (or $ICP_FRONTEND_URL)"
     echo ""
     echo "  View logs:"
     echo "    provider-services lease-logs --dseq $DEPLOYED_DSEQ --provider $DEPLOYED_PROVIDER --from $WALLET_NAME --keyring-backend os --node $AKASH_NODE --follow"
@@ -542,7 +545,7 @@ main() {
     echo -e "${CYAN}╔══════════════════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${CYAN}║                     TRINITY UNIFIED DEPLOYMENT                           ║${NC}"
     echo -e "${CYAN}║                                                                          ║${NC}"
-    echo -e "${CYAN}║  Pipeline: Build → Push → Deploy Akash → Update Vercel → Update ICP     ║${NC}"
+    echo -e "${CYAN}║  Pipeline: Build → Push → Deploy Akash → Update Cloudflare → Update ICP║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
     
@@ -551,7 +554,7 @@ main() {
     validate_local
     push_image
     deploy_to_akash
-    update_vercel_proxy
+    update_cloudflare_worker
     update_icp_canisters
     verify_production
     print_summary

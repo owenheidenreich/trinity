@@ -14,9 +14,9 @@
 |-----------|-------|
 | **ICP Frontend Canister** | `zc67k-kiaaa-aaaal-qtmiq-cai` |
 | **ICP Backend Canister** | `au5zq-2qaaa-aaaal-qtowa-cai` |
-| **Primary URL** | https://trinityai.cc |
+| **Primary URL** | https://dubya.ai |
 | **Canister URL** | https://zc67k-kiaaa-aaaal-qtmiq-cai.icp0.io |
-| **Vercel Proxy** | https://vercel-proxy-swart-nine.vercel.app |
+| **Cloudflare Worker** | https://api.dubya.ai |
 | **Docker Image** | `gdubx/trinity-inference:v4-unlimited` |
 | **Akash Wallet** | `akash155hphg6qyy3vtr584p38wlngtqxzdr0l6jutmp` |
 
@@ -40,12 +40,18 @@
 - The deployment script takes 5-10 minutes to complete - do not run `sleep` or other commands that would interrupt it
 - Only check terminal output if the user asks or reports an issue
 
+**🔒 SECURITY RULES:**
+- **NEVER put API keys in YAML files** - This is a security violation
+- API keys are stored in `.env` file (gitignored) and injected at deployment time
+- The deployment script reads from `.env` and passes to Docker/Akash securely
+- If YAML needs env vars, use empty values: `- LIGHTHOUSE_API_KEY=` (set at runtime)
+
 **The script handles EVERYTHING:**
 1. Prerequisites check (Docker, provider-services CLI, wallet)
 2. Local validation (Python syntax, Docker build)
 3. Docker push to Docker Hub
 4. Akash deployment via CLI (closes old deployments, creates new)
-5. Vercel proxy URL update
+5. Cloudflare Worker URL update
 6. ICP frontend canister deployment
 7. Production verification (/health, /generate tests)
 
@@ -107,9 +113,9 @@ Trinity/
 │   │   ├── start.sh             # Start TinyLlama locally
 │   │   ├── stop.sh              # Stop local backend
 │   │   └── status.sh            # Check local status
-│   └── vercel-proxy/            # SSL termination proxy
-│       ├── api/proxy.js         # Node.js proxy (http/https support)
-│       ├── vercel.json          # Routing config
+│   └── cloudflare-worker/       # SSL termination proxy
+│       ├── worker.js            # Cloudflare Worker proxy
+│       ├── wrangler.toml        # Wrangler config
 │       └── package.json         # Dependencies
 │
 ├── scripts/                     # 📜 AUTOMATION SCRIPTS
@@ -117,7 +123,7 @@ Trinity/
 │   ├── akash_deploy.py          # Akash CLI helper (Python)
 │   ├── dev.sh                   # Start local development
 │   ├── test-prod.sh             # Test production backend
-│   ├── switch-provider.sh       # Update Vercel proxy URL
+│   ├── switch-provider.sh       # Update Cloudflare Worker URL
 │   ├── trinity-test-local.sh    # Local testing script
 │   └── docker-cleanup.sh        # Clean Docker cache
 │
@@ -598,7 +604,7 @@ V4_FEATURES_AVAILABLE = all([
 
 **Check v4 status**:
 ```bash
-curl -s https://vercel-proxy-swart-nine.vercel.app/v4/status | jq .
+curl -s https://api.dubya.ai/v4/status | jq .
 ```
 
 **Expected response (all working)**:
@@ -627,7 +633,7 @@ curl -s https://vercel-proxy-swart-nine.vercel.app/v4/status | jq .
 
 **Verify build timestamp**:
 ```bash
-curl -s https://vercel-proxy-swart-nine.vercel.app/health | jq '.build_timestamp'
+curl -s https://api.dubya.ai/health | jq '.build_timestamp'
 ```
 
 ### Dependencies Added (requirements.txt)
@@ -655,7 +661,7 @@ Token and timeout limits were significantly increased to allow long-form generat
 | Refine pass tokens | 4,000 | 8,000 | `agent.py` |
 | Ollama timeout | 300s | 600s | `inference_server.py` |
 | Akash HTTP timeout | 60s | 600s | `deploy-tier3-complex.yaml` |
-| Vercel function timeout | 300s | 300s (max) | `vercel.json` |
+| Cloudflare Worker timeout | 30s | 30s (max) | `wrangler.toml` |
 
 ### Testing V4 Features
 
@@ -663,22 +669,22 @@ Token and timeout limits were significantly increased to allow long-form generat
 
 ```bash
 # 1. Math reasoning
-curl -s -X POST https://vercel-proxy-swart-nine.vercel.app/generate \
+curl -s -X POST https://api.dubya.ai/generate \
   -H "Content-Type: application/json" \
   -d '{"prompt": "A store sells apples for $0.75 each. Buy 12+, get 15% off. How much for 15 apples?", "max_length": 400}' | jq -r '.response'
 
 # 2. Logic puzzle
-curl -s -X POST https://vercel-proxy-swart-nine.vercel.app/generate \
+curl -s -X POST https://api.dubya.ai/generate \
   -H "Content-Type: application/json" \
   -d '{"prompt": "Alice, Bob, Carol have cat, dog, fish. Alice has no dog. Cat owner is not Carol. Bob has fish. Who has what?", "max_length": 400}' | jq -r '.response'
 
 # 3. Code generation
-curl -s -X POST https://vercel-proxy-swart-nine.vercel.app/generate \
+curl -s -X POST https://api.dubya.ai/generate \
   -H "Content-Type: application/json" \
   -d '{"prompt": "Write Python to find longest palindromic substring. Handle edge cases.", "max_length": 800}' | jq -r '.response'
 
 # 4. Trick question
-curl -s -X POST https://vercel-proxy-swart-nine.vercel.app/generate \
+curl -s -X POST https://api.dubya.ai/generate \
   -H "Content-Type: application/json" \
   -d '{"prompt": "A farmer has 17 sheep. All but 9 run away. How many left?", "max_length": 200}' | jq -r '.response'
 ```
@@ -819,19 +825,19 @@ ICP Frontend Canister (zc67k-kiaaa-aaaal-qtmiq-cai)
     │
     ├─→ Direct API calls (most endpoints)
     │       ↓
-    │   Vercel Proxy (SSL termination)
+    │   Cloudflare Worker (SSL termination)
     │       ↓
     │   Akash Backend (Flask + Ollama)
     │
     └─→ ICP Backend Canister (au5zq-2qaaa-aaaal-qtowa-cai)
             ↓ HTTPS Outcalls (for ICP consensus)
-        Vercel Proxy → Akash Backend
+        Cloudflare Worker → Akash Backend
 ```
 
-### Why Vercel Proxy?
+### Why Cloudflare Worker?
 - Akash providers have invalid/self-signed SSL certificates
 - ICP HTTPS Outcalls require valid SSL
-- Vercel provides valid SSL and forwards requests with certificate bypass
+- Cloudflare provides valid SSL and forwards requests via HTTP to Akash
 
 ---
 
@@ -1069,10 +1075,10 @@ cd trinity-icp && npm run build && dfx deploy --ic trinity_frontend
 
 ```bash
 # Health check
-curl https://vercel-proxy-swart-nine.vercel.app/health
+curl https://api.dubya.ai/health
 
 # Test LLM response
-curl -X POST https://vercel-proxy-swart-nine.vercel.app/generate \
+curl -X POST https://api.dubya.ai/generate \
   -H "Content-Type: application/json" \
   -d '{"prompt": "What is 2+2?", "max_length": 50}'
 
@@ -1122,7 +1128,7 @@ Major security audit identified 67 issues across the codebase. Key fixes impleme
 |----------|-----|------|
 | **API Key Exposure** | Removed hardcoded keys, now injected from `.env` at deploy time | `deploy/akash/deploy-tier*.yaml` |
 | **XSS Prevention** | All innerHTML wrapped with DOMPurify sanitization | `trinity-icp/src/app.js` |
-| **CORS Hardening** | Removed wildcard, restricted to known origins | `deploy/vercel-proxy/api/proxy.js` |
+| **CORS Hardening** | Removed wildcard, restricted to known origins | `deploy/cloudflare-worker/worker.js` |
 | **CSP Hardening** | Removed dangerous wildcard from connect-src | `trinity-icp/.ic-assets.json5` |
 | **Docker Security** | Added non-root user (trinity) to prevent container escape | `deploy/docker/Dockerfile` |
 | **Thread Safety** | Added locks to global state (document_store, funding_cache) | `backend/inference_server.py` |
@@ -1154,7 +1160,7 @@ Major security audit identified 67 issues across the codebase. Key fixes impleme
 | Request cancellation | AbortController on all fetch calls | `app.js` |
 
 ### Proxy Security Headers
-The Vercel proxy now includes:
+The Cloudflare Worker includes:
 ```javascript
 X-Content-Type-Options: nosniff
 X-Frame-Options: DENY
@@ -1238,7 +1244,7 @@ Hard refresh: `Cmd+Shift+R` (Mac) or `Ctrl+Shift+R` (Windows/Linux)
 | Change auth flow | `trinity-icp/src/auth/authManager.js` |
 | Change autosave | `trinity-icp/src/storage/autosave.js` |
 | Change environment config | `trinity-icp/src/config.js` |
-| Change Vercel proxy | `deploy/vercel-proxy/api/proxy.js` |
+| Change Cloudflare Worker | `deploy/cloudflare-worker/worker.js` |
 | Change Akash deployment | `deploy/akash/deploy-tier*.yaml` |
 | Change Docker build | `deploy/docker/Dockerfile` |
 | Change deployment script | `scripts/trinity-deploy-production.sh` |
@@ -1407,7 +1413,7 @@ trinity-icp/src/
 | 6 | ☐ Lease status shows URI | Note the ingress URL |
 | 7 | ☐ Logs show "Server ready" | `provider-services lease-logs ...` |
 | 8 | ☐ Health endpoint responds | `curl https://<url>/health` |
-| 9 | ☐ Vercel proxy updated with new URL | `./scripts/switch-provider.sh` |
+| 9 | ☐ Cloudflare Worker updated with new URL | `wrangler secret put AKASH_URL` |
 | 10 | ☐ Frontend ICP canister redeployed | `dfx deploy --ic trinity_frontend` |
 
 **Provider Reliability:**
@@ -1510,9 +1516,9 @@ trinity-icp/src/
 - Context memory (6-message window + summarization)
 - Modular frontend architecture (Zustand)
 - ICP backend canister (HTTPS Outcalls)
-- Vercel SSL proxy
+- Cloudflare Worker SSL proxy
 - Unified CLI deployment pipeline (`trinity-deploy-production.sh`)
-- Custom domain (trinityai.cc)
+- Custom domain (dubya.ai)
 - Funding transparency (Akash escrow balance + ICP cycles)
 
 ### ⏳ Planned
@@ -1522,6 +1528,21 @@ trinity-icp/src/
 ---
 
 ## 🐛 Known Issues & Fixes
+
+### New Chat Deletes Saved Chat (Active - Feb 2026)
+
+**Symptom:** Clicking "New Chat" button deletes the previously saved chat instead of preserving it.
+
+**Status:** Under investigation. Autosave may not be completing before new chat clears state.
+
+**Affected Files:**
+- `trinity-icp/src/app.js` (newChat function)
+- `trinity-icp/src/storage/autosave.js`
+- `trinity-icp/src/ui/sidebar.js`
+
+**Workaround:** Wait a few seconds after last message before clicking New Chat.
+
+---
 
 ### TinyLlama Prompt Confusion (Critical - Jan 2026)
 
@@ -1585,12 +1606,223 @@ Assistant:
 
 ## 🔗 Quick Links
 
-- **Production:** https://trinityai.cc
+- **Production:** https://dubya.ai
 - **ICP Direct:** https://zc67k-kiaaa-aaaal-qtmiq-cai.icp0.io
-- **Vercel Proxy:** https://vercel-proxy-swart-nine.vercel.app
+- **Cloudflare Worker:** https://api.dubya.ai
 - **Docker Hub:** https://hub.docker.com/r/gdubx/trinity-inference
 - **Akash Console:** https://console.akash.network
 
 ---
 
-*This document is maintained for AI assistants to quickly understand Trinity without re-exploring files. Last updated January 31, 2026 (v3.8.0 security audit).*
+## 🖥️ New Mac Setup Guide
+
+> For users who already have an Akash wallet and are setting up Trinity on a new Mac.
+
+### Prerequisites Checklist
+
+| Tool | Purpose | Required |
+|------|---------|----------|
+| Docker Desktop | Build & push containers | ✅ Yes |
+| Homebrew | Package manager for macOS | ✅ Yes |
+| Node.js | Build frontend | ✅ Yes |
+| Akash CLI | Deploy to Akash Network | ✅ Yes |
+| Akash Wallet | Sign deployment transactions | ✅ Yes (with ~5 AKT) |
+| Akash Certificate | Provider communication | ✅ Yes (created once) |
+| Wrangler CLI | Cloudflare Workers deployment | ✅ Yes |
+| dfx SDK | Deploy ICP canisters | ⚠️ Optional |
+| Docker Hub account | Push container images | ✅ Yes |
+
+### Step 1: Install Docker Desktop
+
+1. Download from [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop/)
+2. Open the `.dmg` and drag Docker to Applications
+3. **Launch Docker Desktop** (it must be running, not just installed)
+4. Wait for Docker to fully start (whale icon in menu bar stops animating)
+
+```bash
+docker info  # Verify it works
+```
+
+### Step 2: Install Homebrew
+
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# Add to PATH (Apple Silicon)
+echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zshrc
+source ~/.zshrc
+
+brew --version  # Verify
+```
+
+### Step 3: Install Node.js
+
+```bash
+brew install node
+node --version  # Should show v20+ or v22+
+```
+
+### Step 4: Install Akash CLI
+
+```bash
+curl -sfL https://raw.githubusercontent.com/akash-network/provider/main/install.sh | sudo bash -s -- -b /usr/local/bin
+
+provider-services version  # Verify
+```
+
+### Step 5: Import Akash Wallet
+
+```bash
+provider-services keys add trinity-wallet --recover --keyring-backend os
+# Enter 24-word mnemonic when prompted
+
+provider-services keys show trinity-wallet --keyring-backend os -a  # Verify
+```
+
+### Step 6: Create Akash Certificate
+
+Required for provider communication. Only needs to be done once per wallet/machine.
+
+```bash
+# Generate certificate
+provider-services tx cert generate client \
+  --from trinity-wallet --keyring-backend os \
+  --chain-id akashnet-2 --node https://rpc.akashnet.net:443
+
+# Publish to blockchain
+provider-services tx cert publish client \
+  --from trinity-wallet --keyring-backend os \
+  --chain-id akashnet-2 --node https://rpc.akashnet.net:443 \
+  --gas-prices 0.025uakt --gas auto --gas-adjustment 1.5 -y
+```
+
+### Step 7: Install Wrangler CLI (Cloudflare Workers)
+
+```bash
+npm install -g wrangler
+wrangler login  # Opens browser for OAuth
+wrangler whoami  # Verify
+```
+
+### Step 8: Deploy Cloudflare Worker (First Time)
+
+```bash
+cd deploy/cloudflare-worker
+wrangler deploy
+```
+
+Then set the AKASH_URL secret (after Akash deployment):
+```bash
+echo "http://YOUR_AKASH_URI" | wrangler secret put AKASH_URL
+```
+
+### Step 9: Install dfx SDK (Optional)
+
+```bash
+sh -ci "$(curl -fsSL https://internetcomputer.org/install.sh)"
+source ~/.zshrc
+dfx --version  # Verify
+```
+
+### Step 10: Login to Docker Hub
+
+```bash
+docker login
+```
+
+### Step 11: Deploy
+
+```bash
+./scripts/trinity-deploy-production.sh 2  # Tier 2 recommended
+```
+
+---
+
+## 🔧 Common Issues
+
+| Problem | Solution |
+|---------|----------|
+| `zsh: command not found: brew` | Run Homebrew install (Step 2) |
+| `zsh: command not found: provider-services` | Reinstall with `sudo` and `-b /usr/local/bin` flag |
+| `docker info` fails | Start Docker Desktop app |
+| Keychain password prompt | Grant access (Akash uses macOS Keychain) |
+| Low AKT balance warning | Fund wallet with ~5 AKT |
+| `could not open certificate PEM file` | Run Step 6 to create Akash certificate |
+| `Missing entry-point to Worker script` | Run `wrangler deploy` from inside `deploy/cloudflare-worker/` directory |
+| `out of gas` error | Add `--gas-prices 0.025uakt --gas auto --gas-adjustment 1.5` flags |
+| Cloudflare 526 SSL error | Use `http://` not `https://` for Akash URL in Worker secret |
+| `npm run build` ERESOLVE/vite conflict | Downgrade vite to `^5.4.0` in package.json |
+| `Unknown Domain` on custom domain | Register domain with ICP (see below) |
+
+---
+
+## 🌐 ICP Custom Domain Registration
+
+### DNS Records for dubya.ai (Cloudflare)
+
+| Type | Name | Content | Proxy |
+|------|------|---------|-------|
+| CNAME | `@` | `icp1.io` | ❌ DNS only |
+| TXT | `_canister-id` | `zc67k-kiaaa-aaaal-qtmiq-cai` | ❌ DNS only |
+| CNAME | `_acme-challenge` | `_acme-challenge.dubya.ai.icp2.io` | ❌ DNS only |
+| CNAME | `www` | `dubya.ai` | ❌ DNS only |
+| Worker | `api` | `trinity-proxy` | ☁️ Proxied |
+
+### Register with ICP
+
+```bash
+# Validate DNS setup
+curl -sL -X GET "https://icp0.io/custom-domains/v1/dubya.ai/validate" | jq .
+
+# Register domain
+curl -sL -X POST "https://icp0.io/custom-domains/v1/dubya.ai" | jq .
+
+# Check status (should show "registered" after 1-2 minutes)
+curl -sL -X GET "https://icp0.io/custom-domains/v1/dubya.ai" | jq .
+```
+
+---
+
+## 📋 Manual Akash Deployment
+
+If the automated script fails:
+
+```bash
+# 1. Create deployment
+provider-services tx deployment create deploy/akash/deploy-tier2-balanced.yaml \
+  --from trinity-wallet --keyring-backend os \
+  --chain-id akashnet-2 --node https://rpc.akashnet.net:443 \
+  --gas-prices 0.025uakt --gas auto --gas-adjustment 1.5 -y
+
+# Note DSEQ from output, then wait 30s for bids:
+provider-services query market bid list \
+  --owner $(provider-services keys show trinity-wallet --keyring-backend os -a) \
+  --dseq YOUR_DSEQ --node https://rpc.akashnet.net:443 -o json
+
+# 2. Accept a bid
+provider-services tx market lease create \
+  --dseq YOUR_DSEQ --gseq 1 --oseq 1 --provider PROVIDER_ADDRESS \
+  --from trinity-wallet --keyring-backend os \
+  --chain-id akashnet-2 --node https://rpc.akashnet.net:443 \
+  --gas-prices 0.025uakt --gas auto --gas-adjustment 1.5 -y
+
+# 3. Send manifest
+provider-services send-manifest deploy/akash/deploy-tier2-balanced.yaml \
+  --dseq YOUR_DSEQ --provider PROVIDER_ADDRESS \
+  --from trinity-wallet --keyring-backend os \
+  --node https://rpc.akashnet.net:443
+
+# 4. Get URI
+provider-services query provider lease-status \
+  --dseq YOUR_DSEQ --gseq 1 --oseq 1 --provider PROVIDER_ADDRESS \
+  --from trinity-wallet --keyring-backend os \
+  --node https://rpc.akashnet.net:443
+
+# 5. Update Cloudflare Worker (USE HTTP!)
+cd deploy/cloudflare-worker
+echo "http://YOUR_AKASH_URI" | wrangler secret put AKASH_URL
+```
+
+---
+
+*This document is maintained for AI assistants to quickly understand Trinity without re-exploring files. Last updated February 4, 2026 (migrated to Cloudflare Workers, dubya.ai domain, added new Mac setup guide).*

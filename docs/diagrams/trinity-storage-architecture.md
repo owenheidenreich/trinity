@@ -49,7 +49,7 @@ Trinity uses a **two-tier storage strategy** combining Akash Network for active 
 
     ┌─────────────────────────────────────────────────────────────────────────────┐
     │                            👤 USER (Browser)                                 │
-    │                         https://trinityai.cc                                 │
+    │                         https://dubya.ai                                     │
     │                                                                              │
     │  ┌───────────────────────────────────────────────────────────────────────┐  │
     │  │                      FRONTEND (ICP Canister)                           │  │
