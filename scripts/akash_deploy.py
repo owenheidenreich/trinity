@@ -392,6 +392,28 @@ def close_deployment(dseq):
         f"--yes 2>/dev/null"
     )
 
+def check_ssl_valid(uri):
+    """Check if the provider has a valid SSL certificate"""
+    import ssl
+    import socket
+    
+    try:
+        # Parse the URI to get hostname
+        hostname = uri.split('/')[0] if '/' in uri else uri
+        
+        context = ssl.create_default_context()
+        with socket.create_connection((hostname, 443), timeout=10) as sock:
+            with context.wrap_socket(sock, server_hostname=hostname) as ssock:
+                # If we get here, SSL is valid
+                return True
+    except ssl.SSLCertVerificationError:
+        return False
+    except ssl.SSLError:
+        return False
+    except Exception as e:
+        # Connection refused, timeout, etc - assume no valid SSL
+        return False
+
 def close_lease(dseq, provider):
     """Close a specific lease"""
     run_cmd(
@@ -530,6 +552,7 @@ def main():
     skip_providers = [
         "akash19yhu3jgw8h0320av98h8n5qczje3pj3u9u2amp",  # bdl.computer - times out
         "akash1sjwuwre4qprcaa34f6324yz7m8nn0awvc75gp5",  # quanglong.org - very slow image pulls (26+ min)
+        "akash1adyrcsp2ptwd83txgv555eqc0vhfufc37wx040",  # airitdecomp.net - DNS doesn't resolve
     ]
     
     for provider, price in bids:
@@ -577,11 +600,11 @@ def main():
         # Wait for container - much longer timeout for Tier 3 (72B model)
         # Tier 3 can take 15-20+ minutes to pull the model on first deploy
         if selected_tier == 1:
-            max_wait = 120   # 2 min for TinyLlama
+            max_wait = 180   # 3 min for TinyLlama
         elif selected_tier == 2:
-            max_wait = 300   # 5 min for Llama 8B  
+            max_wait = 420   # 7 min for Llama 8B  
         else:
-            max_wait = 900   # 15 min for Qwen 72B (it's huge!)
+            max_wait = 1200  # 20 min for Qwen 72B (it's huge!)
         
         print(f"  Waiting for container (up to {max_wait//60} min for Tier {selected_tier})...")
         uri = None
@@ -619,6 +642,17 @@ def main():
         
         if uri:
             print(f" READY!")
+            
+            # Check SSL certificate validity
+            print(f"\n  Checking SSL certificate...")
+            ssl_valid = check_ssl_valid(uri)
+            if ssl_valid:
+                print(f"  ✅ SSL certificate valid - using HTTPS")
+                full_url = f"https://{uri}"
+            else:
+                print(f"  ⚠️  SSL certificate invalid - using HTTP")
+                full_url = f"http://{uri}"
+            
             print(f"\n" + "=" * 60)
             print(f"✅ DEPLOYMENT SUCCESSFUL!")
             print(f"=" * 60)
@@ -626,6 +660,7 @@ def main():
             print(f"   DSEQ:     {dseq}")
             print(f"   Provider: {provider}")
             print(f"   URI:      {uri}")
+            print(f"   URL:      {full_url}")
             print(f"   Cost:     ${monthly:.2f}/mo")
             
             # Output for shell script to parse
@@ -634,6 +669,7 @@ def main():
             print(f"DSEQ={dseq}")
             print(f"PROVIDER={provider}")
             print(f"URI={uri}")
+            print(f"URL={full_url}")
             print(f"COST=${monthly:.2f}/mo")
             sys.exit(0)
         else:

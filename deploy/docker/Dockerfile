@@ -114,7 +114,6 @@ COPY backend/lighthouse.py .
 COPY backend/validation.py .
 COPY backend/middleware/ ./middleware/
 COPY backend/services/ ./services/
-COPY backend/routes/ ./routes/
 COPY deploy/docker/startup.sh .
 
 # Make startup script executable (give it permission to run)

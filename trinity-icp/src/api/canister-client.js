@@ -2,6 +2,19 @@
 // Trinity Frontend - ICP Canister Client
 // ============================================================================
 //
+// ⚠️ STATUS: DISABLED (USE_CANISTER = false in config.js)
+//
+// REASON: ICP HTTPS outcalls have a hard 20-second timeout limit.
+// Tier 3 models (Qwen 72B) require 60+ seconds for complex queries.
+// The Cloudflare Worker path has no timeout limitation.
+//
+// RE-ENABLE WHEN:
+// - ICP increases HTTPS outcall timeout (unlikely soon), OR
+// - Using only fast models (Tier 1/2 with <20s response), OR
+// - Implementing chunked/streaming responses via ICP
+//
+// ============================================================================
+//
 // PURPOSE:
 // This module provides the frontend interface to the ICP backend canister,
 // replacing the Cloudflare Worker for API communication.
@@ -13,9 +26,6 @@
 // import { generateViaCanister, healthCheckViaCanister } from './canister-client.js';
 // const response = await generateViaCanister(prompt, contextMessages);
 //
-// NOTE:
-// During Phase 3 (transition period), both this canister client and the
-// Cloudflare path will be available. See backend-router.js for A/B testing.
 // ============================================================================
 
 import { Actor, HttpAgent } from '@dfinity/agent';

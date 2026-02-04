@@ -1,8 +1,8 @@
 # Trinity Codebase Reference
 
 > **Purpose:** Comprehensive documentation for AI assistants to quickly understand the Trinity project
-> **Last Updated:** January 31, 2026
-> **Last Verified:** January 31, 2026
+> **Last Updated:** February 4, 2026
+> **Last Verified:** February 4, 2026
 > **Status:** Production - V4.0 Intelligence Upgrade
 > **Version:** v4.0.0 (Semantic Memory, Multi-Model, Tools, Voting)
 
@@ -29,7 +29,6 @@
 
 # Examples:
 ./scripts/trinity-deploy-production.sh      # Interactive tier selection
-./scripts/trinity-deploy-production.sh 1    # TinyLlama 1.1B (~$25/mo)
 ./scripts/trinity-deploy-production.sh 2    # Llama 3.1 8B (~$50/mo)
 ./scripts/trinity-deploy-production.sh 3    # Qwen 2.5 72B (~$200/mo)
 ```
@@ -51,9 +50,17 @@
 2. Local validation (Python syntax, Docker build)
 3. Docker push to Docker Hub
 4. Akash deployment via CLI (closes old deployments, creates new)
-5. Cloudflare Worker URL update
-6. ICP frontend canister deployment
-7. Production verification (/health, /generate tests)
+5. **SSL auto-detection** (checks if provider has valid SSL, uses HTTP if not)
+6. **Funding prompt** (asks how much AKT to deposit after deploy)
+7. Cloudflare Worker URL update (with correct HTTP/HTTPS scheme)
+8. ICP frontend canister deployment
+9. Production verification (/health, /generate tests)
+
+**🔧 Deployment Script Features:**
+- **Bad Provider Skip List**: Providers with DNS/connectivity issues in `scripts/akash_deploy.py`
+- **SSL Auto-Detection**: `check_ssl_valid()` function tests HTTPS before using it
+- **Timeout Tiers**: Tier 1 (3min), Tier 2 (7min), Tier 3 (20min) for provider bids
+- **Akash YAML Timeout Limit**: Max 60000ms (60s) for `read_timeout`/`send_timeout`
 
 ---
 
@@ -61,8 +68,6 @@
 
 ```
 Trinity/
-├── dev                          # → scripts/dev.sh (local development)
-├── test-prod                    # → scripts/test-prod.sh (production testing)
 ├── icp-deploy                   # → ICP canister deployment
 ├── README.md                    # Project overview
 │
@@ -95,10 +100,8 @@ Trinity/
 │   │   ├── memory.py            # 🆕 V4: Semantic memory retrieval
 │   │   ├── tools.py             # 🆕 V4: Tool registry and parser
 │   │   ├── code_executor.py     # 🆕 V4: RestrictedPython sandbox
-│   │   ├── voting.py            # 🆕 V4: Self-consistency voting
-│   │   └── structured.py        # 🆕 V4: JSON schema enforcement
-│   └── routes/                  # (Reserved for future)
-│       └── __init__.py
+│   │   ├── voting.py            # 🧪 V4: Self-consistency voting (EXPERIMENTAL)
+│   │   └── structured.py        # 🧪 V4: JSON schema enforcement (EXPERIMENTAL)
 │
 ├── deploy/                      # 🚀 DEPLOYMENT CONFIGS
 │   ├── akash/                   # Akash SDL manifests
@@ -109,10 +112,6 @@ Trinity/
 │   │   ├── Dockerfile           # Container definition
 │   │   ├── build.sh             # Build script
 │   │   └── startup.sh           # Container entrypoint
-│   ├── local/                   # Local development
-│   │   ├── start.sh             # Start TinyLlama locally
-│   │   ├── stop.sh              # Stop local backend
-│   │   └── status.sh            # Check local status
 │   └── cloudflare-worker/       # SSL termination proxy
 │       ├── worker.js            # Cloudflare Worker proxy
 │       ├── wrangler.toml        # Wrangler config
@@ -121,10 +120,7 @@ Trinity/
 ├── scripts/                     # 📜 AUTOMATION SCRIPTS
 │   ├── trinity-deploy-production.sh  # ⭐ MAIN DEPLOYMENT SCRIPT
 │   ├── akash_deploy.py          # Akash CLI helper (Python)
-│   ├── dev.sh                   # Start local development
-│   ├── test-prod.sh             # Test production backend
 │   ├── switch-provider.sh       # Update Cloudflare Worker URL
-│   ├── trinity-test-local.sh    # Local testing script
 │   └── docker-cleanup.sh        # Clean Docker cache
 │
 ├── trinity-icp/                 # 🎨 FRONTEND (ICP)
@@ -139,11 +135,10 @@ Trinity/
 │       ├── styles.css           # CSS styling
 │       ├── tools.js             # Tools dropdown
 │       ├── api/
-│       │   └── canister-client.js  # ICP backend client
+│       │   └── canister-client.js  # ICP backend client (DISABLED - 20s timeout)
 │       ├── auth/
 │       │   ├── authManager.js   # Ed25519 keypair management
 │       │   ├── keyExportModal.js # Key display modal
-│       │   ├── auth-client.js   # Auth utilities
 │       │   ├── auth-entry.js    # Auth entry point
 │       │   └── icp-auth.js      # ICP auth library
 │       ├── state/
@@ -152,7 +147,7 @@ Trinity/
 │       ├── storage/
 │       │   ├── autosave.js      # Debounced persistence
 │       │   ├── lighthouse.js    # Filecoin/IPFS uploads
-│       │   └── mock.js          # Test mode storage
+│       │   └── indexedDB.js     # Local-first storage
 │       ├── ui/
 │       │   ├── index.js         # UI module aggregator
 │       │   ├── domCache.js      # DOM element caching
@@ -162,18 +157,22 @@ Trinity/
 │       │   ├── notifications.js # Toast notifications
 │       │   ├── rainbowBorder.js # Rainbow effects
 │       │   └── loadingMessages.js # 🆕 Whimsical loading phrases
-│       ├── modules/             # Feature modules (empty - archive/funding removed in v3.7)
 │       ├── utils/
-│       │   └── validation.js    # Input validation
+│       │   ├── validation.js    # Input validation
+│       │   ├── crypto.js        # AES-GCM encryption
+│       │   └── math.js          # KaTeX rendering
 │       └── backend_canister/    # ICP Backend (Rust)
 │           ├── src/lib.rs       # HTTPS Outcalls canister
 │           ├── Cargo.toml       # Rust dependencies
 │           └── trinity_backend.did  # Candid interface
 │
 └── docs/                        # 📚 DOCUMENTATION
-    ├── CLAUDE.md                # This file
+    ├── CLAUDE.md                # This file (AI reference)
     ├── diagrams/
     │   └── trinity-storage-architecture.md
+    ├── plans/                   # 📋 Implementation plans
+    │   ├── NEXT_STEPS_PLAN.md   # Security audit checklist (14 items ✅)
+    │   └── AGENTIC_PIPELINE.md  # Agentic pipeline architecture
     └── user/
         └── quickstart.md
 ```
@@ -1025,14 +1024,6 @@ docker build --platform linux/amd64 -t image:tag .
 docker build -t image:tag .
 ```
 
-### Environment Differences
-| Feature | Local (TinyLlama) | Production (Akash) |
-|---------|-------------------|-------------------|
-| AI Inference | ✅ | ✅ |
-| Autosave | ❌ No storage | ✅ Encrypted disk |
-| Filecoin Archive | ❌ No Lighthouse | ✅ Full archival |
-| Context Memory | ⚠️ Not persisted | ✅ Persisted |
-
 ---
 
 ## 🛠️ Common Tasks
@@ -1059,16 +1050,6 @@ cd trinity-icp && npm run build && dfx deploy --ic trinity_frontend
 ./scripts/docker-cleanup.sh
 ```
 
-### Local Development
-```bash
-./dev  # or ./scripts/dev.sh
-```
-
-### Test Production
-```bash
-./test-prod  # or ./scripts/test-prod.sh
-```
-
 ---
 
 ## 🧪 Testing
@@ -1084,12 +1065,6 @@ curl -X POST https://api.dubya.ai/generate \
 
 # ICP canister health
 dfx canister --network ic call au5zq-2qaaa-aaaal-qtowa-cai health
-
-# Local development
-./dev
-
-# Test against production (stops local backend first)
-./test-prod
 ```
 
 ---
@@ -1294,7 +1269,6 @@ COPY backend/lighthouse.py .
 COPY backend/validation.py .
 COPY backend/middleware/ ./middleware/
 COPY backend/services/ ./services/
-COPY backend/routes/ ./routes/
 COPY deploy/docker/startup.sh .
 ```
 
@@ -1338,8 +1312,6 @@ backend/
 │   ├── prompts.py        # System prompts
 │   ├── metrics.py        # Stats collection
 │   └── akash.py          # Akash blockchain API
-└── routes/               # (Reserved for future)
-    └── __init__.py
 ```
 
 ---
@@ -1387,7 +1359,7 @@ trinity-icp/src/
 ├── utils/
 │   ├── validation.js       # Input validation
 │   └── crypto.js           # AES-GCM encryption for localStorage
-└── modules/                # Feature modules (empty - archive/funding removed in v3.7)
+└── backend_canister/       # ICP Backend (Rust)
 ```
 
 **UI Features:**
@@ -1751,6 +1723,8 @@ docker login
 | `Missing entry-point to Worker script` | Run `wrangler deploy` from inside `deploy/cloudflare-worker/` directory |
 | `out of gas` error | Add `--gas-prices 0.025uakt --gas auto --gas-adjustment 1.5` flags |
 | Cloudflare 526 SSL error | Use `http://` not `https://` for Akash URL in Worker secret |
+| Akash provider DNS failure | Provider added to `skip_providers` list in `scripts/akash_deploy.py` |
+| Akash provider invalid SSL | Deployment script auto-detects and uses HTTP (Cloudflare handles HTTPS) |
 | `npm run build` ERESOLVE/vite conflict | Downgrade vite to `^5.4.0` in package.json |
 | `Unknown Domain` on custom domain | Register domain with ICP (see below) |
 
@@ -1825,4 +1799,4 @@ echo "http://YOUR_AKASH_URI" | wrangler secret put AKASH_URL
 
 ---
 
-*This document is maintained for AI assistants to quickly understand Trinity without re-exploring files. Last updated February 4, 2026 (migrated to Cloudflare Workers, dubya.ai domain, added new Mac setup guide).*
+*This document is maintained for AI assistants to quickly understand Trinity without re-exploring files. Last updated February 4, 2026 (added SSL auto-detection, bad provider skip list, plans folder reference).*

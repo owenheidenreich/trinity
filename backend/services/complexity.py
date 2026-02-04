@@ -37,12 +37,29 @@ SIMPLE_PATTERNS = [
 
 # Patterns that indicate web search is needed
 SEARCH_PATTERNS = [
+    # Explicit search requests
+    r'\bsearch\b',
+    r'\blook up\b',
+    r'\blookup\b',
+    r'\bgoogle\b',
+    r'\bfind out\b',
+    r'\bwhat.s happening\b',
+    r'\bonline\b',
+    r'\bon the web\b',
+    r'\bon the internet\b',
+    r'\breal.?time\b',
+    # Time-sensitive indicators
     r'\bcurrent\b',
     r'\btoday\b',
     r'\blatest\b',
     r'\brecent\b',
     r'\bnews\b',
     r'\b20[2-3][0-9]\b',  # Years 2020-2039
+    r'\bright now\b',
+    r'\bthis week\b',
+    r'\bthis month\b',
+    r'\byesterday\b',
+    # Topic-specific
     r'\bprice of\b',
     r'\bstock\b',
     r'\bweather\b',

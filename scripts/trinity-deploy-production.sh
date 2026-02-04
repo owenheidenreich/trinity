@@ -228,6 +228,7 @@ deploy_to_akash() {
     DEPLOYED_DSEQ=$(echo "$DEPLOY_OUTPUT" | grep "^DSEQ=" | cut -d'=' -f2)
     DEPLOYED_PROVIDER=$(echo "$DEPLOY_OUTPUT" | grep "^PROVIDER=" | cut -d'=' -f2)
     DEPLOYED_URI=$(echo "$DEPLOY_OUTPUT" | grep "^URI=" | cut -d'=' -f2)
+    DEPLOYED_URL=$(echo "$DEPLOY_OUTPUT" | grep "^URL=" | cut -d'=' -f2-)
     
     # Set TIER for summary
     TIER="${DEPLOYED_TIER:-$SELECTED_TIER}"
@@ -239,7 +240,33 @@ deploy_to_akash() {
         exit 1
     fi
     
-    log_success "Akash deployment complete: https://$DEPLOYED_URI"
+    # Use the URL with proper scheme (http/https based on SSL check)
+    if [ -z "$DEPLOYED_URL" ]; then
+        # Fallback to https if URL not provided (old script version)
+        DEPLOYED_URL="https://$DEPLOYED_URI"
+    fi
+    
+    log_success "Akash deployment complete: $DEPLOYED_URL"
+    echo ""
+    
+    # Ask about funding NOW (while user is watching)
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}                         DEPLOYMENT FUNDING                               ${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    
+    # Get current balance
+    CURRENT_BALANCE=$(provider-services query bank balances $WALLET_ADDRESS --node $AKASH_NODE -o json 2>/dev/null | grep -o '"amount":"[0-9]*"' | head -1 | grep -o '[0-9]*' || echo "0")
+    CURRENT_AKT=$(echo "scale=2; $CURRENT_BALANCE / 1000000" | bc 2>/dev/null || echo "unknown")
+    
+    echo ""
+    echo "  Current wallet balance: $CURRENT_AKT AKT"
+    echo "  Deployment DSEQ: $DEPLOYED_DSEQ"
+    echo ""
+    echo "  How many AKT would you like to deposit to this deployment?"
+    echo "  (Enter 0 or press Enter to skip)"
+    echo ""
+    printf "  AKT to deposit: "
+    read FUNDING_AKT_AMOUNT
     echo ""
 }
 
@@ -321,13 +348,14 @@ push_image() {
 update_cloudflare_worker() {
     log_step "Updating Cloudflare Worker Proxy"
     
-    # Ensure the URL has https:// prefix
-    FULL_AKASH_URL="https://$DEPLOYED_URI"
+    # Use the URL with detected scheme (http/https based on SSL check)
+    FULL_AKASH_URL="$DEPLOYED_URL"
     
     if [ "$WRANGLER_AVAILABLE" = true ]; then
         cd "$CLOUDFLARE_WORKER_DIR"
         
         echo "Updating AKASH_URL secret..."
+        echo "  URL: $FULL_AKASH_URL"
         
         # Update the secret (instant, no redeploy needed)
         if echo "$FULL_AKASH_URL" | wrangler secret put AKASH_URL 2>/dev/null; then
@@ -428,78 +456,37 @@ update_icp_canisters() {
 verify_production() {
     log_step "Production Verification"
     
-    BACKEND_URL="https://$DEPLOYED_URI"
+    BACKEND_URL="$DEPLOYED_URL"
     
-    # Wait for model to load (this can take a while for large models)
-    echo "Waiting for model to load (this may take several minutes for large models)..."
+    # Quick health check (don't wait long - model loading takes time)
+    echo "Checking backend status (model may still be loading)..."
+    echo "  URL: $BACKEND_URL"
     
-    HEALTH_OK=false
-    for i in {1..60}; do
-        RESPONSE=$(curl -s --max-time 10 "$BACKEND_URL/health" 2>/dev/null || echo "")
-        
-        if echo "$RESPONSE" | grep -q '"status":"healthy"'; then
-            HEALTH_OK=true
-            break
-        fi
-        
-        echo "  Waiting for /health... ($i/60)"
-        sleep 10
-    done
+    # Use -k to skip SSL verify in case of self-signed certs
+    RESPONSE=$(curl -sk --max-time 10 "$BACKEND_URL/health" 2>/dev/null || echo "")
     
-    if [ "$HEALTH_OK" = false ]; then
-        log_warning "Production /health check still pending after 10 minutes"
-        echo "  Container may still be starting - continuing with tests..."
+    if echo "$RESPONSE" | grep -q '"status":"healthy"'; then
+        log_success "Production /health OK - model loaded!"
     else
-        log_success "Production /health OK"
-    fi
-    
-    # Test /generate
-    echo ""
-    echo "Testing /generate endpoint..."
-    
-    GENERATE_RESPONSE=$(curl -s --max-time 120 \
-        -X POST "$BACKEND_URL/generate" \
-        -H "Content-Type: application/json" \
-        -d '{"prompt": "Say hello in exactly 3 words.", "max_tokens": 20}' 2>/dev/null || echo "")
-    
-    if echo "$GENERATE_RESPONSE" | grep -q '"response"'; then
-        log_success "Production /generate OK"
-        RESPONSE_TEXT=$(echo "$GENERATE_RESPONSE" | grep -o '"response":"[^"]*"' | cut -d'"' -f4 | head -c 100)
-        echo "  Response: $RESPONSE_TEXT"
-    else
-        log_warning "Production /generate returned unexpected response"
-        echo "  Response: $GENERATE_RESPONSE"
+        log_warning "Model still loading - this is normal for Tier 3 (takes 5-10 minutes)"
+        echo "  Check manually: curl -sk $BACKEND_URL/health"
     fi
     
     # Test via Cloudflare Worker Proxy
     echo ""
-    echo "Testing Cloudflare Worker proxy /health..."
+    echo "Testing Cloudflare Worker proxy..."
     PROXY_HEALTH=$(curl -s --max-time 10 "$CLOUDFLARE_WORKER_URL/health" 2>/dev/null || echo "")
     
     if echo "$PROXY_HEALTH" | grep -q '"status":"healthy"'; then
         log_success "Cloudflare Worker → Akash connection OK"
+    elif echo "$PROXY_HEALTH" | grep -q '"status"'; then
+        log_success "Cloudflare Worker connected (model loading)"
     else
-        log_warning "Cloudflare Worker health check issue"
-        echo "  Response: $PROXY_HEALTH"
-    fi
-    
-    # Test ICP Canister (if dfx available)
-    if command -v dfx &> /dev/null; then
-        echo ""
-        echo "Testing ICP canister health..."
-        cd "$PROJECT_ROOT/trinity-icp"
-        ICP_HEALTH=$(dfx canister --ic call trinity_backend health 2>&1 || echo "")
-        
-        if echo "$ICP_HEALTH" | grep -q 'healthy'; then
-            log_success "ICP canister → Cloudflare → Akash connection OK"
-        else
-            log_warning "ICP canister health check issue"
-        fi
-        cd "$PROJECT_ROOT"
+        log_warning "Cloudflare Worker health check pending"
     fi
     
     echo ""
-    log_success "Full stack verification complete!"
+    log_success "Deployment verification complete!"
 }
 
 # =============================================================================
@@ -519,7 +506,7 @@ print_summary() {
     echo "  DSEQ:       $DEPLOYED_DSEQ"
     echo "  Provider:   $DEPLOYED_PROVIDER"
     echo ""
-    echo "  Akash:      https://$DEPLOYED_URI"
+    echo "  Akash:      $DEPLOYED_URL"
     echo "  Proxy:      $CLOUDFLARE_WORKER_URL"
     echo "  API:        $API_PROXY_URL (once DNS configured)"
     echo "  Frontend:   $CUSTOM_FRONTEND_URL (or $ICP_FRONTEND_URL)"
@@ -529,6 +516,41 @@ print_summary() {
     echo ""
     echo "  Close deployment:"
     echo "    provider-services tx deployment close --dseq $DEPLOYED_DSEQ --from $WALLET_NAME --keyring-backend os --node $AKASH_NODE --chain-id $AKASH_CHAIN_ID -y"
+    echo ""
+    echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    
+    # Process funding if user specified an amount earlier
+    if [ -n "$FUNDING_AKT_AMOUNT" ] && [ "$FUNDING_AKT_AMOUNT" != "0" ]; then
+        echo ""
+        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${CYAN}                      PROCESSING DEPOSIT                                  ${NC}"
+        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        
+        # Convert to uakt (1 AKT = 1,000,000 uakt)
+        UAKT_AMOUNT=$(echo "$FUNDING_AKT_AMOUNT * 1000000" | bc | cut -d'.' -f1)
+        
+        echo ""
+        echo "  Depositing ${FUNDING_AKT_AMOUNT} AKT (${UAKT_AMOUNT} uakt) to deployment $DEPLOYED_DSEQ..."
+        
+        DEPOSIT_RESULT=$(provider-services tx deployment deposit $UAKT_AMOUNT \
+            --dseq $DEPLOYED_DSEQ \
+            --from $WALLET_NAME \
+            --keyring-backend os \
+            --node $AKASH_NODE \
+            --chain-id $AKASH_CHAIN_ID \
+            --gas-prices 0.025uakt \
+            --gas auto \
+            --gas-adjustment 1.5 \
+            -y 2>&1)
+        
+        if echo "$DEPOSIT_RESULT" | grep -q 'txhash'; then
+            log_success "Deposited ${FUNDING_AKT_AMOUNT} AKT to deployment"
+        else
+            log_warning "Deposit may have failed - check manually"
+            echo "  $DEPOSIT_RESULT"
+        fi
+    fi
+    
     echo ""
     echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 }

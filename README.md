@@ -175,11 +175,7 @@ cp .env.example .env
 # - LIGHTHOUSE_API_KEY (get from https://files.lighthouse.storage/)
 # - BRAVE_SEARCH_API_KEY (get from https://brave.com/search/api/)
 
-# Start local development (TinyLlama, no GPU needed)
-./dev
-
-# Or deploy to production (choose your tier)
-./scripts/trinity-deploy-production.sh 1  # TinyLlama ~$25/mo
+# Deploy to production (choose your tier)
 ./scripts/trinity-deploy-production.sh 2  # Llama 8B ~$50/mo  
 ./scripts/trinity-deploy-production.sh 3  # Qwen 72B ~$200/mo
 ```
@@ -188,7 +184,6 @@ cp .env.example .env
 
 | Tier | Model | Intelligence | Cost | Use Case |
 |------|-------|--------------|------|----------|
-| **1** | TinyLlama 1.1B | Basic | ~$25/mo | Testing, light use |
 | **2** | Llama 3.1 8B | Good | ~$50/mo | Daily driver |
 | **3** | Qwen 2.5 32B+ | Excellent | ~$200/mo | Complex reasoning |
 

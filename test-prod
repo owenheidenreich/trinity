@@ -1,3 +1,0 @@
-#!/bin/bash
-# Convenience wrapper - runs scripts/test-prod.sh
-exec "$(dirname "$0")/scripts/test-prod.sh" "$@"

@@ -65,8 +65,8 @@ services:
         to:
           - global: true
         http_options:
-          read_timeout: 600000
-          send_timeout: 600000
+          read_timeout: 60000
+          send_timeout: 60000
           max_body_size: 52428800
 
 profiles:

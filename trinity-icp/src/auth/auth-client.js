@@ -1,1 +1,0 @@
-Not found: /@dfinity/auth-client@1.0.1/dist/index.js

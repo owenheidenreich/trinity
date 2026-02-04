@@ -24,24 +24,9 @@ User Input → Frontend (ICP) → Cloudflare Worker → Akash Backend → Ollama
 
 ## Critical Developer Workflows
 
-### Local Development (TinyLlama 1.1B)
-```bash
-./dev              # Start local backend + open frontend
-# Backend: http://localhost:8000, Model: TinyLlama (free, fast)
-# Only tests AI inference - NO storage features available locally
-```
-
-### Production Testing (Llama 70B)
-```bash
-./test-prod        # Test against Akash production backend
-# Auto-stops local backend, switches to production URL
-# Expect 20-30s cold start for first request
-```
-
 ### Deployment (Unified Pipeline)
 ```bash
 ./scripts/trinity-deploy-production.sh       # Interactive tier selection
-./scripts/trinity-deploy-production.sh 1     # Auto-select Tier 1 (TinyLlama ~$25/mo)
 ./scripts/trinity-deploy-production.sh 2     # Auto-select Tier 2 (Llama 8B ~$50/mo)
 ./scripts/trinity-deploy-production.sh 3     # Auto-select Tier 3 (Qwen 72B ~$200/mo)
 # Handles: Docker build → Push → Akash CLI deploy → Cloudflare update → ICP deploy → Verify
@@ -50,7 +35,6 @@ User Input → Frontend (ICP) → Cloudflare Worker → Akash Backend → Ollama
 ### Testing
 ```bash
 curl https://api.dubya.ai/health  # Backend health check
-./test-prod  # Test production in browser
 ```
 
 ## 🔄 MANDATORY: Workflow Checklists
@@ -137,30 +121,17 @@ Reference: `docs/CLAUDE.md#ui-ux-design-system`
 
 Reference: `trinity-icp/src/storage/autosave.js`
 
-## Environment Differences
+## Model Tiers
 
-### Local vs Production
-| Feature | Local (TinyLlama) | Production (Akash) |
-|---------|-------------------|-------------------|
-| AI Inference | ✅ TinyLlama 1.1B | ✅ Tier 1/2/3 models |
-| Autosave | ❌ Not functional | ✅ Encrypted to disk |
-| KaTeX Math | ✅ Live rendering | ✅ Live rendering |
-| Context Memory | ⚠️ Works but not persisted | ✅ Full persistence |
-| Cost | Free | ~$25-200/month (by tier) |
-
-### Model Tiers
 | Tier | Model | RAM | Cost |
 |------|-------|-----|------|
-| 1 | TinyLlama 1.1B | 4GB | ~$25/mo |
 | 2 | Llama 3.1 8B | 16GB | ~$50/mo |
 | 3 | Qwen2.5 72B | 64GB | ~$200/mo |
-
-**Testing Rule**: Storage features require Akash deployment. Local environment is for AI inference only.
 
 ## Integration Points
 
 ### External Dependencies
-- **Ollama**: Model inference (local + Akash)
+- **Ollama**: Model inference on Akash
 - **Lighthouse SDK**: IPFS backup storage
 - **KaTeX**: Live LaTeX math rendering (via jsdelivr CDN)
 - **Cloudflare Workers**: SSL termination and proxy for Akash

@@ -1,3 +1,0 @@
-#!/bin/bash
-# Convenience wrapper - runs scripts/trinity-test-local.sh
-exec "$(dirname "$0")/scripts/trinity-test-local.sh" "$@"

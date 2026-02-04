@@ -60,8 +60,12 @@ const Messages = {
             messageDiv.innerHTML = DOMPurify.sanitize(parseMarkdownWithMath(content));
             // Render math expressions after DOM insertion
             renderMath(messageDiv);
+        } else if (content.includes('loading-dots')) {
+            // Loading indicator - safe static HTML
+            messageDiv.innerHTML = DOMPurify.sanitize(content, { ADD_TAGS: ['span'], ADD_ATTR: ['class'] });
         } else {
-            messageDiv.innerHTML = content;
+            // User messages - escape HTML entirely to prevent XSS
+            messageDiv.textContent = content;
         }
 
         messagesContainer.appendChild(messageDiv);

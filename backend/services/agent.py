@@ -66,9 +66,9 @@ PASS_TIMEOUTS = {
 PASS_TOKEN_LIMITS = {
     'understand': 2000,  # Detailed understanding
     'plan': 2000,        # Comprehensive plans
-    'execute': 8000,     # Long, detailed responses (code, essays)
+    'execute': 16000,    # Long, detailed responses (code, essays, complete files)
     'critique': 2000,    # Thorough critique
-    'refine': 8000       # Complete improved response
+    'refine': 16000      # Complete improved response
 }
 
 # Critique threshold - if score >= this, skip refinement
