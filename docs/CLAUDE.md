@@ -1,10 +1,27 @@
 # Trinity Codebase Reference
 
 > **Purpose:** Comprehensive documentation for AI assistants to quickly understand the Trinity project
-> **Last Updated:** February 4, 2026
-> **Last Verified:** February 4, 2026
+> **Last Updated:** February 5, 2026
+> **Last Verified:** February 5, 2026
 > **Status:** Production - V4.0 Intelligence Upgrade
-> **Version:** v4.0.0 (Semantic Memory, Multi-Model, Tools, Voting)
+> **Version:** v4.0.1 (Qwen 14B on P40, ~$65/mo)
+
+---
+
+## 🐛 Known Issues
+
+| Issue | Status | Details |
+|-------|--------|---------|
+| **Timestamp Auth** | ⚠️ 30s→60s | Backend needs Docker rebuild for 60s window |
+
+### ✅ Recently Fixed (Feb 5, 2026)
+- **Stop Button** - `resetInput()` was disabling button immediately after `setGenerating()` enabled it
+- **Copy Button** - ICP blocks Clipboard API; added `execCommand('copy')` fallback
+- **Edit Button** - `showChatArea()` wasn't called when editing resulted in empty history
+- **Edit Buttons on Saved Chats** - Added loop in `loadChat()` to add edit buttons after rendering
+- **Chat Loading Double-Click** - Added `isLoadingChat` state guard + Zustand proxies
+- **Export Double-Click** - Added `_isExporting` flag guard on export button
+- **Model Badge Hover** - Added CSS with purple border animation
 
 ---
 

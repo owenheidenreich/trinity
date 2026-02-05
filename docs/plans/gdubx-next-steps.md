@@ -1,32 +1,140 @@
-Plans
-- Get a URL
-- pentest, security test, robust security checks.
-- split inference_server.py into modules. 
-- Upgrade the base model style
-    - Give it better self-identity
-        - model/hardware/provider/ICP, FIL AKT transparency, info about trinity
-        - do not give key phrases or any compromising info
-    - Upgrade to "smarter" State-of-the art Agentic style model. (Based off of Claude Code)
-        - can generate multiple replies, thinks over things longer
-        - Better Memory
-        - advanced reasoning methods, planning phase, multiple outputs, self-auditing
-        - actually research into how to make the LLM smarter
-    - Tier 3 Super charge via hardware upgrades. (maybe 2-4 GPU clusters for super smart model). Create a smarter model and then utilize the best hardware
-    - Give ability to use internet for up to date reference point and real-time data retrieval
-- Make Trinity actually useful.
-- Deep audit of entire codebase
-- clear diagrams on each structure
-    - networking
-    - memory
-    - storage
-    - authentication
-    - open source services
-- monetize, advertise
-- Open Source (allow users to spin up their own private ICP canister, AKT, and FIL connection)
-- 
+# Trinity Personal Roadmap (gdubx)
 
+> **Updated:** February 5, 2026  
+> **Status:** Ideas & Future Features
 
-Things that are not working
-- Phase 2: Agentic Reasoning
-- Phase 3: Web Search 
+---
+
+## 🎯 Better Use Cases for Dubya API
+
+I have unlimited queries, my own LLM network with DNS setup, creativity unlimited.
+
+Potential directions:
+- API-as-a-Service for other devs
+- Specialized vertical (crypto traders, developers, researchers)
+- White-label solution for businesses
+
+---
+
+## 📱 Social Media Automation
+
+**Goal:** Auto-post to X after GitHub updates
+
+Flow:
+1. GitHub webhook on push/release
+2. Cloudflare Worker receives webhook
+3. Generate tweet summary via Trinity API
+4. Post to X via Twitter API v2
+
+Could also integrate with:
+- Discord announcements
+- Telegram channel
+- Email newsletter
+
+---
+
+## 🎨 Open Source Multimodal Generators
+
+| Direction | Models to Explore |
+|-----------|-------------------|
+| Text → Image | Stable Diffusion XL, FLUX |
+| Text → Video | AnimateDiff, Stable Video Diffusion |
+| Text → Audio | Bark, AudioCraft/MusicGen |
+| Audio → Text | Whisper (OpenAI) |
+| Image → Text | LLaVA, BLIP-2 |
+
+**Considerations:**
+- GPU memory requirements (may need dedicated instance)
+- API design for multimodal
+- Storage for generated media
+
+---
+
+## 📁 File Output
+
+**Goal:** Trinity generates files user can download
+
+- Code files with proper extensions
+- Documents (Markdown, PDF)
+- Data files (JSON, CSV)
+- Images from text-to-image
+
+**Implementation:**
+- Backend generates file, returns download URL
+- Frontend shows download button
+- Files stored temporarily (24h expiry?)
+
+---
+
+## ⚙️ Code Execution
+
+**Status:** `code_executor.py` exists with RestrictedPython sandbox
+
+### AI Safety Concerns ⚠️
+- **AVOID if not 100% secure**
+- Sandbox escape = full server compromise
+- User could run crypto miners, spam, attacks
+- Even "safe" code can DoS via infinite loops
+
+### If implementing:
+- Strict timeout (5 seconds max)
+- Memory limits (100MB max)
+- No network access
+- No file system access
+- Whitelist-only imports
+- Container isolation (separate from main app)
+
+---
+
+## 🔒 Security Audit (PRIORITY)
+
+### Attack Surfaces
+
+**1. Chat Input Box**
+- XSS via markdown/HTML injection ✅ Fixed
+- Prompt injection attempts
+- Oversized payloads (DoS)
+
+**2. File Attachment Button**
+- Malicious file upload
+- Virus/malware introduction
+- Path traversal attacks
+- Memory exhaustion (large files)
+
+**3. API Endpoints**
+- Rate limiting ✅ Implemented
+- Auth bypass attempts
+- SSRF via URL fetching ✅ Fixed
+
+**4. Storage**
+- Encrypted at rest ✅
+- Key management
+- Data exfiltration
+
+### Recommended Actions
+
+1. **Penetration test** - Try to break own system
+2. **Dependency audit** - `npm audit`, `pip-audit`
+3. **Input validation review** - Every user input sanitized
+4. **File upload hardening** - Strict type checking, size limits
+5. **CSP headers** - Prevent XSS execution ✅ Implemented
+6. **Rate limiting everywhere** - Prevent abuse
+
+### Paranoia Checklist
+- [ ] Can attacker steal other users' data?
+- [ ] Can attacker execute code on server?
+- [ ] Can attacker cause financial damage (Akash bills)?
+- [ ] Can attacker access API keys?
+- [ ] Can attacker impersonate other users?
+
+---
+
+## 📊 Analytics & Monitoring
+
+- User session tracking (privacy-respecting)
+- Error rate monitoring
+- Response time percentiles
+- Model usage patterns
+- Cost per query tracking 
+
 

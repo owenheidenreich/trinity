@@ -21,23 +21,127 @@ function parseMarkdownWithMath(content) {
     return html;
 }
 
+/**
+ * Enhance code blocks with copy button, language label, and syntax highlighting
+ * @param {HTMLElement} container - The container to search for code blocks
+ */
+function enhanceCodeBlocks(container) {
+    const codeBlocks = container.querySelectorAll('pre code');
+    
+    codeBlocks.forEach(codeElement => {
+        const pre = codeElement.parentElement;
+        
+        // Skip if already enhanced
+        if (pre.classList.contains('enhanced')) return;
+        pre.classList.add('enhanced');
+        
+        // IMPORTANT: Store code text BEFORE any DOM manipulation
+        const codeText = codeElement.textContent;
+        
+        // Apply syntax highlighting with highlight.js
+        if (typeof hljs !== 'undefined') {
+            // Remove any existing hljs classes to allow re-highlighting
+            codeElement.classList.remove('hljs');
+            hljs.highlightElement(codeElement);
+        }
+        
+        // Detect language from class (e.g., "language-python" or "hljs language-python")
+        const langClass = Array.from(codeElement.classList).find(c => c.startsWith('language-'));
+        const language = langClass ? langClass.replace('language-', '') : 'code';
+        
+        // Create header with language label and copy button
+        const header = document.createElement('div');
+        header.className = 'code-block-header';
+        header.innerHTML = `
+            <span class="code-language">${language}</span>
+            <button class="code-copy-btn" title="Copy code">Copy</button>
+        `;
+        
+        // Insert header before the pre element
+        pre.parentNode.insertBefore(header, pre);
+        
+        // Wrap header and pre in a container
+        const wrapper = document.createElement('div');
+        wrapper.className = 'code-block-wrapper';
+        header.parentNode.insertBefore(wrapper, header);
+        wrapper.appendChild(header);
+        wrapper.appendChild(pre);
+        
+        // Add copy functionality using stored codeText (not live DOM reference)
+        const copyBtn = header.querySelector('.code-copy-btn');
+        copyBtn.addEventListener('click', () => {
+            try {
+                // Use textarea selection method (Clipboard API blocked by ICP permissions policy)
+                const textArea = document.createElement('textarea');
+                textArea.value = codeText;
+                textArea.style.position = 'fixed';
+                textArea.style.top = '0';
+                textArea.style.left = '0';
+                textArea.style.width = '2em';
+                textArea.style.height = '2em';
+                textArea.style.padding = '0';
+                textArea.style.border = 'none';
+                textArea.style.outline = 'none';
+                textArea.style.boxShadow = 'none';
+                textArea.style.background = 'transparent';
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+
+                const successful = document.execCommand('copy');
+                document.body.removeChild(textArea);
+
+                if (!successful) {
+                    throw new Error('execCommand copy failed');
+                }
+
+                copyBtn.textContent = 'Copied!';
+                copyBtn.classList.add('copied');
+                setTimeout(() => {
+                    copyBtn.textContent = 'Copy';
+                    copyBtn.classList.remove('copied');
+                }, 2000);
+            } catch (err) {
+                console.error('Failed to copy:', err);
+                copyBtn.textContent = 'Failed';
+                setTimeout(() => {
+                    copyBtn.textContent = 'Copy';
+                }, 2000);
+            }
+        });
+    });
+}
+
 const Messages = {
     // Reference to DOM cache (will be set by UI module)
     elements: null,
 
-    // Set generating state (disables input, shows loading indicator)
+    // Set generating state (disables input, shows stop button)
     setGenerating(isGenerating, State) {
         const { sendBtn, promptInput } = this.elements;
         State.setGenerating(isGenerating);
-        sendBtn.disabled = isGenerating;
+
+        // CRITICAL: Remove ui-disabled class if present (it blocks pointer events with pointer-events: none)
+        const appContainer = document.querySelector('.app-container');
+        if (appContainer && appContainer.classList.contains('ui-disabled')) {
+            console.warn('⚠️ Removing stale ui-disabled class during generation');
+            appContainer.classList.remove('ui-disabled');
+        }
+
+        // Keep button enabled during generation so user can stop
+        sendBtn.disabled = false;
         promptInput.disabled = isGenerating;
 
         if (isGenerating) {
             sendBtn.classList.add('generating');
-            sendBtn.textContent = '';
+            sendBtn.textContent = '■';  // Visible stop icon (not CSS ::before)
+            sendBtn.title = 'Stop generation';
+            sendBtn.dataset.action = 'stop';
         } else {
             sendBtn.classList.remove('generating');
             sendBtn.textContent = '➤';
+            sendBtn.title = 'Send message';
+            sendBtn.dataset.action = 'send';
             promptInput.focus();
         }
     },
@@ -60,12 +164,16 @@ const Messages = {
             messageDiv.innerHTML = DOMPurify.sanitize(parseMarkdownWithMath(content));
             // Render math expressions after DOM insertion
             renderMath(messageDiv);
+            // Enhance code blocks with copy button
+            enhanceCodeBlocks(messageDiv);
         } else if (content.includes('loading-dots')) {
             // Loading indicator - safe static HTML
             messageDiv.innerHTML = DOMPurify.sanitize(content, { ADD_TAGS: ['span'], ADD_ATTR: ['class'] });
         } else {
-            // User messages - escape HTML entirely to prevent XSS
-            messageDiv.textContent = content;
+            // User messages - sanitize but allow markdown/math rendering
+            messageDiv.innerHTML = DOMPurify.sanitize(parseMarkdownWithMath(content));
+            renderMath(messageDiv);
+            enhanceCodeBlocks(messageDiv);
         }
 
         messagesContainer.appendChild(messageDiv);
@@ -97,6 +205,8 @@ const Messages = {
         messageDiv.innerHTML = DOMPurify.sanitize(parseMarkdownWithMath(text));
         // Render math after final content is set
         renderMath(messageDiv);
+        // Enhance code blocks with copy button
+        enhanceCodeBlocks(messageDiv);
         chatArea.scrollTop = chatArea.scrollHeight;
         return messageDiv.id;
     },
@@ -138,11 +248,13 @@ const Messages = {
     },
 
     // Reset input field and re-enable it
+    // NOTE: Does NOT touch sendBtn.disabled - let setGenerating() manage button state
     resetInput() {
-        const { promptInput, sendBtn } = this.elements;
+        const { promptInput } = this.elements;
         promptInput.value = '';
         promptInput.disabled = false;  // Always re-enable on reset
-        sendBtn.disabled = true;  // Disabled until user types
+        // DON'T disable sendBtn here - it breaks the stop button during generation
+        // autoResize() will handle enabling/disabling based on input content
         this.autoResize(promptInput);
         promptInput.focus();
     },
@@ -151,7 +263,11 @@ const Messages = {
     autoResize(textarea) {
         textarea.style.height = 'auto';
         textarea.style.height = textarea.scrollHeight + 'px';
-        this.elements.sendBtn.disabled = !textarea.value.trim();
+        // Don't disable the stop button during generation!
+        const isStopMode = this.elements.sendBtn.dataset.action === 'stop';
+        if (!isStopMode) {
+            this.elements.sendBtn.disabled = !textarea.value.trim();
+        }
     },
 
     // Handle mobile keyboard visibility
@@ -365,4 +481,5 @@ const Messages = {
     }
 };
 
+export { enhanceCodeBlocks };
 export default Messages;

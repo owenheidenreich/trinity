@@ -50,7 +50,7 @@ TIER_YAML[3]="deploy-tier3-complex.yaml"
 
 typeset -A TIER_DESC
 TIER_DESC[1]="TinyLlama 1.1B - Testing (~\$25/mo)"
-TIER_DESC[2]="Llama 3.1 8B - Balanced (~\$50/mo)"
+TIER_DESC[2]="Qwen 2.5 3B - Fast & Smart (~\$30/mo)"
 TIER_DESC[3]="Qwen 2.5 72B - Complex (~\$200/mo)"
 
 # =============================================================================
@@ -183,7 +183,7 @@ select_tier() {
     echo "│                    SELECT DEPLOYMENT TIER                    │"
     echo "├─────────────────────────────────────────────────────────────┤"
     echo "│  1) TinyLlama 1.1B  - Testing (~\$25/mo)                     │"
-    echo "│  2) Llama 3.1 8B    - General Use (~\$50/mo)                 │"
+    echo "│  2) Qwen 2.5 3B     - Fast & Smart (~\$30/mo)                │"
     echo "│  3) Qwen 2.5 72B    - Intelligence (~\$200/mo)               │"
     echo "└─────────────────────────────────────────────────────────────┘"
     echo ""

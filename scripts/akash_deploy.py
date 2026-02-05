@@ -58,26 +58,23 @@ WALLET_NAME = "trinity-wallet"
 # Tier definitions
 TIERS = {
     1: {"yaml": "deploy-tier1-basic.yaml", "desc": "TinyLlama 1.1B (Testing)", "cost": "~$25/mo"},
-    2: {"yaml": "deploy-tier2-balanced.yaml", "desc": "Llama 3.1 8B (General Use)", "cost": "~$50/mo"},
+    2: {"yaml": "deploy-tier2-balanced.yaml", "desc": "Qwen 2.5 3B (Fast & Smart)", "cost": "~$30/mo"},
     3: {"yaml": "deploy-tier3-complex.yaml", "desc": "Qwen 2.5 72B (Intelligence)", "cost": "~$200/mo"},
 }
 
-# Preferred providers - known for reliability, SSL certs, high uptime
-# Priority order: Providers with verified GPU infrastructure
-# Note: These were selected based on successful deployments and response times
-PREFERRED_PROVIDERS = [
-    # Praetor providers - generally reliable with good SSL
-    "akash1qf0l5wacr507ujzpdchw3q3u39sa9e2r9eh9xs",  # vp70.praetor.dev
-    "akash1qtur5t9znz2majyhs4vyqg7sqw7xrgncjl6qc5",  # provider-b41.praetorapp.com
-    "akash1q00m6pm5y58mzdhxavra26j8g9l904dz29g98e",  # vp10.praetorapp.com
-    "akash1q4h9a3wznpmtt0rd6jk7fzhu6tv2gph23x7u9f",  # k3s-insider.praetorapp.com
-    # NextGen GPUs - enterprise grade
-    "akash1q8gxtdmtudp96g5yuywj65m5sk36szfh3u7gac",  # nextgengpus.akash.pub
-]
+# Minimum price thresholds per tier (below this = hardware too weak)
+# These are based on typical GPU provider pricing on Akash
+MIN_PRICE_MONTHLY = {
+    1: 5,     # TinyLlama - can run on anything
+    2: 5,     # Qwen 14B - P40 at $65/mo works great!
+    3: 80,    # Qwen 72B - needs serious hardware
+}
 
 # Providers to AVOID - known issues with timeouts, SSL, or reliability
 BLOCKED_PROVIDERS = [
-    # Add any problematic providers here after testing
+    "akash19yhu3jgw8h0320av98h8n5qczje3pj3u9u2amp",  # bdl.computer - times out
+    "akash1sjwuwre4qprcaa34f6324yz7m8nn0awvc75gp5",  # quanglong.org - very slow image pulls
+    "akash1adyrcsp2ptwd83txgv555eqc0vhfufc37wx040",  # airitdecomp.net - DNS doesn't resolve
 ]
 
 def run_cmd(cmd, capture=True, timeout=120):
@@ -278,8 +275,8 @@ def create_deployment(yaml_path, image_tag):
     finally:
         os.unlink(temp_yaml)
 
-def get_bids(wallet_addr, dseq):
-    """Get bids for a deployment, prioritizing preferred providers then by price"""
+def get_bids(wallet_addr, dseq, tier=2):
+    """Get bids for a deployment, sorted by price (cheapest first)"""
     stdout, stderr, code = run_cmd(
         f"provider-services query market bid list "
         f"--owner {wallet_addr} --dseq {dseq} "
@@ -293,48 +290,37 @@ def get_bids(wallet_addr, dseq):
         data = json.loads(stdout)
         bids = data.get("bids", [])
         
-        # Extract providers with prices
+        # Get minimum price for this tier
+        min_price = MIN_PRICE_MONTHLY.get(tier, 20)
+        
+        # Extract all providers with prices
         provider_prices = []
         for bid in bids:
-            # Structure is bid.id.provider (not bid.bid_id.provider)
             provider = bid.get("bid", {}).get("id", {}).get("provider", "")
             price_str = bid.get("bid", {}).get("price", {}).get("amount", "999999999")
             if provider:
                 # Skip blocked providers
                 if provider in BLOCKED_PROVIDERS:
-                    print(f"  ⚠️  Skipping blocked provider: {provider[:20]}...")
                     continue
                     
-                # Price can be a decimal string like "424.781000000000000000"
                 try:
                     price = float(price_str)
                 except:
                     price = 999999999.0
-                    
-                # Check if preferred
-                is_preferred = provider in PREFERRED_PROVIDERS
-                preferred_rank = PREFERRED_PROVIDERS.index(provider) if is_preferred else 999
                 
-                provider_prices.append((provider, price, is_preferred, preferred_rank))
+                monthly = price_to_monthly(price)
+                provider_prices.append((provider, price, monthly))
         
-        # Sort by: 1) preferred first, 2) within preferred by rank, 3) by price
-        # This gives preference to known-good providers even if slightly more expensive
-        provider_prices.sort(key=lambda x: (
-            0 if x[2] else 1,  # Preferred providers first
-            x[3],              # Within preferred, by rank order
-            x[1]               # Then by price
-        ))
+        # Sort by price (cheapest first)
+        provider_prices.sort(key=lambda x: x[1])
         
-        # Log sorting result
         if provider_prices:
-            top = provider_prices[0]
-            if top[2]:
-                print(f"  ⭐ Preferred provider available: {top[0][:30]}...")
-            else:
-                print(f"  ℹ️  No preferred providers bidding, using cheapest")
+            print(f"  📊 Found {len(provider_prices)} providers (sorted cheapest → expensive)")
+            print(f"  💰 Price range: ${provider_prices[0][2]:.0f} - ${provider_prices[-1][2]:.0f}/mo")
+            print(f"  🎯 Minimum spec threshold for Tier {tier}: ${min_price}/mo")
         
-        # Return just provider and price (for compatibility)
-        return [(p[0], p[1]) for p in provider_prices]
+        # Return all bids - filtering happens during selection with proper messages
+        return [(p[0], p[1], p[2]) for p in provider_prices]
     except Exception as e:
         print(f"  Error parsing bids: {e}")
         return []
@@ -455,7 +441,7 @@ def select_tier():
     print("│                    SELECT DEPLOYMENT TIER                    │")
     print("├─────────────────────────────────────────────────────────────┤")
     print("│  1) TinyLlama 1.1B  - Testing (~$25/mo)                     │")
-    print("│  2) Llama 3.1 8B    - General Use (~$50/mo)                 │")
+    print("│  2) Qwen 2.5 3B     - Fast & Smart (~$30/mo)                │")
     print("│  3) Qwen 2.5 72B    - Intelligence (~$200/mo)               │")
     print("└─────────────────────────────────────────────────────────────┘")
     
@@ -523,8 +509,8 @@ def main():
     
     # Fetch bids
     print("Fetching bids...", end=" ", flush=True)
-    bids = get_bids(wallet_addr, dseq)
-    print(f"found {len(bids)} provider(s)")
+    bids = get_bids(wallet_addr, dseq, selected_tier)
+    print(f"found {len(bids)} qualifying provider(s)")
     
     if not bids:
         print("\n❌ No providers available for this tier!")
@@ -539,8 +525,7 @@ def main():
     print("\n┌─────────────────────────────────────────────────────────────┐")
     print("│                  AVAILABLE PROVIDERS                         │")
     print("├─────────────────────────────────────────────────────────────┤")
-    for i, (provider, price) in enumerate(bids[:8], 1):  # Show top 8
-        monthly = price_to_monthly(price)
+    for i, (provider, price, monthly) in enumerate(bids[:8], 1):  # Show top 8
         print(f"│  {i}. ${monthly:>6.2f}/mo - {provider[:35]}...│")
     print("└─────────────────────────────────────────────────────────────┘")
     
@@ -548,21 +533,23 @@ def main():
     print("\n🔗 CONNECTING TO PROVIDER")
     print("=" * 60)
     
-    # Known problematic providers to skip
-    skip_providers = [
-        "akash19yhu3jgw8h0320av98h8n5qczje3pj3u9u2amp",  # bdl.computer - times out
-        "akash1sjwuwre4qprcaa34f6324yz7m8nn0awvc75gp5",  # quanglong.org - very slow image pulls (26+ min)
-        "akash1adyrcsp2ptwd83txgv555eqc0vhfufc37wx040",  # airitdecomp.net - DNS doesn't resolve
-    ]
+    # Track providers that fail during this session
+    skip_providers = []
+    min_price = MIN_PRICE_MONTHLY.get(selected_tier, 20)
     
-    for provider, price in bids:
+    for provider, price, monthly in bids:
         if provider in skip_providers:
-            print(f"\nSkipping known problematic provider: {provider[:30]}...")
+            print(f"\nSkipping previously failed provider: {provider[:30]}...")
+            continue
+        
+        # Check minimum spec threshold
+        if monthly < min_price:
+            print(f"\n⚠️  Skipping {provider[:35]}...")
+            print(f"    └─ Specs too low (${monthly:.0f}/mo < ${min_price}/mo minimum for Tier {selected_tier})")
             continue
             
-        monthly = price_to_monthly(price)
-        print(f"\nTrying: {provider[:40]}...")
-        print(f"  Price: ${monthly:.2f}/mo")
+        print(f"\n✓ Trying: {provider[:40]}...")
+        print(f"  Price: ${monthly:.2f}/mo (meets ${min_price}/mo minimum)")
         
         # Create lease
         print("  Creating lease...", end=" ", flush=True)
@@ -588,8 +575,8 @@ def main():
             print(f"  New DSEQ: {dseq}")
             time.sleep(20)  # Wait for bids on new deployment
             skip_providers.append(provider)  # Don't try this provider again
-            bids = get_bids(wallet_addr, dseq)
-            bids = [(p, pr) for p, pr in bids if p not in skip_providers]
+            bids = get_bids(wallet_addr, dseq, selected_tier)
+            bids = [(p, pr, m) for p, pr, m in bids if p not in skip_providers]
             if not bids:
                 print("  ❌ No more providers available")
                 close_deployment(dseq)

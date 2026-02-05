@@ -38,6 +38,7 @@ const useStore = create((set, get) => ({
     
     // ========== UI State ==========
     isGenerating: false,
+    isLoadingChat: false,
     keyboardOpen: false,
     initialViewportHeight: typeof window !== 'undefined' && window.visualViewport 
         ? window.visualViewport.height 
@@ -190,6 +191,8 @@ const useStore = create((set, get) => ({
     
     setGenerating: (isGenerating) => set({ isGenerating }),
     
+    setLoadingChat: (isLoadingChat) => set({ isLoadingChat }),
+    
     setAutosaveStatus: (status) => set({ autosaveStatus: status }),
     
     setUnsavedChanges: (unsaved) => set({ unsavedChanges: unsaved }),
@@ -217,7 +220,40 @@ const useStore = create((set, get) => ({
         testResponseIndex: state.testResponseIndex + 1 
     })),
     
-    setKeyboardOpen: (isOpen) => set({ keyboardOpen: isOpen })
+    setKeyboardOpen: (isOpen) => set({ keyboardOpen: isOpen }),
+    
+    /**
+     * Remove the last message from chat history
+     */
+    removeLastMessage: () => {
+        const state = get();
+        if (state.chatHistory.length === 0) return null;
+        
+        const removedMessage = state.chatHistory[state.chatHistory.length - 1];
+        const newChatHistory = state.chatHistory.slice(0, -1);
+        const newContextMemory = state.contextMemory.filter(m => m.id !== removedMessage.id);
+        
+        set({
+            chatHistory: newChatHistory,
+            contextMemory: newContextMemory,
+            unsavedChanges: true
+        });
+        
+        return removedMessage;
+    },
+    
+    /**
+     * Get the last user message from chat history
+     */
+    getLastUserMessage: () => {
+        const state = get();
+        for (let i = state.chatHistory.length - 1; i >= 0; i--) {
+            if (state.chatHistory[i].role === 'user') {
+                return state.chatHistory[i];
+            }
+        }
+        return null;
+    }
 }));
 
 // Export non-hook API for use in non-React code
@@ -243,6 +279,7 @@ export const State = {
     get archivedChats() { return useStore.getState().archivedChats; },
     get userMemory() { return useStore.getState().userMemory; },
     get isGenerating() { return useStore.getState().isGenerating; },
+    get isLoadingChat() { return useStore.getState().isLoadingChat; },
     get chatStarted() { return useStore.getState().chatStarted; },
     get autosaveStatus() { return useStore.getState().autosaveStatus; },
     get unsavedChanges() { return useStore.getState().unsavedChanges; },
@@ -285,7 +322,10 @@ export const State = {
     },
     clearHealthCheckInterval() { return useStore.getState().clearHealthCheckInterval(); },
     incrementTestResponseIndex() { return useStore.getState().incrementTestResponseIndex(); },
-    setKeyboardOpen(isOpen) { return useStore.getState().setKeyboardOpen(isOpen); }
+    setKeyboardOpen(isOpen) { return useStore.getState().setKeyboardOpen(isOpen); },
+    setLoadingChat(isLoading) { return useStore.getState().setLoadingChat(isLoading); },
+    removeLastMessage() { return useStore.getState().removeLastMessage(); },
+    getLastUserMessage() { return useStore.getState().getLastUserMessage(); }
 };
 
 // Export hook for React components (future use)

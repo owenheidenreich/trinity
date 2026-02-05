@@ -37,6 +37,7 @@
 import CONFIG from './config.js';
 import UI from './ui/index.js';
 import Modals from './ui/modals.js';
+import { enhanceCodeBlocks } from './ui/messages.js';
 import AuthManager from './auth/authManager.js';
 import AutosaveManager from './storage/autosave.js';
 import State from './state/store.js';
@@ -55,6 +56,117 @@ function parseMarkdownWithMath(content) {
     const { processed, mathBlocks } = protectMath(content);
     let html = marked.parse(processed);
     return restoreMath(html, mathBlocks);
+}
+
+/**
+ * Add edit button to user messages
+ * @param {HTMLElement} messageDiv - The message DOM element
+ * @param {string} messageContent - The original message content
+ * @param {number} userIndex - Optional: the index of this user message (0-based)
+ */
+function addEditButton(messageDiv, messageContent, userIndex = null) {
+    // Calculate userIndex if not provided
+    if (userIndex === null) {
+        const allMessages = document.querySelectorAll('.message.user');
+        userIndex = Array.from(allMessages).indexOf(messageDiv);
+        if (userIndex === -1) {
+            // Count existing user messages
+            userIndex = document.querySelectorAll('.message.user').length - 1;
+        }
+    }
+    
+    // Store index as data attribute for reliable retrieval
+    messageDiv.dataset.userIndex = userIndex;
+    
+    const btn = document.createElement('button');
+    btn.className = 'edit-msg-btn';
+    btn.innerHTML = '✎';
+    btn.title = 'Edit message';
+    btn.onclick = (e) => {
+        e.stopPropagation();
+        enterEditMode(messageDiv, messageContent);
+    };
+    messageDiv.appendChild(btn);
+}
+
+/**
+ * Enter edit mode for a user message
+ */
+function enterEditMode(messageDiv, originalContent) {
+    // Store original content
+    messageDiv.dataset.originalContent = originalContent;
+    
+    // Create edit UI
+    const editContainer = document.createElement('div');
+    editContainer.className = 'edit-container';
+    editContainer.innerHTML = `
+        <textarea class="edit-textarea">${originalContent}</textarea>
+        <div class="edit-actions">
+            <button class="edit-cancel-btn">Cancel</button>
+            <button class="edit-save-btn">Save & Regenerate</button>
+        </div>
+    `;
+    
+    // Hide original content, show edit UI
+    messageDiv.querySelector('.edit-msg-btn')?.remove();
+    const contentWrapper = document.createElement('div');
+    contentWrapper.className = 'original-content';
+    contentWrapper.style.display = 'none';
+    contentWrapper.innerHTML = messageDiv.innerHTML;
+    messageDiv.innerHTML = '';
+    messageDiv.appendChild(contentWrapper);
+    messageDiv.appendChild(editContainer);
+    
+    // Focus textarea
+    const textarea = editContainer.querySelector('.edit-textarea');
+    textarea.focus();
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+    
+    // Cancel handler
+    editContainer.querySelector('.edit-cancel-btn').onclick = () => {
+        messageDiv.innerHTML = contentWrapper.innerHTML;
+        addEditButton(messageDiv, originalContent);
+    };
+    
+    // Save & Regenerate handler
+    editContainer.querySelector('.edit-save-btn').onclick = async () => {
+        const newContent = textarea.value.trim();
+        if (!newContent) return;
+        
+        // Find this message in state and truncate from there
+        const msgIndex = findMessageIndex(messageDiv);
+        if (msgIndex >= 0) {
+            await Actions.editAndRegenerate(msgIndex, newContent);
+        }
+    };
+}
+
+/**
+ * Find message index in chat history by DOM element
+ * Uses data-user-index attribute for reliable retrieval
+ */
+function findMessageIndex(messageDiv) {
+    // First try data attribute (most reliable)
+    if (messageDiv.dataset.userIndex !== undefined) {
+        const idx = parseInt(messageDiv.dataset.userIndex, 10);
+        console.log('📍 Found user index from data attribute:', idx);
+        return idx;
+    }
+    
+    // Fallback: count user messages up to this one
+    const messages = document.querySelectorAll('.message');
+    let userIndex = -1;
+    for (let i = 0; i < messages.length; i++) {
+        if (messages[i].classList.contains('user')) {
+            userIndex++;
+        }
+        if (messages[i] === messageDiv) {
+            console.log('📍 Found user index by DOM traversal:', userIndex);
+            return userIndex;
+        }
+    }
+    console.warn('⚠️ Could not find message index');
+    return -1;
 }
 
 // ============================================================================
@@ -122,7 +234,6 @@ const API = {
         if (this._currentAbortController) {
             this._currentAbortController.abort();
             this._currentAbortController = null;
-            console.log('🛑 Request cancelled');
         }
     },
 
@@ -356,8 +467,21 @@ const API = {
             let buffer = '';
             
             while (true) {
-                const { done, value } = await reader.read();
-                
+                // Race reader.read() against abort signal to detect cancellation immediately
+                const { done, value } = await Promise.race([
+                    reader.read(),
+                    new Promise((_, reject) => {
+                        if (signal.aborted) {
+                            reject(new DOMException('Stream aborted by user', 'AbortError'));
+                        }
+                        signal.addEventListener('abort', () => {
+                            console.log('🛑 Stream aborted - stopping reader');
+                            reader.cancel();
+                            reject(new DOMException('Stream aborted by user', 'AbortError'));
+                        }, { once: true });
+                    })
+                ]);
+
                 if (done) {
                     console.log('🌊 Stream complete:', fullText.length, 'chars');
                     onDone(fullText);
@@ -470,8 +594,21 @@ const API = {
             let agentResponse = null;
             
             while (true) {
-                const { done, value } = await reader.read();
-                
+                // Race reader.read() against abort signal to detect cancellation immediately
+                const { done, value } = await Promise.race([
+                    reader.read(),
+                    new Promise((_, reject) => {
+                        if (signal.aborted) {
+                            reject(new DOMException('Stream aborted by user', 'AbortError'));
+                        }
+                        signal.addEventListener('abort', () => {
+                            console.log('🛑 Agent stream aborted by user');
+                            reader.cancel();
+                            reject(new DOMException('Stream aborted by user', 'AbortError'));
+                        }, { once: true });
+                    })
+                ]);
+
                 if (done) {
                     console.log('🧠 Agent stream complete:', fullText.length, 'chars');
                     onDone(fullText, agentResponse);
@@ -532,9 +669,14 @@ const API = {
                 }
             }
         } catch (error) {
-            // Don't report abort errors as failures
+            // Handle abort errors specially - call onError with abort flag
             if (error.name === 'AbortError') {
                 console.log('🧠 Agent request cancelled by user');
+                // Create a special abort error so the caller knows it was intentional
+                const abortError = new Error('Request aborted');
+                abortError.name = 'AbortError';
+                abortError.isAbort = true;
+                onError(abortError);
                 return;
             }
             console.error('🧠 Agent error:', error);
@@ -754,7 +896,13 @@ const Actions = {
 
         // Add user message
         State.addMessage('user', originalPrompt);
-        UI.showMessage('user', originalPrompt);
+        const userMsgId = UI.showMessage('user', originalPrompt);
+        
+        // Add edit button to user message
+        const userMsgDiv = document.getElementById(userMsgId);
+        if (userMsgDiv) {
+            addEditButton(userMsgDiv, originalPrompt);
+        }
 
         // Debug: Log current context
         console.log('📝 Current context memory:', State.contextMemory.length, 'messages');
@@ -836,6 +984,9 @@ const Actions = {
                             // This avoids flashing - no need for post-render debouncedRenderKatex()
                             messageDiv.innerHTML = DOMPurify.sanitize(parseMarkdownWithMath(visibleText)) +
                                 '<span class="streaming-cursor">▊</span>';
+                            
+                            // Enhance any completed code blocks (those with closing ```)
+                            enhanceCodeBlocks(messageDiv);
                         }
                     }, 15); // ~66 chars/sec for natural typing feel
                 };
@@ -896,6 +1047,9 @@ const Actions = {
                                 }
                             
                                 messageDiv.innerHTML = DOMPurify.sanitize(parseMarkdownWithMath(fullText));
+                            
+                                // Enhance code blocks with copy button and syntax highlighting
+                                enhanceCodeBlocks(messageDiv);
                             
                                 // Final KaTeX render
                                 setTimeout(() => {
@@ -965,11 +1119,95 @@ const Actions = {
                 messageDiv.innerHTML = '❌ No response generated';
             }
         } catch (error) {
+            // Handle abort gracefully - don't show error message
+            if (error.name === 'AbortError' || error.isAbort) {
+                console.log('🛑 Generation aborted by user');
+                // Message cleanup is handled by stopGeneration()
+                return;
+            }
             console.error('❌ Generate error:', error);
             messageDiv.innerHTML = `❌ Request failed: ${error.message}`;
         } finally {
             UI.setGenerating(false, State);
         }
+    },
+
+    // Stop current generation
+    stopGeneration() {
+        API.cancelRequest();
+        State.setGenerating(false);
+        UI.setGenerating(false, State);
+
+        // Remove the incomplete AI message
+        const messagesContainer = UI.elements.messagesContainer;
+        const lastAiMessage = messagesContainer.querySelector('.message.ai:last-of-type');
+        if (lastAiMessage) {
+            // Check if it has actual content or just thinking indicator
+            const hasContent = lastAiMessage.textContent.trim().length > 50;
+            if (!hasContent) {
+                lastAiMessage.remove();
+                // Also remove the AI message from state if it was added
+                const lastMsg = State.chatHistory[State.chatHistory.length - 1];
+                if (lastMsg && lastMsg.role === 'assistant') {
+                    State.removeLastMessage();
+                }
+            }
+        }
+
+        UI.showNotification('Generation stopped', 'info');
+    },
+
+    // Edit a user message and regenerate from that point
+    async editAndRegenerate(userMsgIndex, newContent) {
+        // Get all user messages
+        const userMessages = State.chatHistory.filter(m => m.role === 'user');
+        if (userMsgIndex < 0 || userMsgIndex >= userMessages.length) return;
+        
+        // Find the actual index in chatHistory
+        let count = -1;
+        let actualIndex = -1;
+        for (let i = 0; i < State.chatHistory.length; i++) {
+            if (State.chatHistory[i].role === 'user') {
+                count++;
+                if (count === userMsgIndex) {
+                    actualIndex = i;
+                    break;
+                }
+            }
+        }
+        
+        if (actualIndex < 0) return;
+        
+        // Truncate chat history from this point
+        const newHistory = State.chatHistory.slice(0, actualIndex);
+        State.setChatHistory(newHistory);
+        
+        // Rebuild context memory
+        const contextSize = State.CONTEXT_WINDOW_SIZE;
+        const newContext = newHistory.slice(-contextSize);
+        State.setContextMemory(newContext);
+        
+        // Clear and re-render all messages
+        UI.clearMessages();
+        
+        // Always show chat area since we're about to generate
+        UI.showChatArea();
+        
+        // Re-render previous messages (if any)
+        if (newHistory.length > 0) {
+            newHistory.forEach(msg => {
+                const msgId = UI.showMessage(msg.role === 'assistant' ? 'ai' : 'user', msg.content);
+                // Add edit button to user messages
+                if (msg.role === 'user') {
+                    const msgDiv = document.getElementById(msgId);
+                    if (msgDiv) addEditButton(msgDiv, msg.content);
+                }
+            });
+        }
+        
+        // Set the new content in input and generate
+        UI.elements.promptInput.value = newContent;
+        await this.generate();
     },
 
     // Start a new chat
@@ -1010,16 +1248,21 @@ const Actions = {
         const sidebar = UI.elements.sidebar;
         const wasCollapsed = sidebar.classList.contains('collapsed');
         sidebar.classList.toggle('collapsed');
-
-        // On mobile, set up click-outside-to-close after a small delay
-        // to prevent the same click from immediately closing the sidebar
-        if (window.innerWidth <= 768 && wasCollapsed) {
-            // Sidebar is now open - add listener after this click event completes
-            setTimeout(() => {
-                document.addEventListener('click', this.closeSidebarOnClickOutside);
-            }, 10);
-        } else {
-            document.removeEventListener('click', this.closeSidebarOnClickOutside);
+        
+        // On mobile, toggle mobile-open class for CSS transform
+        if (window.innerWidth <= 768) {
+            if (wasCollapsed) {
+                // Opening sidebar
+                sidebar.classList.add('mobile-open');
+                // Add click-outside-to-close after this click completes
+                setTimeout(() => {
+                    document.addEventListener('click', this.closeSidebarOnClickOutside);
+                }, 10);
+            } else {
+                // Closing sidebar
+                sidebar.classList.remove('mobile-open');
+                document.removeEventListener('click', this.closeSidebarOnClickOutside);
+            }
         }
     },
 
@@ -1034,6 +1277,7 @@ const Actions = {
             !toggleBtn?.contains(event.target) && 
             !sidebarToggleBtn?.contains(event.target)) {
             sidebar.classList.add('collapsed');
+            sidebar.classList.remove('mobile-open');
             document.removeEventListener('click', Actions.closeSidebarOnClickOutside);
         }
     },
@@ -1141,14 +1385,23 @@ const Actions = {
             await Modals.showKeyWarningModal(result.principal, result.privateKeyHex);
             
             // User clicked Okay - automatically authenticate them
+            // CRITICAL: Set auth state BEFORE clearing modals
             State.setAuthenticated(result.principal, result.authenticatedSince);
+            console.log('🔐 Auth state set. isAuthenticated:', State.isAuthenticated, 'principal:', State.principal?.substring(0, 15) + '...');
+            
+            // Verify state was set correctly
+            if (!State.isAuthenticated) {
+                console.error('❌ CRITICAL: State.setAuthenticated failed to update state!');
+                // Force retry
+                State.setAuthenticated(result.principal, result.authenticatedSince);
+            }
             
             // Clear all modals
             Modals.removeAllModals();
             
             // Update UI immediately - don't wait for data loading
             UI.renderSidebar(State);
-            console.log('✅ New user authenticated!');
+            console.log('✅ New user authenticated! Final check - isAuthenticated:', State.isAuthenticated);
             
             // Load user data in background (non-blocking)
             // These may fail if backend is slow/unavailable, but auth is complete
@@ -1407,11 +1660,22 @@ const Actions = {
 
     // Load specific chat
     async loadChat(chatId) {
+        // Prevent multiple concurrent loads (double-click protection)
+        if (State.isLoadingChat) {
+            console.log('⏳ Already loading a chat, ignoring click');
+            return;
+        }
+        
         // SECURITY: Block if not authenticated
         if (!State.isAuthenticated) {
             console.warn('⛔ Load chat blocked - user not authenticated');
             return;
         }
+        
+        // Set loading state and show spinner on clicked item
+        State.setLoadingChat(true);
+        const chatItem = document.querySelector(`.chat-item[data-chat-id="${chatId}"]`);
+        if (chatItem) chatItem.classList.add('loading');
         
         try {
             const response = await API.loadChat(chatId);
@@ -1429,6 +1693,19 @@ const Actions = {
             
             UI.renderChatHistory(State);
             
+            // Add edit buttons to user messages (they aren't added by renderChatHistory)
+            const userMessages = document.querySelectorAll('.message.user');
+            let userIndex = 0;
+            State.chatHistory.forEach((msg, i) => {
+                if (msg.role === 'user' && userMessages[userIndex]) {
+                    const msgDiv = userMessages[userIndex];
+                    if (!msgDiv.querySelector('.edit-msg-btn')) {
+                        addEditButton(msgDiv, msg.content, userIndex);
+                    }
+                    userIndex++;
+                }
+            });
+            
             // Ensure input is enabled for all chats
             if (UI.elements.promptInput) UI.elements.promptInput.disabled = false;
             if (UI.elements.submitButton) UI.elements.submitButton.disabled = false;
@@ -1437,7 +1714,67 @@ const Actions = {
             if (attachBtn) attachBtn.disabled = false;
         } catch (error) {
             UI.showError('Failed to load chat: ' + error.message);
+        } finally {
+            // Always clear loading state
+            State.setLoadingChat(false);
+            if (chatItem) chatItem.classList.remove('loading');
         }
+    },
+
+    // Export chat as Markdown file
+    async exportChatAsMarkdown(chatId) {
+        let chatHistory, title;
+        
+        // If chatId provided, load that chat's data
+        if (chatId) {
+            try {
+                const chatData = await API.loadChat(chatId);
+                if (!chatData || !chatData.messages || chatData.messages.length === 0) {
+                    UI.showNotification('Chat has no messages to export', 'warning');
+                    return;
+                }
+                chatHistory = chatData.messages;
+                title = chatData.title || 'Trinity Chat';
+            } catch (error) {
+                UI.showNotification('Failed to load chat for export', 'error');
+                return;
+            }
+        } else {
+            // Export current chat
+            if (State.chatHistory.length === 0) {
+                UI.showNotification('No messages to export', 'warning');
+                return;
+            }
+            chatHistory = State.chatHistory;
+            title = State.currentChatTitle || 'Trinity Chat';
+        }
+        
+        const date = new Date().toISOString().split('T')[0];
+        
+        let markdown = `# ${title}\n\n`;
+        markdown += `> Exported from Trinity on ${new Date().toLocaleString()}\n\n---\n\n`;
+        
+        chatHistory.forEach((msg, index) => {
+            const role = msg.role === 'user' ? '**You**' : '**Trinity**';
+            markdown += `### ${role}\n\n`;
+            markdown += `${msg.content}\n\n`;
+            if (index < chatHistory.length - 1) {
+                markdown += `---\n\n`;
+            }
+        });
+        
+        // Create and download file
+        const blob = new Blob([markdown], { type: 'text/markdown' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${title.replace(/[^a-z0-9]/gi, '-').toLowerCase()}-${date}.md`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        
+        UI.showNotification('Chat exported!', 'success');
     },
 
     // Delete chat
@@ -1725,8 +2062,16 @@ async function init() {
 
     // -------------------- Event Listeners --------------------
 
-    // Send button
-    UI.elements.sendBtn.addEventListener('click', () => Actions.generate());
+    // Send button (also handles stop during generation)
+    UI.elements.sendBtn.addEventListener('click', () => {
+        // Check both state and data-action attribute for reliability
+        const isStopMode = State.isGenerating || UI.elements.sendBtn.dataset.action === 'stop';
+        if (isStopMode) {
+            Actions.stopGeneration();
+        } else {
+            Actions.generate();
+        }
+    });
 
     // Input field
     UI.elements.promptInput.addEventListener('keydown', (e) => Actions.handleKeyDown(e));
@@ -1798,6 +2143,14 @@ async function init() {
         if (action === 'loadChat' && chatId) Actions.loadChat(chatId);
         else if (action === 'deleteChat' && chatId) Actions.deleteChat(chatId);
         else if (action === 'newChat') Actions.newChat();
+        else if (action === 'exportChat' && chatId) {
+            // Prevent double execution with guard flag
+            if (btn._isExporting) return;
+            btn._isExporting = true;
+            Actions.exportChatAsMarkdown(chatId).finally(() => {
+                btn._isExporting = false;
+            });
+        }
         else if (action === 'login') Actions.login();
         else if (action === 'logout') Actions.logout();
         else if (action === 'importKey') Actions.importKey();

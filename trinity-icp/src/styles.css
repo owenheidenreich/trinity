@@ -31,7 +31,7 @@ body {
 }
 
 .app-container.ui-disabled {
-    pointer-events: none;
+    /* pointer-events: none; */  /* Commented out - was blocking stop button clicks */
     opacity: 0.5;
     filter: blur(2px);
 }
@@ -220,6 +220,14 @@ body {
     background: linear-gradient(135deg, #1a1a1a 0%, #252525 100%);
     border-radius: 6px;
     border: 1px solid #3d3d3d;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.model-badge:hover {
+    background: linear-gradient(135deg, #252525 0%, #2d2d2d 100%);
+    border-color: rgba(167, 139, 250, 0.5);
+    transform: translateY(-1px);
 }
 
 .model-label {
@@ -348,8 +356,74 @@ body {
     background: #000000;
 }
 
+.chat-item:hover .chat-item-actions {
+    display: flex !important;
+}
+
+/* Chat action buttons - small square icons */
+.chat-action-btn {
+    width: 24px;
+    height: 24px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: opacity 0.2s, transform 0.1s, background 0.2s;
+    opacity: 0.5;
+}
+
+.chat-action-btn:hover {
+    opacity: 1;
+    transform: scale(1.1);
+}
+
+.chat-action-btn.export-btn {
+    background: rgba(59, 130, 246, 0.25);
+    color: #60a5fa;
+}
+
+.chat-action-btn.export-btn:hover {
+    background: rgba(59, 130, 246, 0.5);
+}
+
+.chat-action-btn.delete-btn {
+    background: rgba(220, 38, 38, 0.25);
+    color: #f87171;
+}
+
+.chat-action-btn.delete-btn:hover {
+    background: rgba(220, 38, 38, 0.5);
+}
+
 .chat-item.active {
     background: #3d3d3d;
+}
+
+.chat-item.loading {
+    pointer-events: none;
+    opacity: 0.6;
+}
+
+.chat-item.loading::after {
+    content: '';
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 16px;
+    height: 16px;
+    border: 2px solid #3d3d3d;
+    border-top-color: #a78bfa;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: translateY(-50%) rotate(360deg); }
 }
 
 /* Main Content */
@@ -436,12 +510,137 @@ body {
     background: #2d2d2d;
     margin-left: auto;
     color: #ececec;
+    position: relative;
+}
+
+/* User message markdown formatting */
+.message.user p {
+    margin: 0 0 8px 0;
+}
+
+.message.user p:last-child {
+    margin-bottom: 0;
+}
+
+.message.user code {
+    background: #1a1a1a;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: 'Courier New', monospace;
+    font-size: 0.9em;
+}
+
+.message.user pre {
+    background: #1a1a1a;
+    border-radius: 6px;
+    padding: 10px;
+    overflow-x: auto;
+    margin: 8px 0;
+}
+
+.message.user pre code {
+    background: none;
+    padding: 0;
+}
+
+/* User message KaTeX math */
+.message.user .katex {
+    font-size: 1.1em;
 }
 
 .message.ai {
     background: #2d2d2d;
     border: 1px solid #3d3d3d;
+    position: relative;
 }
+
+/* Edit button on user messages */
+.edit-msg-btn {
+    position: absolute;
+    bottom: 8px;
+    right: 8px;
+    width: 24px;
+    height: 24px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: #666;
+    font-size: 14px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.2s, color 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.message.user:hover .edit-msg-btn {
+    opacity: 0.6;
+}
+
+.edit-msg-btn:hover {
+    opacity: 1 !important;
+    color: #60a5fa;
+}
+
+/* Edit mode for user messages */
+.edit-container {
+    width: 100%;
+}
+
+.edit-textarea {
+    width: 100%;
+    min-height: 60px;
+    padding: 10px;
+    border: 1px solid #3d3d3d;
+    border-radius: 6px;
+    background: #1a1a1a;
+    color: #ffffff;
+    font-family: inherit;
+    font-size: 14px;
+    resize: vertical;
+    margin-bottom: 8px;
+}
+
+.edit-textarea:focus {
+    outline: none;
+    border-color: #60a5fa;
+}
+
+.edit-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+.edit-actions button {
+    padding: 6px 12px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.2s;
+}
+
+.edit-save-btn {
+    background: #3b82f6;
+    color: white;
+}
+
+.edit-save-btn:hover {
+    background: #2563eb;
+}
+
+.edit-cancel-btn {
+    background: #3d3d3d;
+    color: #999;
+}
+
+.edit-cancel-btn:hover {
+    background: #4d4d4d;
+    color: #fff;
+}
+
 .message.ai p {
     margin: 0 0 10px 0;
 }
@@ -490,6 +689,57 @@ body {
     padding: 2px 6px;
     border-radius: 4px;
     color: #ff6b9d;
+}
+
+/* ============ CODE BLOCK ENHANCEMENTS ============ */
+.code-block-wrapper {
+    margin: 10px 0;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid #3d3d3d;
+}
+
+.code-block-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    background: #252525;
+    border-bottom: 1px solid #3d3d3d;
+}
+
+.code-language {
+    font-size: 12px;
+    color: #888;
+    text-transform: lowercase;
+    font-family: 'Monaco', 'Courier New', monospace;
+}
+
+.code-copy-btn {
+    background: #3d3d3d;
+    color: #ececec;
+    border: none;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s;
+}
+
+.code-copy-btn:hover {
+    background: #4d4d4d;
+}
+
+.code-copy-btn.copied {
+    background: #2ea043;
+    color: #fff;
+}
+
+/* Remove margin/border from pre inside wrapper */
+.code-block-wrapper pre {
+    margin: 0 !important;
+    border-radius: 0 !important;
+    border: none !important;
 }
 
 /* KaTeX Math Styling */
@@ -611,21 +861,17 @@ body {
     color: white;
 }
 
-/* While generating - gray background with rainbow text */
+/* While generating - stop button */
 .send-btn.generating {
     background: #3d3d3d;
-    cursor: wait;
+    cursor: pointer;
+    color: #e74c3c;
+    font-size: 14px;
 }
 
-.send-btn.generating::before {
-    content: '⏸';
-    background: linear-gradient(90deg, #ff0080, #ff8c00, #40e0d0, #7b68ee, #ff1493);
-    background-size: 200% 200%;
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-    animation: rainbow 3s ease infinite;
-    font-size: 16px;
+.send-btn.generating:hover {
+    background: #e74c3c;
+    color: white;
 }
 
 .send-btn:disabled:not(.generating) {
@@ -828,6 +1074,20 @@ MOBILE RESPONSIVE STYLES
         min-height: 100vh;
         min-height: -webkit-fill-available;
         z-index: 1000;
+        /* Start off-screen on mobile - always hidden until explicitly opened */
+        transform: translateX(-100%);
+        transition: transform 0.3s ease;
+    }
+    
+    /* Sidebar visible ONLY when it has .mobile-open class (set by JS) */
+    .sidebar.mobile-open {
+        transform: translateX(0);
+        box-shadow: 2px 0 10px rgba(0, 0, 0, 0.5);
+    }
+    
+    /* Ensure collapsed always hides */
+    .sidebar.collapsed {
+        transform: translateX(-100%) !important;
     }
     
     /* Always show the hamburger toggle button on mobile */
@@ -871,20 +1131,6 @@ MOBILE RESPONSIVE STYLES
         font-size: 12px;
         padding: 10px;
         overflow-x: auto;
-    }
-    
-    /* Make sidebar full-width when open on mobile */
-    .sidebar:not(.collapsed) {
-        position: fixed;
-        top: 0;
-        left: 0;
-        bottom: 0;
-        height: 100vh;
-        height: -webkit-fill-available;
-        z-index: 1000;
-        margin-left: 0;
-        box-shadow: 2px 0 10px rgba(0, 0, 0, 0.5);
-        transform: translateX(0);
     }
 
     /* Prevent page zoom on input focus (iOS) */
@@ -1034,6 +1280,8 @@ MOBILE RESPONSIVE STYLES
     padding: 24px;
     max-width: 400px;
     width: 90%;
+    max-height: 85vh;
+    overflow-y: auto;
     animation: slideUp 0.3s ease;
 }
 

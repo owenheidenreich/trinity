@@ -271,44 +271,40 @@ const Modals = {
             <div class="modal-content about-modal">
                 <h2 style="text-align: center; margin-bottom: 20px;">About Trinity</h2>
                 <p style="text-align: center; color: #aaa; margin-bottom: 24px;">
-                    A fully decentralized AI assistant
+                    Decentralized AI chat — no accounts, no tracking, your keys
                 </p>
                 
                 <div class="about-section">
-                    <h4>🌐 Internet Computer (ICP)</h4>
-                    <p>Your interface runs on ICP canisters — censorship-resistant smart contracts that serve the frontend globally without centralized servers.</p>
+                    <h4>Frontend — ICP Canister</h4>
+                    <p>This interface runs on an Internet Computer canister — a tamper-proof smart contract that serves HTML/JS globally without traditional servers.</p>
                 </div>
                 
                 <div class="about-section">
-                    <h4>☁️ Akash Network (AKT)</h4>
-                    <p>AI inference runs on Akash's decentralized cloud. Your conversations are processed on GPU nodes worldwide, with no central authority controlling access.</p>
+                    <h4>Backend — Akash Network</h4>
+                    <p>AI inference (Ollama + Qwen 72B) runs on Akash's decentralized GPU cloud. Your messages are processed without any single company controlling access.</p>
                 </div>
                 
                 <div class="about-section">
-                    <h4>📦 IPFS Storage</h4>
-                    <p>Archived chats are stored permanently on IPFS (InterPlanetary File System). Content-addressed storage means your data is verifiable, immutable, and truly yours.</p>
+                    <h4>Storage — Encrypted Autosave</h4>
+                    <p>Chats autosave encrypted (AES-256) to Akash disk. Only your keypair can decrypt them. You can also archive permanently to IPFS via Lighthouse.</p>
                 </div>
                 
                 <div class="about-section">
-                    <h4>🔗 The Flow</h4>
-                    <pre style="background: #1a1a1a; padding: 12px; border-radius: 6px; font-size: 11px; overflow-x: auto;">
-You → ICP Frontend → Cloudflare Worker
-              ↓
-      Akash Backend (GPU + Ollama)
-              ↓
-      Archive → Lighthouse → IPFS</pre>
+                    <h4>Auth — Ed25519 Keypair</h4>
+                    <p>No passwords or accounts. Your browser generates an Ed25519 keypair stored in IndexedDB. Export the private key anytime to back up or migrate.</p>
                 </div>
                 
                 <div class="about-section">
-                    <h4>🔐 Your Keys, Your Data</h4>
-                    <p>Trinity uses Ed25519 keypairs for authentication. You own your private key — we never see it. Export it anytime from the sidebar.</p>
+                    <h4>Data Flow</h4>
+                    <pre style="background: #1a1a1a; padding: 12px; border-radius: 6px; font-size: 11px; overflow-x: auto;">Browser → ICP Canister → Cloudflare → Akash GPU → Ollama LLM
+                                  ↓
+                       Encrypted Autosave → Akash Disk</pre>
                 </div>
                 
                 <div class="about-links" style="margin-top: 20px; text-align: center;">
                     <a href="https://internetcomputer.org" target="_blank">ICP</a> · 
                     <a href="https://akash.network" target="_blank">Akash</a> · 
-                    <a href="https://ipfs.tech" target="_blank">IPFS</a> · 
-                    <a href="https://ens.domains" target="_blank">ENS</a>
+                    <a href="https://ipfs.tech" target="_blank">IPFS</a>
                 </div>
                 
                 <div class="modal-buttons" style="justify-content: center; margin-top: 24px;">

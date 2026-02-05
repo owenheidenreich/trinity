@@ -64,9 +64,14 @@ const Sidebar = {
                                 <div style="font-size: 13px; color: white; margin-bottom: 2px;">${chat.title || 'Untitled'}</div>
                                 <div style="font-size: 10px; color: #888;">${new Date(chat.lastUpdated).toLocaleDateString()}</div>
                             </div>
-                            <button class="delete-btn" data-action="deleteChat" data-chat-id="${chat.chatId}" style="display: none; position: absolute; top: 6px; right: 6px; background: #dc2626; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600;">
-                                Delete
-                            </button>
+                            <div class="chat-item-actions" style="display: none; position: absolute; top: 50%; right: 6px; transform: translateY(-50%); gap: 4px;">
+                                <button class="chat-action-btn export-btn" data-action="exportChat" data-chat-id="${chat.chatId}" title="Export">
+                                    ↓
+                                </button>
+                                <button class="chat-action-btn delete-btn" data-action="deleteChat" data-chat-id="${chat.chatId}" title="Delete">
+                                    ×
+                                </button>
+                            </div>
                         </div>
                     `;
                 });

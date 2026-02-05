@@ -4,19 +4,17 @@ services:
   trinity:
     image: gdubx/trinity-inference:v4-intelligence
     env:
-      - PROVIDER_ID=trinity-tier2-balanced
-      - MODEL_NAME=llama3.1:8b
+      - PROVIDER_ID=trinity-tier2-qwen14b
+      - MODEL_NAME=qwen2.5:14b
       - MODEL_BACKEND=ollama
       - GPU_TYPE=NVIDIA-GPU
       - MAX_QUEUE_SIZE=10
       - OLLAMA_HOST=http://localhost:11434
       # Multi-Model Architecture (v4.0)
-      # FAST_MODEL: Quick classification/routing tasks
-      # SMART_MODEL: General purpose (same as MODEL_NAME for Tier 2)
-      # REASONING_MODEL: Complex reasoning tasks
-      - MULTI_MODEL_ENABLED=true
-      - FAST_MODEL=phi3:mini
-      - SMART_MODEL=llama3.1:8b
+      # Tier 2: Qwen 2.5 14B - Smart model that fits P40 (24GB VRAM)
+      - MULTI_MODEL_ENABLED=false
+      - FAST_MODEL=qwen2.5:14b
+      - SMART_MODEL=qwen2.5:14b
       - REASONING_MODEL=qwen2.5:14b
       # RAG & Semantic Memory (v4.0)
       - EMBEDDING_MODEL=BAAI/bge-small-en-v1.5
@@ -38,9 +36,9 @@ services:
       - BRAVE_SEARCH_API_KEY=${BRAVE_SEARCH_API_KEY}
       # Deployment tracking (set by deploy script, used for /funding/status)
       - DEPLOYMENT_TIER=2
-      - DEPLOYMENT_TIER_NAME=Standard
-      - HOURLY_COST_AKT=0.40
-      - DAILY_COST_AKT=9.6
+      - DEPLOYMENT_TIER_NAME=Qwen3B-Fast
+      - HOURLY_COST_AKT=0.25
+      - DAILY_COST_AKT=6
       - SESSION_TYPE=community
     expose:
       - port: 8000
@@ -59,9 +57,9 @@ profiles:
         cpu:
           units: 8
         memory:
-          size: 32Gi
+          size: 16Gi
         storage:
-          size: 100Gi
+          size: 50Gi
         gpu:
           units: 1
           attributes:
