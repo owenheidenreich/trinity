@@ -23,6 +23,43 @@
 - **Export Double-Click** - Added `_isExporting` flag guard on export button
 - **Model Badge Hover** - Added CSS with purple border animation
 
+### ✅ Recently Fixed (Feb 6, 2026)
+- **DEPLOYMENT_TIER=KING crash** - `int()` failed on non-numeric tier; added try/except in `akash.py`
+
+---
+
+## 🚨 Deployment Workflow Rules
+
+**CRITICAL: Changes require Docker rebuild to take effect on Akash**
+
+### The Deployment Chain
+```
+Local Code Change → Docker Build → Docker Push → Akash Redeploy → Live
+```
+
+### ❌ Common Mistakes
+| Mistake | Consequence | Prevention |
+|---------|-------------|------------|
+| Edit Python, don't rebuild Docker | Akash runs OLD code | Always rebuild after Python changes |
+| Edit YAML env vars, don't test locally | Crash on deploy (wastes GPU hours) | Test with `docker run` first |
+| Create new YAML without testing | `ValueError`, `ImportError`, etc. | Validate env vars match code expectations |
+| Multiple Akash deploys simultaneously | Resource waste during model downloads | Deploy ONE, verify, then next |
+
+### ✅ Safe Deployment Workflow
+1. **Make code change** (Python, config, etc.)
+2. **Test locally**: `python -c "from services.akash import *"` 
+3. **Docker build**: `cd deploy/docker && ./build.sh`
+4. **Docker push**: `docker push gdubx/trinity-inference:TAG`
+5. **Deploy ONE instance** to Akash
+6. **Verify logs** show server started successfully
+7. **Test endpoint**: `curl $URL/health`
+8. **Then** deploy additional instances if needed
+
+### YAML Environment Variable Rules
+- **DEPLOYMENT_TIER**: Must be numeric (1, 2, 3) OR code must handle strings
+- **All env vars**: Must have defaults in Python OR be guaranteed in YAML
+- **Test new YAMLs**: Run `docker run -e VAR=VALUE ...` locally first
+
 ---
 
 ## ⚡ Quick Reference
