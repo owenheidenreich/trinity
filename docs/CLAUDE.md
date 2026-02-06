@@ -1,8 +1,8 @@
 # Trinity Codebase Reference
 
 > **Purpose:** Comprehensive documentation for AI assistants to quickly understand the Trinity project
-> **Last Updated:** February 5, 2026
-> **Last Verified:** February 5, 2026
+> **Last Updated:** February 6, 2026
+> **Last Verified:** February 6, 2026
 > **Status:** Production - V4.0 Intelligence Upgrade
 > **Version:** v4.0.1 (Qwen 14B on P40, ~$65/mo)
 
@@ -100,25 +100,51 @@ Trinity/
 │   ├── middleware/              # Request middleware
 │   │   ├── __init__.py
 │   │   ├── rate_limit.py        # Rate limiting
-│   │   └── icp_cache.py         # ICP caching
+│   │   ├── icp_cache.py         # ICP caching
+│   │   ├── observability.py     # Prometheus metrics (RED method) + legacy compat
+│   │   └── ab_test.py           # A/B testing middleware
 │   ├── services/                # Business logic
 │   │   ├── __init__.py
 │   │   ├── prompts.py           # System prompts
-│   │   ├── metrics.py           # Stats collection
 │   │   ├── akash.py             # Akash blockchain API
 │   │   ├── ollama.py            # Ollama API client
-│   │   ├── agent.py             # Agentic pipeline orchestrator
+│   │   ├── agent.py             # Legacy agentic pipeline (80% traffic)
 │   │   ├── agent_prompts.py     # Multi-pass prompts + XML parsing
-│   │   ├── complexity.py        # Question complexity classifier
+│   │   ├── complexity.py        # Question complexity classifier (0-10 scoring)
 │   │   ├── search.py            # Brave web search integration
 │   │   ├── loading_messages.py  # Whimsical loading phrases
-│   │   ├── embeddings.py        # 🆕 V4: FastEmbed text embeddings
-│   │   ├── vector_store.py      # 🆕 V4: Per-user SQLite vector DB
-│   │   ├── memory.py            # 🆕 V4: Semantic memory retrieval
-│   │   ├── tools.py             # 🆕 V4: Tool registry and parser
-│   │   ├── code_executor.py     # 🆕 V4: RestrictedPython sandbox
-│   │   ├── voting.py            # 🧪 V4: Self-consistency voting (EXPERIMENTAL)
-│   │   └── structured.py        # 🧪 V4: JSON schema enforcement (EXPERIMENTAL)
+│   │   ├── experiments.py       # A/B experiment framework (hash-based)
+│   │   ├── caching.py           # Embedding + semantic response caching
+│   │   ├── parallel.py          # Parallel pipeline execution
+│   │   ├── embeddings.py        # V4: FastEmbed text embeddings
+│   │   ├── vector_store.py      # V4: Per-user SQLite vector DB
+│   │   ├── memory.py            # V4: Semantic memory retrieval
+│   │   ├── tools.py             # V4: Tool registry and parser
+│   │   ├── code_executor.py     # V4: RestrictedPython sandbox
+│   │   ├── voting.py            # V4: Self-consistency voting (experimental)
+│   │   ├── structured.py        # V4: JSON schema enforcement (experimental)
+│   │   └── graph/               # LangGraph multi-agent system (20% traffic)
+│   │       ├── __init__.py
+│   │       ├── state.py          # AgentState TypedDict
+│   │       ├── llm.py            # LangChain Ollama wrapper
+│   │       ├── agents.py         # Specialized agents (Supervisor, Research, etc.)
+│   │       ├── nodes.py          # Graph node implementations
+│   │       ├── edges.py          # Conditional routing logic
+│   │       └── graph.py          # StateGraph assembly
+│   ├── eval/                    # Benchmarking tools
+│   │   ├── benchmark_legacy_vs_langgraph.py  # Pipeline comparison
+│   │   └── BENCHMARK_GUIDE.md   # Benchmark documentation
+│   ├── tests/                   # Test suite (461 tests)
+│   │   ├── conftest.py          # Shared fixtures
+│   │   ├── fixtures/
+│   │   │   └── auth_fixtures.py # Ed25519 test keypairs
+│   │   ├── e2e/
+│   │   │   └── test_full_pipeline.py
+│   │   └── unit/                # 10 unit test files
+│   │       ├── test_caching.py, test_complexity.py, test_encryption.py
+│   │       ├── test_experiments.py, test_icp_auth.py, test_langgraph.py
+│   │       ├── test_langgraph_endpoint.py, test_observability.py
+│   │       ├── test_storage.py, test_validation.py
 │
 ├── deploy/                      # 🚀 DEPLOYMENT CONFIGS
 │   ├── akash/                   # Akash SDL manifests
@@ -185,13 +211,21 @@ Trinity/
 │
 └── docs/                        # 📚 DOCUMENTATION
     ├── CLAUDE.md                # This file (AI reference)
-    ├── diagrams/
-    │   └── trinity-storage-architecture.md
-    ├── plans/                   # 📋 Implementation plans
-    │   ├── NEXT_STEPS_PLAN.md   # Security audit checklist (14 items ✅)
-    │   └── AGENTIC_PIPELINE.md  # Agentic pipeline architecture
-    └── user/
-        └── quickstart.md
+    ├── FEATURE_CATALOG.md       # Complete feature inventory
+    ├── decisions/               # Architecture Decision Records
+    │   ├── 001-complexity-routing.md
+    │   ├── 002-tiered-test-coverage.md
+    │   ├── 003-prometheus-over-saas.md
+    │   ├── 004-hash-based-experiments.md
+    │   └── 005-in-memory-caching.md
+    ├── onboarding/              # Developer guides
+    │   ├── developer-setup.md
+    │   ├── architecture-walkthrough.md
+    │   └── common-tasks.md
+    └── plans/                   # Implementation plans
+        ├── trinity-production-upgrade-master-plan.md
+        ├── PHASE-5.5A-CRITICAL-METRICS-MIGRATION.md
+        └── gdubx-next-steps.md
 ```
 
 ---
@@ -461,6 +495,35 @@ backend/tests/
 | **Overall** | 75%+ | All modules |
 
 See `docs/decisions/002-tiered-test-coverage.md` for rationale.
+
+---
+
+## 🧹 Phase 5.5: Code Cleanup & Analysis (February 2026)
+
+Production-readiness overhaul across three sub-phases.
+
+### Phase 5.5A: Prometheus-Only Metrics Migration
+- **Deleted** `services/metrics.py` (legacy duplicate metrics system)
+- **Removed** duplicate observability fallbacks from `agent.py` and `graph/nodes.py`
+- **Migrated** all 21 `metrics.*` calls in `inference_server.py` to `middleware/observability.py`
+- **Added** legacy compatibility functions (`start_request`, `end_request`, `record_request`, `get_prometheus_summary`, `get_system_info`) to observability module
+- **Updated** `/health` and `/stats` endpoints to use Prometheus metrics
+- Single source of truth: `middleware/observability.py` (Prometheus)
+- See `docs/plans/PHASE-5.5A-CRITICAL-METRICS-MIGRATION.md` for full migration details
+
+### Phase 5.5B: Automated Code Cleanup
+- Applied `black` formatter across 52 Python files (100-char line length)
+- Applied `isort` for consistent import ordering (stdlib → third-party → local)
+- Applied `autoflake` to remove unused imports
+- No functional changes — formatting only
+- All 461 tests passing after cleanup
+
+### Phase 5.5C: Legacy vs LangGraph Benchmark Suite
+- Created `backend/eval/benchmark_legacy_vs_langgraph.py`
+- 300 test queries (100 simple, 100 medium, 100 complex)
+- Compares both pipelines on P50/P95/P99 latency, success rate, token usage
+- Decision framework: when to keep 80/20 split vs adjust routing
+- See `backend/eval/BENCHMARK_GUIDE.md` for usage and interpretation
 
 ---
 
@@ -1528,22 +1591,30 @@ COPY deploy/docker/startup.sh .
 **Backend Module Structure:**
 ```
 backend/
-├── inference_server.py   # Main routes, Flask app
+├── inference_server.py   # Main routes, Flask app (~3400 lines)
 ├── icp_auth.py           # Auth decorators, signature verification
 ├── config.py             # Environment config
 ├── encryption.py         # AES-256-GCM encryption
 ├── storage.py            # File storage operations
 ├── lighthouse.py         # IPFS/Filecoin uploads
 ├── validation.py         # Input validation functions
-├── middleware/           # Rate limiting, caching
+├── middleware/           # Rate limiting, observability, A/B testing
 │   ├── __init__.py
-│   ├── rate_limit.py
-│   └── icp_cache.py
+│   ├── rate_limit.py     # Per-IP rate limiting
+│   ├── icp_cache.py      # ICP idempotency cache
+│   ├── observability.py  # Prometheus metrics (single source of truth)
+│   └── ab_test.py        # A/B testing middleware
 ├── services/             # Business logic
 │   ├── __init__.py
 │   ├── prompts.py        # System prompts
-│   ├── metrics.py        # Stats collection
-│   └── akash.py          # Akash blockchain API
+│   ├── akash.py          # Akash blockchain API
+│   ├── agent.py          # Legacy agentic pipeline
+│   ├── complexity.py     # Complexity classifier (0-10)
+│   ├── experiments.py    # A/B testing framework
+│   ├── caching.py        # Embedding + semantic caching
+│   └── graph/            # LangGraph multi-agent (7 files)
+├── eval/                 # Benchmarking tools
+└── tests/                # 461 tests (unit + e2e)
 ```
 
 ---
@@ -2031,4 +2102,4 @@ echo "http://YOUR_AKASH_URI" | wrangler secret put AKASH_URL
 
 ---
 
-*This document is maintained for AI assistants to quickly understand Trinity without re-exploring files. Last updated February 4, 2026 (added SSL auto-detection, bad provider skip list, plans folder reference).*
+*This document is maintained for AI assistants to quickly understand Trinity without re-exploring files. Last updated February 6, 2026 (Phase 5.5 documentation overhaul: fixed project structure, added Phase 5.5 section, removed deleted metrics.py references).*
