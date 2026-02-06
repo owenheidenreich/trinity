@@ -10,9 +10,8 @@ v4.0 Enhancements:
 """
 
 import re
-from typing import Dict, Optional, List
 from dataclasses import dataclass
-
+from typing import Dict, List, Optional
 
 # ============================================================================
 # TOOL DEFINITIONS (for prompt injection)
@@ -182,6 +181,7 @@ Do NOT reference this refinement process. Just write the answer directly."""
 # DATA CLASSES
 # ============================================================================
 
+
 @dataclass
 class UnderstandingResult:
     question_type: str
@@ -215,10 +215,11 @@ class CritiqueResult:
 # XML PARSING (with fallbacks)
 # ============================================================================
 
+
 def parse_xml_tag(text: str, tag: str, default: str = "") -> str:
     """
     Extract content from XML tag with multiple fallback strategies.
-    
+
     Tries:
     1. Exact XML match: <tag>content</tag>
     2. Unclosed XML: <tag>content
@@ -226,32 +227,34 @@ def parse_xml_tag(text: str, tag: str, default: str = "") -> str:
     4. Markdown bold: **tag**: content
     """
     # Strategy 1: Exact XML
-    match = re.search(f'<{tag}>(.*?)</{tag}>', text, re.DOTALL | re.IGNORECASE)
+    match = re.search(f"<{tag}>(.*?)</{tag}>", text, re.DOTALL | re.IGNORECASE)
     if match:
         return match.group(1).strip()
-    
+
     # Strategy 2: Unclosed XML (model forgets closing tag)
-    match = re.search(f'<{tag}>([^<]+)', text, re.DOTALL | re.IGNORECASE)
+    match = re.search(f"<{tag}>([^<]+)", text, re.DOTALL | re.IGNORECASE)
     if match:
         return match.group(1).strip()
-    
+
     # Strategy 3: Labeled section
-    match = re.search(f'{tag}:\\s*(.+?)(?:\\n\\n|\\n<|$)', text, re.DOTALL | re.IGNORECASE)
+    match = re.search(f"{tag}:\\s*(.+?)(?:\\n\\n|\\n<|$)", text, re.DOTALL | re.IGNORECASE)
     if match:
         return match.group(1).strip()
-    
+
     # Strategy 4: Markdown bold label
-    match = re.search(f'\\*\\*{tag}\\*\\*:\\s*(.+?)(?:\\n\\n|\\n<|$)', text, re.DOTALL | re.IGNORECASE)
+    match = re.search(
+        f"\\*\\*{tag}\\*\\*:\\s*(.+?)(?:\\n\\n|\\n<|$)", text, re.DOTALL | re.IGNORECASE
+    )
     if match:
         return match.group(1).strip()
-    
+
     return default
 
 
 def parse_numbered_list(text: str) -> List[str]:
     """Extract numbered list items from text"""
     # Match lines starting with number, period/paren, then content
-    matches = re.findall(r'^\s*\d+[\.\)]\s*(.+)$', text, re.MULTILINE)
+    matches = re.findall(r"^\s*\d+[\.\)]\s*(.+)$", text, re.MULTILINE)
     return [m.strip() for m in matches if m.strip()]
 
 
@@ -259,65 +262,67 @@ def parse_numbered_list(text: str) -> List[str]:
 # PARSING FUNCTIONS
 # ============================================================================
 
+
 def parse_understanding(response: str) -> UnderstandingResult:
     """Parse Pass 1 (Understand) response"""
     # Extract complexity - model may return "8/10" or "8 (hard)" so extract just the number
-    complexity_str = parse_xml_tag(response, 'complexity', '5')
-    complexity_match = re.search(r'\d+', complexity_str)
+    complexity_str = parse_xml_tag(response, "complexity", "5")
+    complexity_match = re.search(r"\d+", complexity_str)
     complexity = int(complexity_match.group()) if complexity_match else 5
     complexity = min(10, max(1, complexity))  # Clamp to 1-10
-    
+
     # Extract tools_needed (v4.0)
-    tools_str = parse_xml_tag(response, 'tools_needed', 'none')
-    if tools_str.lower() == 'none':
+    tools_str = parse_xml_tag(response, "tools_needed", "none")
+    if tools_str.lower() == "none":
         tools_needed = []
     else:
-        tools_needed = [t.strip().lower() for t in tools_str.split(',') if t.strip()]
-    
+        tools_needed = [t.strip().lower() for t in tools_str.split(",") if t.strip()]
+
     return UnderstandingResult(
-        question_type=parse_xml_tag(response, 'type', 'unknown'),
-        domains=[d.strip() for d in parse_xml_tag(response, 'domains', '').split(',') if d.strip()],
+        question_type=parse_xml_tag(response, "type", "unknown"),
+        domains=[d.strip() for d in parse_xml_tag(response, "domains", "").split(",") if d.strip()],
         complexity=complexity,
-        summary=parse_xml_tag(response, 'summary', 'Question analysis unavailable'),
-        key_challenges=parse_xml_tag(response, 'key_challenges', ''),
+        summary=parse_xml_tag(response, "summary", "Question analysis unavailable"),
+        key_challenges=parse_xml_tag(response, "key_challenges", ""),
         raw=response,
-        tools_needed=tools_needed
+        tools_needed=tools_needed,
     )
 
 
 def parse_plan(response: str) -> PlanResult:
     """Parse Pass 2 (Plan) response"""
-    plan_text = parse_xml_tag(response, 'plan', '')
+    plan_text = parse_xml_tag(response, "plan", "")
     steps = parse_numbered_list(plan_text) if plan_text else []
-    
+
     return PlanResult(
         steps=steps,
-        approach=parse_xml_tag(response, 'approach', ''),
-        pitfalls=parse_xml_tag(response, 'pitfalls', ''),
-        raw=response
+        approach=parse_xml_tag(response, "approach", ""),
+        pitfalls=parse_xml_tag(response, "pitfalls", ""),
+        raw=response,
     )
 
 
 def parse_critique(response: str) -> CritiqueResult:
     """Parse Pass 4 (Critique) response"""
-    score_str = parse_xml_tag(response, 'score', '5')
+    score_str = parse_xml_tag(response, "score", "5")
     # Extract just the number
-    score_match = re.search(r'\d+', score_str)
+    score_match = re.search(r"\d+", score_str)
     score = int(score_match.group()) if score_match else 5
-    
+
     return CritiqueResult(
-        weakness1=parse_xml_tag(response, 'weakness1', 'No weakness identified'),
-        weakness2=parse_xml_tag(response, 'weakness2', 'No weakness identified'),
-        weakness3=parse_xml_tag(response, 'weakness3', 'No weakness identified'),
+        weakness1=parse_xml_tag(response, "weakness1", "No weakness identified"),
+        weakness2=parse_xml_tag(response, "weakness2", "No weakness identified"),
+        weakness3=parse_xml_tag(response, "weakness3", "No weakness identified"),
         score=min(10, max(1, score)),  # Clamp to 1-10
-        verdict=parse_xml_tag(response, 'verdict', ''),
-        raw=response
+        verdict=parse_xml_tag(response, "verdict", ""),
+        raw=response,
     )
 
 
 # ============================================================================
 # PROMPT BUILDERS
 # ============================================================================
+
 
 def build_understand_prompt(question: str) -> str:
     """Build the understanding pass prompt"""
@@ -331,11 +336,8 @@ Domains: {', '.join(understanding.domains)}
 Complexity: {understanding.complexity}/10
 Summary: {understanding.summary}
 Challenges: {understanding.key_challenges}"""
-    
-    return PLAN_PROMPT.format(
-        understanding=understanding_summary,
-        question=question
-    )
+
+    return PLAN_PROMPT.format(understanding=understanding_summary, question=question)
 
 
 def build_execute_prompt(
@@ -345,34 +347,34 @@ def build_execute_prompt(
     context_messages: List[Dict],
     user_memory: Optional[Dict],
     search_context: str = "",
-    include_tools: bool = True
+    include_tools: bool = True,
 ) -> str:
     """Build the execute pass prompt"""
-    
+
     # Format context
     if context_messages:
         context_parts = []
         for msg in context_messages[-6:]:  # Last 6 messages
-            role = msg.get('role', 'unknown')
-            content = msg.get('content', '')[:500]  # Truncate long messages
+            role = msg.get("role", "unknown")
+            content = msg.get("content", "")[:500]  # Truncate long messages
             context_parts.append(f"{role.title()}: {content}")
         context = "\n".join(context_parts)
     else:
         context = "No previous conversation."
-    
+
     # Format user memory
-    if user_memory and user_memory.get('facts'):
-        memory_parts = [f"- {fact}" for fact in user_memory['facts'][:10]]
+    if user_memory and user_memory.get("facts"):
+        memory_parts = [f"- {fact}" for fact in user_memory["facts"][:10]]
         memory = "\n".join(memory_parts)
     else:
         memory = "No stored information about this user."
-    
+
     # Format search context (if we did a web search)
     if search_context:
         formatted_search = f"\nWeb research results:\n{search_context}\n"
     else:
         formatted_search = ""
-    
+
     # Tools section (v4.0)
     tools_section = ""
     if include_tools:
@@ -381,12 +383,14 @@ def build_execute_prompt(
         if understanding and understanding.tools_needed:
             needs_tools = True
         # Also check for math/code keywords
-        if any(kw in question.lower() for kw in ['calculate', 'compute', 'code', 'python', 'function']):
+        if any(
+            kw in question.lower() for kw in ["calculate", "compute", "code", "python", "function"]
+        ):
             needs_tools = True
-        
+
         if needs_tools:
             tools_section = TOOL_PROMPT_SECTION
-    
+
     # Use simple prompt for simple questions
     if not understanding and not plan:
         return EXECUTE_PROMPT_SIMPLE.format(
@@ -394,20 +398,20 @@ def build_execute_prompt(
             context=context,
             search_context=formatted_search,
             tools_section=tools_section,
-            question=question
+            question=question,
         )
-    
+
     # Full prompt with understanding and plan
     understanding_text = ""
     if understanding:
         understanding_text = f"""Type: {understanding.question_type}
 Complexity: {understanding.complexity}/10
 Summary: {understanding.summary}"""
-    
+
     plan_text = ""
     if plan:
         plan_text = "\n".join(f"{i+1}. {step}" for i, step in enumerate(plan.steps))
-    
+
     return EXECUTE_PROMPT_WITH_PLAN.format(
         user_memory=memory,
         context=context,
@@ -415,15 +419,14 @@ Summary: {understanding.summary}"""
         understanding=understanding_text or "Quick question - no deep analysis needed.",
         plan=plan_text or "Direct response - no complex plan needed.",
         tools_section=tools_section,
-        question=question
+        question=question,
     )
 
 
 def build_critique_prompt(question: str, response: str) -> str:
     """Build the critique pass prompt"""
     return CRITIQUE_PROMPT.format(
-        question=question,
-        response=response[:4000]  # Truncate if too long
+        question=question, response=response[:4000]  # Truncate if too long
     )
 
 
@@ -436,5 +439,5 @@ def build_refine_prompt(question: str, response: str, critique: CritiqueResult) 
         weakness2=critique.weakness2,
         weakness3=critique.weakness3,
         score=critique.score,
-        verdict=critique.verdict
+        verdict=critique.verdict,
     )

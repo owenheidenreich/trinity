@@ -6,18 +6,20 @@ v4.0: Added vector database sync for persistence across Akash redeployments
 """
 
 import logging
-import requests
 from typing import Optional
 
-from config import LIGHTHOUSE_API_KEY, LIGHTHOUSE_NODE, LIGHTHOUSE_API, LIGHTHOUSE_GATEWAY
+import requests
+from config import LIGHTHOUSE_API, LIGHTHOUSE_API_KEY, LIGHTHOUSE_GATEWAY, LIGHTHOUSE_NODE
 
 logger = logging.getLogger(__name__)
 
 
-def upload_to_ipfs(file_data: bytes, filename: str, principal_id: str = None, is_master_bundle: bool = False) -> Optional[str]:
+def upload_to_ipfs(
+    file_data: bytes, filename: str, principal_id: str = None, is_master_bundle: bool = False
+) -> Optional[str]:
     """
     Upload file to IPFS via Lighthouse.
-    
+
     Lighthouse provides free IPFS pinning (1GB). Content is available
     immediately via IPFS gateways.
 
@@ -31,49 +33,40 @@ def upload_to_ipfs(file_data: bytes, filename: str, principal_id: str = None, is
         CID string on success, None on failure
     """
     if not LIGHTHOUSE_API_KEY:
-        logger.warning('Lighthouse API key not configured - skipping archive')
+        logger.warning("Lighthouse API key not configured - skipping archive")
         return None
 
     try:
-        endpoint = f'{LIGHTHOUSE_NODE}/api/v0/add'
-        
-        headers = {
-            'Authorization': f'Bearer {LIGHTHOUSE_API_KEY}'
-        }
-        
-        files = {
-            'file': (filename, file_data, 'application/json')
-        }
-        
-        logger.info(f'📤 Uploading to Lighthouse: {filename} ({len(file_data)} bytes)')
-        
-        response = requests.post(
-            endpoint,
-            headers=headers,
-            files=files,
-            timeout=60
-        )
+        endpoint = f"{LIGHTHOUSE_NODE}/api/v0/add"
+
+        headers = {"Authorization": f"Bearer {LIGHTHOUSE_API_KEY}"}
+
+        files = {"file": (filename, file_data, "application/json")}
+
+        logger.info(f"📤 Uploading to Lighthouse: {filename} ({len(file_data)} bytes)")
+
+        response = requests.post(endpoint, headers=headers, files=files, timeout=60)
 
         if response.status_code == 200:
             result = response.json()
-            cid = result.get('Hash')
-            size = result.get('Size', len(file_data))
-            
-            logger.info(f'✅ Uploaded to Lighthouse/IPFS: {cid}')
-            logger.info(f'   Size: {size} bytes')
-            logger.info(f'   Principal: {principal_id}')
-            logger.info(f'   Gateway: {LIGHTHOUSE_GATEWAY}/ipfs/{cid}')
-            
+            cid = result.get("Hash")
+            size = result.get("Size", len(file_data))
+
+            logger.info(f"✅ Uploaded to Lighthouse/IPFS: {cid}")
+            logger.info(f"   Size: {size} bytes")
+            logger.info(f"   Principal: {principal_id}")
+            logger.info(f"   Gateway: {LIGHTHOUSE_GATEWAY}/ipfs/{cid}")
+
             return cid
         else:
-            logger.error(f'❌ Lighthouse upload failed: {response.status_code} - {response.text}')
+            logger.error(f"❌ Lighthouse upload failed: {response.status_code} - {response.text}")
             return None
 
     except requests.Timeout:
-        logger.error('❌ Lighthouse upload timed out')
+        logger.error("❌ Lighthouse upload timed out")
         return None
     except Exception as e:
-        logger.error(f'❌ Lighthouse upload error: {e}', exc_info=True)
+        logger.error(f"❌ Lighthouse upload error: {e}", exc_info=True)
         return None
 
 
@@ -89,43 +82,39 @@ def get_lighthouse_uploads(principal_id: str = None, file_type: str = None) -> l
         List of upload records sorted by upload time (newest first)
     """
     if not LIGHTHOUSE_API_KEY:
-        logger.warning('Lighthouse API key not configured')
+        logger.warning("Lighthouse API key not configured")
         return []
 
     try:
-        headers = {
-            'Authorization': f'Bearer {LIGHTHOUSE_API_KEY}'
-        }
+        headers = {"Authorization": f"Bearer {LIGHTHOUSE_API_KEY}"}
 
         response = requests.get(
-            f'{LIGHTHOUSE_API}/api/user/files_uploaded',
-            headers=headers,
-            timeout=30
+            f"{LIGHTHOUSE_API}/api/user/files_uploaded", headers=headers, timeout=30
         )
 
         if response.status_code == 200:
             result = response.json()
-            files = result.get('fileList', [])
-            files.sort(key=lambda x: x.get('createdAt', 0), reverse=True)
-            
-            logger.info(f'📦 Found {len(files)} files in Lighthouse storage')
+            files = result.get("fileList", [])
+            files.sort(key=lambda x: x.get("createdAt", 0), reverse=True)
+
+            logger.info(f"📦 Found {len(files)} files in Lighthouse storage")
             return files
         else:
-            logger.error(f'Lighthouse listing failed: {response.status_code} - {response.text}')
+            logger.error(f"Lighthouse listing failed: {response.status_code} - {response.text}")
             return []
 
     except requests.Timeout:
-        logger.error('Lighthouse listing timed out')
+        logger.error("Lighthouse listing timed out")
         return []
     except Exception as e:
-        logger.error(f'Lighthouse listing error: {e}', exc_info=True)
+        logger.error(f"Lighthouse listing error: {e}", exc_info=True)
         return []
 
 
 def download_from_ipfs(cid: str) -> Optional[bytes]:
     """
     Download file from IPFS via multiple gateways for redundancy.
-    
+
     Tries Lighthouse gateway first since we upload there, then falls back
     to other public IPFS gateways for redundancy.
     """
@@ -134,33 +123,33 @@ def download_from_ipfs(cid: str) -> Optional[bytes]:
 
     try:
         gateways = [
-            f'{LIGHTHOUSE_GATEWAY}/ipfs/{cid}',
-            f'https://ipfs.io/ipfs/{cid}',
-            f'https://dweb.link/ipfs/{cid}',
-            f'https://cloudflare-ipfs.com/ipfs/{cid}'
+            f"{LIGHTHOUSE_GATEWAY}/ipfs/{cid}",
+            f"https://ipfs.io/ipfs/{cid}",
+            f"https://dweb.link/ipfs/{cid}",
+            f"https://cloudflare-ipfs.com/ipfs/{cid}",
         ]
 
         for gateway in gateways:
             try:
-                logger.info(f'Attempting download from: {gateway}')
+                logger.info(f"Attempting download from: {gateway}")
                 response = requests.get(gateway, timeout=30)
 
                 if response.status_code == 200:
-                    logger.info(f'✅ File downloaded from IPFS: {cid}')
+                    logger.info(f"✅ File downloaded from IPFS: {cid}")
                     return response.content
                 else:
-                    logger.warning(f'Gateway {gateway} returned {response.status_code}')
+                    logger.warning(f"Gateway {gateway} returned {response.status_code}")
             except requests.Timeout:
-                logger.warning(f'Gateway {gateway} timed out')
+                logger.warning(f"Gateway {gateway} timed out")
                 continue
             except Exception as e:
-                logger.warning(f'Gateway {gateway} error: {e}')
+                logger.warning(f"Gateway {gateway} error: {e}")
                 continue
 
-        logger.error(f'❌ All gateways failed for CID: {cid}')
+        logger.error(f"❌ All gateways failed for CID: {cid}")
         return None
     except Exception as e:
-        logger.error(f'❌ IPFS download error: {e}', exc_info=True)
+        logger.error(f"❌ IPFS download error: {e}", exc_info=True)
         return None
 
 
@@ -168,145 +157,146 @@ def download_from_ipfs(cid: str) -> Optional[bytes]:
 # VECTOR DATABASE SYNC (v4.0)
 # ============================================================================
 
+
 def upload_vector_db(principal_id: str) -> Optional[str]:
     """
     Upload user's vector database to IPFS for persistence.
-    
+
     Called after significant updates to ensure vectors survive
     Akash redeployments.
-    
+
     Args:
         principal_id: User's principal ID
-        
+
     Returns:
         CID of uploaded database, or None on failure
     """
     try:
         from services.vector_store import get_vector_store
-        
+
         store = get_vector_store(principal_id)
         db_data = store.export_for_ipfs()
-        
+
         if not db_data:
-            logger.warning(f'No vector data to upload for {principal_id}')
+            logger.warning(f"No vector data to upload for {principal_id}")
             return None
-        
-        filename = f'{principal_id}_vectors.db'
+
+        filename = f"{principal_id}_vectors.db"
         cid = upload_to_ipfs(db_data, filename, principal_id)
-        
+
         if cid:
-            logger.info(f'📦 Vector DB uploaded: {cid} ({len(db_data)} bytes)')
-        
+            logger.info(f"📦 Vector DB uploaded: {cid} ({len(db_data)} bytes)")
+
         return cid
-        
+
     except ImportError:
-        logger.warning('Vector store not available')
+        logger.warning("Vector store not available")
         return None
     except Exception as e:
-        logger.error(f'❌ Vector DB upload failed: {e}')
+        logger.error(f"❌ Vector DB upload failed: {e}")
         return None
 
 
 def download_vector_db(principal_id: str, cid: str) -> bool:
     """
     Download and restore user's vector database from IPFS.
-    
+
     Called on user login to restore vectors after Akash redeployment.
-    
+
     Args:
         principal_id: User's principal ID
         cid: IPFS CID of the vector database
-        
+
     Returns:
         True on success
     """
     try:
         from services.vector_store import get_vector_store
-        
+
         db_data = download_from_ipfs(cid)
-        
+
         if not db_data:
-            logger.error(f'Failed to download vector DB: {cid}')
+            logger.error(f"Failed to download vector DB: {cid}")
             return False
-        
+
         store = get_vector_store(principal_id)
         success = store.import_from_ipfs(db_data)
-        
+
         if success:
-            logger.info(f'✅ Vector DB restored from IPFS: {cid}')
-        
+            logger.info(f"✅ Vector DB restored from IPFS: {cid}")
+
         return success
-        
+
     except ImportError:
-        logger.warning('Vector store not available')
+        logger.warning("Vector store not available")
         return False
     except Exception as e:
-        logger.error(f'❌ Vector DB download failed: {e}')
+        logger.error(f"❌ Vector DB download failed: {e}")
         return False
 
 
 def get_user_vector_cid(principal_id: str) -> Optional[str]:
     """
     Get the latest vector DB CID for a user from Lighthouse.
-    
+
     Searches uploads for the most recent vectors.db file.
-    
+
     Args:
         principal_id: User's principal ID
-        
+
     Returns:
         CID if found, None otherwise
     """
     try:
         uploads = get_lighthouse_uploads(principal_id)
-        
+
         # Look for vector DB files
-        vector_filename = f'{principal_id}_vectors.db'
+        vector_filename = f"{principal_id}_vectors.db"
         for upload in uploads:
-            if upload.get('fileName') == vector_filename:
-                return upload.get('cid')
-        
+            if upload.get("fileName") == vector_filename:
+                return upload.get("cid")
+
         return None
-        
+
     except Exception as e:
-        logger.error(f'❌ Error finding vector CID: {e}')
+        logger.error(f"❌ Error finding vector CID: {e}")
         return None
 
 
 def sync_vector_db_on_login(principal_id: str) -> bool:
     """
     Sync vector database on user login.
-    
+
     Checks if local DB exists, if not, tries to restore from IPFS.
-    
+
     Args:
         principal_id: User's principal ID
-        
+
     Returns:
         True if DB is available (local or restored)
     """
     try:
-        from services.vector_store import get_vector_store
         from pathlib import Path
+
         from config import CHATS_DIR
-        
+
         # Check if local DB exists
-        local_db = Path(CHATS_DIR) / principal_id / 'vectors.db'
-        
+        local_db = Path(CHATS_DIR) / principal_id / "vectors.db"
+
         if local_db.exists() and local_db.stat().st_size > 0:
-            logger.info(f'📦 Local vector DB exists for {principal_id}')
+            logger.info(f"📦 Local vector DB exists for {principal_id}")
             return True
-        
+
         # Try to restore from IPFS
         cid = get_user_vector_cid(principal_id)
         if cid:
-            logger.info(f'🔄 Restoring vector DB from IPFS: {cid}')
+            logger.info(f"🔄 Restoring vector DB from IPFS: {cid}")
             return download_vector_db(principal_id, cid)
-        
+
         # No local or remote DB - user is new or has no vectors
-        logger.info(f'📦 No vector DB found for {principal_id} - will create on first use')
+        logger.info(f"📦 No vector DB found for {principal_id} - will create on first use")
         return True
-        
+
     except Exception as e:
-        logger.error(f'❌ Vector DB sync failed: {e}')
+        logger.error(f"❌ Vector DB sync failed: {e}")
         return False

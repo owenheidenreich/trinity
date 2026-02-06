@@ -6,67 +6,90 @@ Refactored: Config, encryption, storage, lighthouse, middleware, and services mo
 See backend/ structure:
   - config.py: Environment variables and constants
   - encryption.py: AES-256-GCM encryption utilities
-  - storage.py: User directory and metadata management  
+  - storage.py: User directory and metadata management
   - lighthouse.py: IPFS/Filecoin storage via Lighthouse
   - middleware/: Rate limiting, ICP caching
   - services/: Metrics, prompts, Ollama client
   - routes/: (Future) Flask blueprints for endpoints
 """
 
-from flask import Flask, request, jsonify, Response
-from flask_cors import CORS
-from flask_compress import Compress
-from functools import wraps
-import requests
-import logging
-import time
-import os
 import json
-import base64
-import hmac
-import hashlib
-from datetime import datetime, timedelta
-from pathlib import Path
-from typing import Dict, Tuple, Optional
 import threading
+import time
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, Optional
+
+import requests
 from apscheduler.schedulers.background import BackgroundScheduler
 
 # Import extracted modules
 from config import (
-    PROVIDER_ID, MODEL_NAME, MODEL_BACKEND, GPU_TYPE, OLLAMA_HOST,
-    MAX_QUEUE_SIZE, CHATS_DIR, LIGHTHOUSE_API_KEY, LIGHTHOUSE_NODE,
-    LIGHTHOUSE_API, LIGHTHOUSE_GATEWAY, AKASH_WALLET_ADDRESS,
-    ICP_BACKEND_CANISTER, ICP_FRONTEND_CANISTER, DEPLOYMENT_TIER, BUILD_TIMESTAMP,
-    AUTH_TIMESTAMP_WINDOW_MS, BRAVE_SEARCH_API_KEY, MAX_PROMPT_LENGTH,
-    http_session, logger
+    AKASH_WALLET_ADDRESS,
+    BRAVE_SEARCH_API_KEY,
+    BUILD_TIMESTAMP,
+    CHATS_DIR,
+    DEPLOYMENT_TIER,
+    GPU_TYPE,
+    ICP_BACKEND_CANISTER,
+    ICP_FRONTEND_CANISTER,
+    LIGHTHOUSE_GATEWAY,
+    MAX_PROMPT_LENGTH,
+    MAX_QUEUE_SIZE,
+    MODEL_BACKEND,
+    MODEL_NAME,
+    OLLAMA_HOST,
+    PROVIDER_ID,
+    http_session,
+    logger,
 )
 from encryption import EncryptionUtils
-from storage import (
-    get_user_dir, get_metadata_path, get_user_memory_path,
-    load_user_memory, save_user_memory, load_metadata, save_metadata
-)
-from lighthouse import (
-    upload_to_ipfs, get_lighthouse_uploads,
-    download_from_ipfs
-)
+from flask import Flask, Response, jsonify, request
+from flask_compress import Compress
+from flask_cors import CORS
+from lighthouse import download_from_ipfs, get_lighthouse_uploads, upload_to_ipfs
 
 # Import new modular middleware and services
-from middleware import rate_limit, storage_rate_limit, icp_idempotent, icp_cache
 from middleware import (
-    PROMETHEUS_AVAILABLE, get_metrics_response, track_inference, 
-    track_storage, track_auth, track_error, set_model_loaded, set_uptime
+    get_metrics_response,
+    icp_idempotent,
+    rate_limit,
+    storage_rate_limit,
+    track_error,
+    track_inference,
+    track_storage,
 )
-from services import (
-    MetricsCollector, metrics, get_system_info,
-    TRINITY_SYSTEM_PROMPT, REASONING_SYSTEM_PROMPT,
-    build_prompt_with_context, build_reasoning_prompt,
-    parse_reasoning_response, is_small_model,
-    check_ollama_connection, warmup_model,
-    # Akash services
-    get_akt_price_usd, get_escrow_balance, get_actual_lease_price,
-    get_akash_deployment_info, AKASH_WALLET_ADDRESS,
-    DEPLOYMENT_TIER, DEPLOYMENT_TIER_NAME, HOURLY_COST_AKT, DAILY_COST_AKT,
-    SESSION_TYPE, SESSION_ID, SESSION_EXPIRY, SESSION_FUNDED_AKT
+from services import (  # Akash services
+    AKASH_WALLET_ADDRESS,
+    DAILY_COST_AKT,
+    DEPLOYMENT_TIER,
+    DEPLOYMENT_TIER_NAME,
+    HOURLY_COST_AKT,
+    REASONING_SYSTEM_PROMPT,
+    SESSION_EXPIRY,
+    SESSION_FUNDED_AKT,
+    SESSION_ID,
+    SESSION_TYPE,
+    TRINITY_SYSTEM_PROMPT,
+    MetricsCollector,
+    build_prompt_with_context,
+    build_reasoning_prompt,
+    check_ollama_connection,
+    get_actual_lease_price,
+    get_akash_deployment_info,
+    get_akt_price_usd,
+    get_escrow_balance,
+    get_system_info,
+    is_small_model,
+    metrics,
+    parse_reasoning_response,
+    warmup_model,
+)
+from storage import (
+    load_metadata,
+    load_user_memory,
+    save_metadata,
+    save_user_memory,
 )
 
 # V4.0 Intelligence Upgrades - Semantic Memory, Tools, Voting
@@ -81,86 +104,98 @@ V4_VOTING_AVAILABLE = False
 V4_STRUCTURED_AVAILABLE = False
 
 try:
-    from services.embeddings import embed_text, embed_batch, cosine_similarity, V4_EMBEDDINGS_AVAILABLE
+    from services.embeddings import (
+        V4_EMBEDDINGS_AVAILABLE,
+    )
+
     logger.info(f"✅ embeddings: V4_EMBEDDINGS_AVAILABLE={V4_EMBEDDINGS_AVAILABLE}")
 except Exception as e:
     V4_IMPORT_ERROR = f"embeddings: {e}"
     logger.error(f"❌ embeddings import failed: {e}")
 
 try:
-    from services.vector_store import VectorStore, get_user_vector_store, V4_VECTOR_STORE_AVAILABLE
+    from services.vector_store import V4_VECTOR_STORE_AVAILABLE, get_user_vector_store
+
     logger.info(f"✅ vector_store: V4_VECTOR_STORE_AVAILABLE={V4_VECTOR_STORE_AVAILABLE}")
 except Exception as e:
     V4_IMPORT_ERROR = f"vector_store: {e}"
     logger.error(f"❌ vector_store import failed: {e}")
 
 try:
-    from services.memory import SemanticMemory, build_enhanced_context, V4_MEMORY_AVAILABLE
+    from services.memory import V4_MEMORY_AVAILABLE, build_enhanced_context
+
     logger.info(f"✅ memory: V4_MEMORY_AVAILABLE={V4_MEMORY_AVAILABLE}")
 except Exception as e:
     V4_IMPORT_ERROR = f"memory: {e}"
     logger.error(f"❌ memory import failed: {e}")
 
 try:
-    from services.tools import parse_tool_calls, detect_tools_needed, get_tool_definitions_for_prompt, V4_TOOLS_AVAILABLE
+    from services.tools import (
+        V4_TOOLS_AVAILABLE,
+    )
+
     logger.info(f"✅ tools: V4_TOOLS_AVAILABLE={V4_TOOLS_AVAILABLE}")
 except Exception as e:
     V4_IMPORT_ERROR = f"tools: {e}"
     logger.error(f"❌ tools import failed: {e}")
 
 try:
-    from services.code_executor import execute_tool, V4_CODE_EXECUTOR_AVAILABLE
+    from services.code_executor import V4_CODE_EXECUTOR_AVAILABLE, execute_tool
+
     logger.info(f"✅ code_executor: V4_CODE_EXECUTOR_AVAILABLE={V4_CODE_EXECUTOR_AVAILABLE}")
 except Exception as e:
     V4_IMPORT_ERROR = f"code_executor: {e}"
     logger.error(f"❌ code_executor import failed: {e}")
 
 try:
-    from services.voting import run_voting_pipeline, should_use_voting, V4_VOTING_AVAILABLE
+    from services.voting import V4_VOTING_AVAILABLE
+
     logger.info(f"✅ voting: V4_VOTING_AVAILABLE={V4_VOTING_AVAILABLE}")
 except Exception as e:
     V4_IMPORT_ERROR = f"voting: {e}"
     logger.error(f"❌ voting import failed: {e}")
 
 try:
-    from services.structured import generate_structured, V4_STRUCTURED_AVAILABLE
+    from services.structured import V4_STRUCTURED_AVAILABLE
+
     logger.info(f"✅ structured: V4_STRUCTURED_AVAILABLE={V4_STRUCTURED_AVAILABLE}")
 except Exception as e:
     V4_IMPORT_ERROR = f"structured: {e}"
     logger.error(f"❌ structured import failed: {e}")
 
 try:
-    from lighthouse import upload_vector_db, download_vector_db, sync_vector_db_on_login
+    from lighthouse import sync_vector_db_on_login, upload_vector_db
 except Exception as e:
     logger.warning(f"⚠️ lighthouse vector_db functions not available: {e}")
 
-V4_FEATURES_AVAILABLE = all([
-    V4_EMBEDDINGS_AVAILABLE,
-    V4_VECTOR_STORE_AVAILABLE, 
-    V4_MEMORY_AVAILABLE,
-    V4_TOOLS_AVAILABLE,
-    V4_CODE_EXECUTOR_AVAILABLE
-])
+V4_FEATURES_AVAILABLE = all(
+    [
+        V4_EMBEDDINGS_AVAILABLE,
+        V4_VECTOR_STORE_AVAILABLE,
+        V4_MEMORY_AVAILABLE,
+        V4_TOOLS_AVAILABLE,
+        V4_CODE_EXECUTOR_AVAILABLE,
+    ]
+)
 logger.info(f"🧠 V4.0 Intelligence features: {'ENABLED' if V4_FEATURES_AVAILABLE else 'PARTIAL'}")
 
 # V5.0 LangGraph Multi-Agent System
 LANGGRAPH_AVAILABLE = False
 try:
-    from services.graph import get_trinity_graph, execute_graph, AgentState
+    from services.graph import execute_graph
     from services.graph.edges import should_use_langgraph
-    from services.complexity import classify_complexity
+
     LANGGRAPH_AVAILABLE = True
     logger.info("✅ LangGraph multi-agent system: ENABLED")
 except Exception as e:
     logger.warning(f"⚠️ LangGraph not available: {e}")
 
-# Input validation
-from validation import validate_chat_id, validate_principal_id, validate_cid, is_safe_url
-
-import tempfile
 
 # ICP Authentication
-from icp_auth import require_auth, verify_request_auth
+from icp_auth import require_auth
+
+# Input validation
+from validation import is_safe_url, validate_chat_id, validate_cid, validate_principal_id
 
 app = Flask(__name__)
 
@@ -171,15 +206,15 @@ Compress(app)
 # SECURITY: Restrict CORS to known origins
 # In production, this prevents random websites from making requests
 ALLOWED_ORIGINS = [
-    'https://zc67k-kiaaa-aaaal-qtmiq-cai.icp0.io',  # ICP canister frontend
-    'https://zc67k-kiaaa-aaaal-qtmiq-cai.raw.icp0.io',
-    'https://dubya.ai',
-    'https://www.dubya.ai',
-    'https://api.dubya.ai',  # Cloudflare Worker
-    'http://localhost:3000',  # Local development
-    'http://localhost:5173',  # Vite dev server
-    'http://127.0.0.1:3000',
-    'http://127.0.0.1:5173',
+    "https://zc67k-kiaaa-aaaal-qtmiq-cai.icp0.io",  # ICP canister frontend
+    "https://zc67k-kiaaa-aaaal-qtmiq-cai.raw.icp0.io",
+    "https://dubya.ai",
+    "https://www.dubya.ai",
+    "https://api.dubya.ai",  # Cloudflare Worker
+    "http://localhost:3000",  # Local development
+    "http://localhost:5173",  # Vite dev server
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:5173",
 ]
 
 CORS(app, origins=ALLOWED_ORIGINS, supports_credentials=True)
@@ -204,19 +239,21 @@ def cleanup_document_store():
     now = time.time()
     with _document_store_lock:
         expired = [
-            session_id for session_id, doc in document_store.items()
-            if now - doc.get('uploaded_at_ts', now) > DOCUMENT_STORE_MAX_AGE
+            session_id
+            for session_id, doc in document_store.items()
+            if now - doc.get("uploaded_at_ts", now) > DOCUMENT_STORE_MAX_AGE
         ]
         for session_id in expired:
             del document_store[session_id]
-            logger.info(f'🗑️ Cleaned up expired document session: {session_id}')
+            logger.info(f"🗑️ Cleaned up expired document session: {session_id}")
 
         # Also enforce max size (FIFO)
         while len(document_store) > DOCUMENT_STORE_MAX_SIZE:
-            oldest = min(document_store.keys(),
-                         key=lambda k: document_store[k].get('uploaded_at_ts', 0))
+            oldest = min(
+                document_store.keys(), key=lambda k: document_store[k].get("uploaded_at_ts", 0)
+            )
             del document_store[oldest]
-            logger.info(f'🗑️ Cleaned up document store overflow: {oldest}')
+            logger.info(f"🗑️ Cleaned up document store overflow: {oldest}")
 
 
 # Note: Validation functions now in validation.py
@@ -227,11 +264,12 @@ def cleanup_document_store():
 
 # ===== API ENDPOINTS =====
 
-@app.route('/health')
+
+@app.route("/health")
 def health():
     """
     Health check endpoint for load balancers and monitoring
-    
+
     Returns:
         - status: 'healthy' or 'degraded'
         - provider_id: unique identifier for this provider
@@ -245,73 +283,77 @@ def health():
     ollama_healthy = check_ollama_connection()
     system_info = get_system_info()
     stats = metrics.get_stats()
-    
+
     # Determine overall health
     is_healthy = (
-        ollama_healthy and
-        metrics.active_requests < MAX_QUEUE_SIZE and
-        system_info['memory_percent'] < 95
+        ollama_healthy
+        and metrics.active_requests < MAX_QUEUE_SIZE
+        and system_info["memory_percent"] < 95
     )
-    
-    return jsonify({
-        'status': 'healthy' if is_healthy else 'degraded',
-        'provider_id': PROVIDER_ID,
-        'model': MODEL_NAME,
-        'gpu_type': GPU_TYPE,
-        'ollama_connected': ollama_healthy,
-        'timestamp': datetime.utcnow().isoformat(),
-        'build_timestamp': BUILD_TIMESTAMP,
-        'system': system_info,
-        'metrics': stats,
-        'queue_size': metrics.active_requests,
-        'max_queue_size': MAX_QUEUE_SIZE,
-        'features': {
-            'v4_intelligence': V4_FEATURES_AVAILABLE,
-            'langgraph_agents': LANGGRAPH_AVAILABLE,
-            'semantic_memory': V4_MEMORY_AVAILABLE,
-            'web_search': bool(BRAVE_SEARCH_API_KEY),
+
+    return jsonify(
+        {
+            "status": "healthy" if is_healthy else "degraded",
+            "provider_id": PROVIDER_ID,
+            "model": MODEL_NAME,
+            "gpu_type": GPU_TYPE,
+            "ollama_connected": ollama_healthy,
+            "timestamp": datetime.utcnow().isoformat(),
+            "build_timestamp": BUILD_TIMESTAMP,
+            "system": system_info,
+            "metrics": stats,
+            "queue_size": metrics.active_requests,
+            "max_queue_size": MAX_QUEUE_SIZE,
+            "features": {
+                "v4_intelligence": V4_FEATURES_AVAILABLE,
+                "langgraph_agents": LANGGRAPH_AVAILABLE,
+                "semantic_memory": V4_MEMORY_AVAILABLE,
+                "web_search": bool(BRAVE_SEARCH_API_KEY),
+            },
         }
-    }), 200 if is_healthy else 503
+    ), (200 if is_healthy else 503)
 
 
-@app.route('/health/icp')
+@app.route("/health/icp")
 @icp_idempotent
 def health_icp():
     """
     Deterministic health check endpoint for ICP HTTP Outcalls.
-    
+
     ICP requires all 13 subnet replicas to receive identical responses
     for consensus. This endpoint returns ONLY static/deterministic data.
-    
+
     Uses @icp_idempotent decorator for X-Request-ID based caching.
     """
     ollama_healthy = check_ollama_connection()
-    
+
     # Only return STATIC values - no timestamps, no dynamic metrics
-    return jsonify({
-        'status': 'healthy' if ollama_healthy else 'degraded',
-        'provider_id': PROVIDER_ID,
-        'model': MODEL_NAME,
-        'gpu_type': GPU_TYPE,
-        'ollama_connected': ollama_healthy,
-        'build_timestamp': BUILD_TIMESTAMP,  # Static - set at startup
-        'version': '2.1.0',
-        'icp_compatible': True
-    }), 200 if ollama_healthy else 503
+    return jsonify(
+        {
+            "status": "healthy" if ollama_healthy else "degraded",
+            "provider_id": PROVIDER_ID,
+            "model": MODEL_NAME,
+            "gpu_type": GPU_TYPE,
+            "ollama_connected": ollama_healthy,
+            "build_timestamp": BUILD_TIMESTAMP,  # Static - set at startup
+            "version": "2.1.0",
+            "icp_compatible": True,
+        }
+    ), (200 if ollama_healthy else 503)
 
 
-@app.route('/metrics')
+@app.route("/metrics")
 def prometheus_metrics():
     """
     Prometheus metrics endpoint for monitoring and alerting.
-    
+
     Exposes application metrics in Prometheus text format:
     - Request rates, latencies, and error counts (RED method)
     - Model inference timing and token generation
     - System resources: CPU, memory (USE method)
     - Authentication success/failure rates
     - Storage operation metrics
-    
+
     Configure Prometheus to scrape this endpoint:
         scrape_configs:
           - job_name: 'trinity'
@@ -327,64 +369,64 @@ def prometheus_metrics():
 # EXPERIMENT ENDPOINTS (Phase 4)
 # =============================================================================
 
-@app.route('/admin/experiments')
+
+@app.route("/admin/experiments")
 def get_experiments_status():
     """
     Get all experiment definitions and current status.
-    
+
     Returns:
         - experiments: Dict of all experiments with variants and status
         - enabled_count: Number of currently enabled experiments
     """
     try:
-        from services.experiments import list_experiments, EXPERIMENTS
-        
+        from services.experiments import EXPERIMENTS, list_experiments
+
         all_experiments = list_experiments(enabled_only=False)
         enabled_count = sum(1 for exp in EXPERIMENTS.values() if exp.enabled)
-        
-        return jsonify({
-            'experiments': all_experiments,
-            'enabled_count': enabled_count,
-            'total_count': len(all_experiments)
-        })
+
+        return jsonify(
+            {
+                "experiments": all_experiments,
+                "enabled_count": enabled_count,
+                "total_count": len(all_experiments),
+            }
+        )
     except ImportError:
-        return jsonify({
-            'error': 'Experiments module not available',
-            'experiments': {}
-        }), 503
+        return jsonify({"error": "Experiments module not available", "experiments": {}}), 503
 
 
-@app.route('/admin/experiments/<experiment_name>/enable', methods=['POST'])
+@app.route("/admin/experiments/<experiment_name>/enable", methods=["POST"])
 def enable_experiment_endpoint(experiment_name: str):
     """Enable a specific experiment."""
     try:
         from services.experiments import enable_experiment
-        
+
         success = enable_experiment(experiment_name)
         if success:
-            return jsonify({'status': 'enabled', 'experiment': experiment_name})
+            return jsonify({"status": "enabled", "experiment": experiment_name})
         else:
-            return jsonify({'error': f'Experiment not found: {experiment_name}'}), 404
+            return jsonify({"error": f"Experiment not found: {experiment_name}"}), 404
     except ImportError:
-        return jsonify({'error': 'Experiments module not available'}), 503
+        return jsonify({"error": "Experiments module not available"}), 503
 
 
-@app.route('/admin/experiments/<experiment_name>/disable', methods=['POST'])
+@app.route("/admin/experiments/<experiment_name>/disable", methods=["POST"])
 def disable_experiment_endpoint(experiment_name: str):
     """Disable a specific experiment."""
     try:
         from services.experiments import disable_experiment
-        
+
         success = disable_experiment(experiment_name)
         if success:
-            return jsonify({'status': 'disabled', 'experiment': experiment_name})
+            return jsonify({"status": "disabled", "experiment": experiment_name})
         else:
-            return jsonify({'error': f'Experiment not found: {experiment_name}'}), 404
+            return jsonify({"error": f"Experiment not found: {experiment_name}"}), 404
     except ImportError:
-        return jsonify({'error': 'Experiments module not available'}), 503
+        return jsonify({"error": "Experiments module not available"}), 503
 
 
-@app.route('/admin/experiments/assignment/<session_id>')
+@app.route("/admin/experiments/assignment/<session_id>")
 def get_experiment_assignments(session_id: str):
     """
     Get all experiment assignments for a specific session.
@@ -392,89 +434,84 @@ def get_experiment_assignments(session_id: str):
     """
     try:
         from services.experiments import get_all_assignments
-        
+
         assignments = get_all_assignments(session_id)
-        return jsonify({
-            'session_id': session_id,
-            'assignments': assignments
-        })
+        return jsonify({"session_id": session_id, "assignments": assignments})
     except ImportError:
-        return jsonify({'error': 'Experiments module not available'}), 503
+        return jsonify({"error": "Experiments module not available"}), 503
 
 
 # =============================================================================
 # ADMIN ENDPOINTS - COST & CACHING (Phase 5)
 # =============================================================================
 
-@app.route('/admin/cache/stats')
+
+@app.route("/admin/cache/stats")
 def get_cache_stats():
     """
     Get statistics for all caches (embedding, semantic, token tracking).
     """
     try:
         from services.caching import get_all_cache_stats
+
         stats = get_all_cache_stats()
         return jsonify(stats)
     except ImportError:
-        return jsonify({'error': 'Caching module not available'}), 503
+        return jsonify({"error": "Caching module not available"}), 503
 
 
-@app.route('/admin/cache/clear', methods=['POST'])
+@app.route("/admin/cache/clear", methods=["POST"])
 def clear_caches():
     """
     Clear all caches (admin action).
     """
     try:
         from services.caching import clear_all_caches
+
         clear_all_caches()
-        return jsonify({'status': 'cleared', 'message': 'All caches cleared'})
+        return jsonify({"status": "cleared", "message": "All caches cleared"})
     except ImportError:
-        return jsonify({'error': 'Caching module not available'}), 503
+        return jsonify({"error": "Caching module not available"}), 503
 
 
-@app.route('/admin/tokens/usage')
+@app.route("/admin/tokens/usage")
 def get_token_usage():
     """
     Get token usage statistics.
     """
     try:
         from services.caching import get_token_tracker
+
         tracker = get_token_tracker()
-        return jsonify({
-            'totals': tracker.get_totals(),
-            'top_users': tracker.get_top_users(limit=20)
-        })
+        return jsonify(
+            {"totals": tracker.get_totals(), "top_users": tracker.get_top_users(limit=20)}
+        )
     except ImportError:
-        return jsonify({'error': 'Caching module not available'}), 503
+        return jsonify({"error": "Caching module not available"}), 503
 
 
-@app.route('/admin/quota/usage')
+@app.route("/admin/quota/usage")
 def get_quota_usage():
     """
     Get per-user token quota usage.
     """
     try:
         from middleware.rate_limit import get_all_user_usage
+
         usage = get_all_user_usage()
-        return jsonify({
-            'users': usage,
-            'user_count': len(usage)
-        })
+        return jsonify({"users": usage, "user_count": len(usage)})
     except ImportError:
-        return jsonify({'error': 'Rate limit module not available'}), 503
+        return jsonify({"error": "Rate limit module not available"}), 503
 
 
-# Note: Akash functions (get_akt_price_usd, get_escrow_balance, get_actual_lease_price, 
+# Note: Akash functions (get_akt_price_usd, get_escrow_balance, get_actual_lease_price,
 # get_akash_deployment_info) and constants now imported from services.akash
 
 # Funding cache (local to this endpoint)
-_funding_cache = {
-    'data': None,
-    'timestamp': 0,
-    'ttl': 300  # 5 minute cache
-}
+_funding_cache = {"data": None, "timestamp": 0, "ttl": 300}  # 5 minute cache
 
-@app.route('/funding/status')
+
+@app.route("/funding/status")
 def funding_status():
     """
     Funding transparency endpoint.
@@ -488,80 +525,100 @@ def funding_status():
     # Thread-safe cache check
     with _funding_cache_lock:
         # Return cached data if still fresh
-        if _funding_cache['data'] and (now - _funding_cache['timestamp']) < _funding_cache['ttl']:
-            return jsonify(_funding_cache['data'])
-    
+        if _funding_cache["data"] and (now - _funding_cache["timestamp"]) < _funding_cache["ttl"]:
+            return jsonify(_funding_cache["data"])
+
     # Fetch fresh data
     akt_price = get_akt_price_usd()
     akash_info = get_akash_deployment_info()
     escrow_info = get_escrow_balance()
-    
+
     # Add escrow balance and calculate hours remaining
     if escrow_info:
-        escrow_akt = escrow_info.get('escrow_balance_akt', 0)
-        akash_info['escrow_balance_akt'] = escrow_akt
-        akash_info['active_deployments'] = escrow_info.get('active_deployments', 0)
-        
+        escrow_akt = escrow_info.get("escrow_balance_akt", 0)
+        akash_info["escrow_balance_akt"] = escrow_akt
+        akash_info["active_deployments"] = escrow_info.get("active_deployments", 0)
+
         # Calculate hours remaining from escrow ÷ hourly cost
-        hourly_cost = akash_info.get('hourly_cost_akt', 0.15)
+        hourly_cost = akash_info.get("hourly_cost_akt", 0.15)
         if hourly_cost > 0 and escrow_akt > 0:
             hours_remaining = escrow_akt / hourly_cost
-            akash_info['hours_remaining'] = round(hours_remaining, 1)
-            akash_info['days_remaining'] = round(hours_remaining / 24, 1)
-    
+            akash_info["hours_remaining"] = round(hours_remaining, 1)
+            akash_info["days_remaining"] = round(hours_remaining / 24, 1)
+
     # Calculate USD values if we have AKT price
     if akt_price:
-        akash_info['hourly_cost_usd'] = round(akash_info.get('hourly_cost_akt', 0) * akt_price, 4)
-        akash_info['daily_cost_usd'] = round(akash_info.get('daily_cost_akt', 0) * akt_price, 2)
-        if 'escrow_balance_akt' in akash_info:
-            akash_info['escrow_balance_usd'] = round(akash_info['escrow_balance_akt'] * akt_price, 2)
-    
+        akash_info["hourly_cost_usd"] = round(akash_info.get("hourly_cost_akt", 0) * akt_price, 4)
+        akash_info["daily_cost_usd"] = round(akash_info.get("daily_cost_akt", 0) * akt_price, 2)
+        if "escrow_balance_akt" in akash_info:
+            akash_info["escrow_balance_usd"] = round(
+                akash_info["escrow_balance_akt"] * akt_price, 2
+            )
+
     funding_data = {
-        'timestamp': int(now * 1000),
-        'akt_price_usd': akt_price,
-        'akash': akash_info,
-        'icp': {
-            'backend_canister': ICP_BACKEND_CANISTER,
-            'frontend_canister': ICP_FRONTEND_CANISTER,
-            'cycles_info': 'Query canister directly for cycle balance'
+        "timestamp": int(now * 1000),
+        "akt_price_usd": akt_price,
+        "akash": akash_info,
+        "icp": {
+            "backend_canister": ICP_BACKEND_CANISTER,
+            "frontend_canister": ICP_FRONTEND_CANISTER,
+            "cycles_info": "Query canister directly for cycle balance",
         },
-        'ipfs': {
-            'gateway': LIGHTHOUSE_GATEWAY,
-            'storage_info': 'Lighthouse free tier: 1GB',
-            'learn_more': 'https://docs.ipfs.tech/concepts/what-is-ipfs/'
+        "ipfs": {
+            "gateway": LIGHTHOUSE_GATEWAY,
+            "storage_info": "Lighthouse free tier: 1GB",
+            "learn_more": "https://docs.ipfs.tech/concepts/what-is-ipfs/",
         },
-        'donations': {
-            'akt_address': AKASH_WALLET_ADDRESS,
-            'akt_memo': 'Trinity Community LLM',
-            'icp_canister': ICP_BACKEND_CANISTER
+        "donations": {
+            "akt_address": AKASH_WALLET_ADDRESS,
+            "akt_memo": "Trinity Community LLM",
+            "icp_canister": ICP_BACKEND_CANISTER,
         },
-        'private_session': {
-            'enabled': True,
-            'fee_structure': {
-                'hardware_percent': 95,
-                'platform_percent': 5  # Simplified: 5% goes to platform
+        "private_session": {
+            "enabled": True,
+            "fee_structure": {
+                "hardware_percent": 95,
+                "platform_percent": 5,  # Simplified: 5% goes to platform
             },
-            'tiers': [
-                {'tier': 1, 'name': 'Starter', 'model': 'tinyllama:1.1b', 'hourly_akt': 0.15, 'ram_gb': 4},
-                {'tier': 2, 'name': 'Standard', 'model': 'llama3.1:8b', 'hourly_akt': 0.40, 'ram_gb': 16},
-                {'tier': 3, 'name': 'Professional', 'model': 'qwen2.5:72b', 'hourly_akt': 1.75, 'ram_gb': 64}
+            "tiers": [
+                {
+                    "tier": 1,
+                    "name": "Starter",
+                    "model": "tinyllama:1.1b",
+                    "hourly_akt": 0.15,
+                    "ram_gb": 4,
+                },
+                {
+                    "tier": 2,
+                    "name": "Standard",
+                    "model": "llama3.1:8b",
+                    "hourly_akt": 0.40,
+                    "ram_gb": 16,
+                },
+                {
+                    "tier": 3,
+                    "name": "Professional",
+                    "model": "qwen2.5:72b",
+                    "hourly_akt": 1.75,
+                    "ram_gb": 64,
+                },
             ],
-            'min_duration_hours': 1,
-            'max_duration_hours': 24,
-            'payment_address': AKASH_WALLET_ADDRESS
-        }
+            "min_duration_hours": 1,
+            "max_duration_hours": 24,
+            "payment_address": AKASH_WALLET_ADDRESS,
+        },
     }
-    
+
     # Thread-safe cache update
     with _funding_cache_lock:
-        _funding_cache['data'] = funding_data
-        _funding_cache['timestamp'] = now
+        _funding_cache["data"] = funding_data
+        _funding_cache["timestamp"] = now
 
     return jsonify(funding_data)
 
 
 # ===== PRIVATE SESSION MANAGEMENT =====
-@app.route('/session/status')
+@app.route("/session/status")
 def session_status():
     """
     Get current session status.
@@ -570,32 +627,34 @@ def session_status():
     """
     akash_info = get_akash_deployment_info()
     akt_price = get_akt_price_usd()
-    
+
     if akt_price:
-        akash_info['hourly_cost_usd'] = round(akash_info.get('hourly_cost_akt', 0) * akt_price, 4)
-    
-    return jsonify({
-        'session_type': SESSION_TYPE,
-        'session_id': SESSION_ID if SESSION_TYPE == 'private' else None,
-        'tier': DEPLOYMENT_TIER,
-        'tier_name': DEPLOYMENT_TIER_NAME,
-        'model': MODEL_NAME,
-        'gpu_type': GPU_TYPE,
-        **akash_info,
-        'akt_price_usd': akt_price
-    })
+        akash_info["hourly_cost_usd"] = round(akash_info.get("hourly_cost_akt", 0) * akt_price, 4)
+
+    return jsonify(
+        {
+            "session_type": SESSION_TYPE,
+            "session_id": SESSION_ID if SESSION_TYPE == "private" else None,
+            "tier": DEPLOYMENT_TIER,
+            "tier_name": DEPLOYMENT_TIER_NAME,
+            "model": MODEL_NAME,
+            "gpu_type": GPU_TYPE,
+            **akash_info,
+            "akt_price_usd": akt_price,
+        }
+    )
 
 
-@app.route('/session/request', methods=['POST'])
+@app.route("/session/request", methods=["POST"])
 def session_request():
     """
     Request a new private session.
     Returns payment instructions (wallet address, memo format, required amount).
-    
+
     Request JSON:
         - tier: 1, 2, or 3
         - hours: duration in hours (1-24)
-    
+
     Response JSON:
         - payment_address: AKT wallet to send payment
         - payment_memo: memo to include in transaction
@@ -605,76 +664,79 @@ def session_request():
         - expires_in: seconds until payment window closes
     """
     data = request.get_json() or {}
-    tier = data.get('tier', 1)
-    hours = data.get('hours', 1)
-    
+    tier = data.get("tier", 1)
+    hours = data.get("hours", 1)
+
     # Validate inputs
     if tier not in [1, 2, 3]:
-        return jsonify({'error': 'Invalid tier. Use 1, 2, or 3'}), 400
-    
+        return jsonify({"error": "Invalid tier. Use 1, 2, or 3"}), 400
+
     if hours < 1 or hours > 24:
-        return jsonify({'error': 'Hours must be between 1 and 24'}), 400
-    
+        return jsonify({"error": "Hours must be between 1 and 24"}), 400
+
     # Tier pricing
     tier_rates = {1: 0.15, 2: 0.40, 3: 1.75}
-    tier_names = {1: 'Starter', 2: 'Standard', 3: 'Professional'}
-    tier_models = {1: 'tinyllama:1.1b', 2: 'llama3.1:8b', 3: 'qwen2.5:72b'}
-    
+    tier_names = {1: "Starter", 2: "Standard", 3: "Professional"}
+    tier_models = {1: "tinyllama:1.1b", 2: "llama3.1:8b", 3: "qwen2.5:72b"}
+
     hourly_rate = tier_rates[tier]
     hardware_akt = hourly_rate * hours
-    
+
     # Add 5% platform fee (user pays 105% of hardware cost)
     total_akt = hardware_akt / 0.95
-    
+
     # Get USD price
     akt_price = get_akt_price_usd() or 0.5
     total_usd = round(total_akt * akt_price, 2)
-    
+
     # Generate session ID
     import secrets
+
     session_id = f"sess_{secrets.token_hex(8)}"
-    
+
     # Payment memo format
     memo = f"trinity:tier:{tier}:{session_id}"
-    
-    return jsonify({
-        'payment_address': AKASH_WALLET_ADDRESS,
-        'payment_memo': memo,
-        'required_akt': round(total_akt, 4),
-        'required_usd': total_usd,
-        'hardware_akt': round(hardware_akt, 4),
-        'platform_fee_akt': round(total_akt - hardware_akt, 4),
-        'session_id': session_id,
-        'tier': tier,
-        'tier_name': tier_names[tier],
-        'model': tier_models[tier],
-        'hours': hours,
-        'expires_in': 3600,  # 1 hour to complete payment
-        'instructions': [
-            f"1. Send {round(total_akt, 4)} AKT to {AKASH_WALLET_ADDRESS}",
-            f"2. Include memo: {memo}",
-            "3. Wait 1-2 minutes for blockchain confirmation",
-            "4. Your private LLM will be deployed automatically"
-        ]
-    })
+
+    return jsonify(
+        {
+            "payment_address": AKASH_WALLET_ADDRESS,
+            "payment_memo": memo,
+            "required_akt": round(total_akt, 4),
+            "required_usd": total_usd,
+            "hardware_akt": round(hardware_akt, 4),
+            "platform_fee_akt": round(total_akt - hardware_akt, 4),
+            "session_id": session_id,
+            "tier": tier,
+            "tier_name": tier_names[tier],
+            "model": tier_models[tier],
+            "hours": hours,
+            "expires_in": 3600,  # 1 hour to complete payment
+            "instructions": [
+                f"1. Send {round(total_akt, 4)} AKT to {AKASH_WALLET_ADDRESS}",
+                f"2. Include memo: {memo}",
+                "3. Wait 1-2 minutes for blockchain confirmation",
+                "4. Your private LLM will be deployed automatically",
+            ],
+        }
+    )
 
 
 # Session storage file (created by payment-monitor.py)
-ACTIVE_SESSIONS_FILE = '/data/active_sessions.json'
+ACTIVE_SESSIONS_FILE = "/data/active_sessions.json"
 
 
 def load_active_sessions() -> Dict:
     """Load active sessions from file."""
     import json
     from pathlib import Path
-    
+
     # Try multiple paths (local dev vs container)
     paths = [
         Path(ACTIVE_SESSIONS_FILE),
-        Path(__file__).parent.parent / 'data' / 'active_sessions.json',
-        Path.home() / '.trinity' / 'active_sessions.json'
+        Path(__file__).parent.parent / "data" / "active_sessions.json",
+        Path.home() / ".trinity" / "active_sessions.json",
     ]
-    
+
     for path in paths:
         if path.exists():
             try:
@@ -685,11 +747,11 @@ def load_active_sessions() -> Dict:
     return {}
 
 
-@app.route('/session/check/<session_id>')
+@app.route("/session/check/<session_id>")
 def session_check(session_id: str):
     """
     Check the status of a session by ID.
-    
+
     Returns:
         - status: 'pending' | 'paid' | 'deploying' | 'active' | 'expired' | 'not_found'
         - endpoint: URL for active sessions
@@ -698,76 +760,86 @@ def session_check(session_id: str):
         - tier_name: tier display name
     """
     sessions = load_active_sessions()
-    
+
     if session_id not in sessions:
-        return jsonify({
-            'session_id': session_id,
-            'status': 'pending',  # Payment not yet detected
-            'message': 'Waiting for payment confirmation...'
-        })
-    
+        return jsonify(
+            {
+                "session_id": session_id,
+                "status": "pending",  # Payment not yet detected
+                "message": "Waiting for payment confirmation...",
+            }
+        )
+
     session = sessions[session_id]
-    
+
     # Check if expired
     from datetime import datetime, timezone
+
     try:
-        expiry = datetime.fromisoformat(session.get('expires_at', '').replace('Z', '+00:00'))
+        expiry = datetime.fromisoformat(session.get("expires_at", "").replace("Z", "+00:00"))
         now = datetime.now(timezone.utc)
-        
+
         if now > expiry:
-            return jsonify({
-                'session_id': session_id,
-                'status': 'expired',
-                'expired_at': session.get('expires_at'),
-                'message': 'Session has expired'
-            })
+            return jsonify(
+                {
+                    "session_id": session_id,
+                    "status": "expired",
+                    "expired_at": session.get("expires_at"),
+                    "message": "Session has expired",
+                }
+            )
     except Exception:
         pass
-    
+
     # Check if deployment is complete (has endpoint)
-    endpoint = session.get('endpoint') or session.get('uri')
+    endpoint = session.get("endpoint") or session.get("uri")
     if endpoint:
         # Ensure URL format
-        if not endpoint.startswith('http'):
+        if not endpoint.startswith("http"):
             endpoint = f"http://{endpoint}"
-        
-        return jsonify({
-            'session_id': session_id,
-            'status': 'active',
-            'endpoint': endpoint,
-            'expires_at': session.get('expires_at'),
-            'model': session.get('model'),
-            'tier': session.get('tier'),
-            'tier_name': session.get('tier_name'),
-            'hours': session.get('hours'),
-            'dseq': session.get('dseq')
-        })
-    
+
+        return jsonify(
+            {
+                "session_id": session_id,
+                "status": "active",
+                "endpoint": endpoint,
+                "expires_at": session.get("expires_at"),
+                "model": session.get("model"),
+                "tier": session.get("tier"),
+                "tier_name": session.get("tier_name"),
+                "hours": session.get("hours"),
+                "dseq": session.get("dseq"),
+            }
+        )
+
     # Payment detected but not yet deployed
-    return jsonify({
-        'session_id': session_id,
-        'status': 'deploying',
-        'message': 'Payment confirmed, deploying your private LLM...'
-    })
+    return jsonify(
+        {
+            "session_id": session_id,
+            "status": "deploying",
+            "message": "Payment confirmed, deploying your private LLM...",
+        }
+    )
 
 
 # Note: TRINITY_SYSTEM_PROMPT, REASONING_SYSTEM_PROMPT, build_prompt_with_context,
 # build_reasoning_prompt, parse_reasoning_response, is_small_model are now
 # imported from services.prompts
 
-@app.route('/generate', methods=['POST'])
+
+@app.route("/generate", methods=["POST"])
 @rate_limit
 @icp_idempotent
 def generate():
     """
     Generate text using the AI model
-    
+
     Request JSON:
         - prompt: text to generate from (required)
         - max_length: maximum tokens to generate (default: 150)
         - temperature: randomness 0.1-2.0 (default: 0.7)
         - contextMemory: array of recent messages for conversation context (optional)
-    
+
     Response JSON:
         - prompt: the input prompt
         - generated_text: AI-generated text
@@ -777,73 +849,85 @@ def generate():
         - tokens_generated: approximate token count
         - latency_ms: how long it took
     """
-    
+
     # Check if server is at capacity
     if metrics.active_requests >= MAX_QUEUE_SIZE:
         logger.warning(f"Server at capacity: {metrics.active_requests}/{MAX_QUEUE_SIZE}")
-        track_error('CapacityError', '/generate')
-        return jsonify({
-            'error': 'Server at capacity',
-            'queue_size': metrics.active_requests,
-            'max_queue_size': MAX_QUEUE_SIZE,
-            'provider_id': PROVIDER_ID,
-        }), 503
-    
+        track_error("CapacityError", "/generate")
+        return (
+            jsonify(
+                {
+                    "error": "Server at capacity",
+                    "queue_size": metrics.active_requests,
+                    "max_queue_size": MAX_QUEUE_SIZE,
+                    "provider_id": PROVIDER_ID,
+                }
+            ),
+            503,
+        )
+
     metrics.start_request()
     start_time = time.time()
-    
+
     # Get deployment tier for metrics
-    tier = str(DEPLOYMENT_TIER) if DEPLOYMENT_TIER else 'unknown'
-    
+    tier = str(DEPLOYMENT_TIER) if DEPLOYMENT_TIER else "unknown"
+
     try:
         # Parse request
         data = request.json
         if not data:
             raise ValueError("No JSON data provided")
-        
-        user_prompt = data.get('prompt', '')
-        max_length = data.get('max_length', 4000)  # Default to 4000 tokens for longer responses
-        context_memory = data.get('contextMemory', [])
-        principal = data.get('principal')  # Optional for unauthenticated requests
-        document_context = data.get('documentContext')  # Optional attached document
-        reasoning_mode = data.get('reasoning_mode', False)  # Enable structured reasoning
-        
+
+        user_prompt = data.get("prompt", "")
+        max_length = data.get("max_length", 4000)  # Default to 4000 tokens for longer responses
+        context_memory = data.get("contextMemory", [])
+        principal = data.get("principal")  # Optional for unauthenticated requests
+        document_context = data.get("documentContext")  # Optional attached document
+        reasoning_mode = data.get("reasoning_mode", False)  # Enable structured reasoning
+
         # ICP canister sends options with seed and temperature for deterministic consensus
-        options = data.get('options', {})
-        temperature = options.get('temperature', data.get('temperature', 0.7))
-        seed = options.get('seed')  # ICP deterministic seed - critical for consensus
-        
+        options = data.get("options", {})
+        temperature = options.get("temperature", data.get("temperature", 0.7))
+        seed = options.get("seed")  # ICP deterministic seed - critical for consensus
+
         # Check if this is an ICP request (has X-Request-ID header from canister)
-        is_icp_request = request.headers.get('X-Request-ID') is not None
-        
+        is_icp_request = request.headers.get("X-Request-ID") is not None
+
         if not user_prompt:
             raise ValueError("Prompt cannot be empty")
-        
+
         # SECURITY: Limit prompt length to prevent DoS attacks
         if len(user_prompt) > MAX_PROMPT_LENGTH:
-            logger.warning(f"⚠️ Prompt too long: {len(user_prompt)} chars (max: {MAX_PROMPT_LENGTH})")
-            return jsonify({
-                'error': f'Prompt too long. Maximum {MAX_PROMPT_LENGTH} characters allowed.',
-                'received': len(user_prompt),
-                'max_allowed': MAX_PROMPT_LENGTH
-            }), 400
-        
+            logger.warning(
+                f"⚠️ Prompt too long: {len(user_prompt)} chars (max: {MAX_PROMPT_LENGTH})"
+            )
+            return (
+                jsonify(
+                    {
+                        "error": f"Prompt too long. Maximum {MAX_PROMPT_LENGTH} characters allowed.",
+                        "received": len(user_prompt),
+                        "max_allowed": MAX_PROMPT_LENGTH,
+                    }
+                ),
+                400,
+            )
+
         # Load user memory if principal provided (for authenticated requests)
         user_memory = None
         if principal:
             try:
                 user_memory = load_user_memory(principal)
-                if user_memory.get('facts'):
+                if user_memory.get("facts"):
                     logger.info(f"📚 Including {len(user_memory['facts'])} user memory facts")
             except Exception as e:
                 logger.warning(f"Could not load user memory: {e}")
-        
+
         # If document context is attached, prepend it to the prompt
         if document_context:
             doc_prefix = f"[Attached Document]\n{document_context[:30000]}\n[End Document]\n\nBased on the above document, "
             user_prompt = doc_prefix + user_prompt
             logger.info(f"📄 Document attached: {len(document_context)} chars")
-        
+
         # Build prompt - use reasoning mode for complex questions
         if reasoning_mode and not is_small_model():
             full_prompt = build_reasoning_prompt(user_prompt, context_memory, user_memory)
@@ -852,29 +936,32 @@ def generate():
             logger.info("🧠 Using DEEP REASONING mode with extended output")
         else:
             full_prompt = build_prompt_with_context(user_prompt, context_memory, user_memory)
-        
+
         # Privacy: Log word count and hash only - don't expose prompt content
         import hashlib
+
         prompt_hash = hashlib.sha256(user_prompt.encode()).hexdigest()[:8]
         word_count = len(user_prompt.split())
         context_count = len(context_memory)
-        
+
         # Single consolidated log line for request
-        logger.info(f"🤖 Request: {word_count} words (#{prompt_hash}), {context_count} ctx, seed={seed}, reasoning={reasoning_mode}")
-        
+        logger.info(
+            f"🤖 Request: {word_count} words (#{prompt_hash}), {context_count} ctx, seed={seed}, reasoning={reasoning_mode}"
+        )
+
         # Generate with Ollama
         # Build Ollama options
         ollama_options = {
             "num_predict": max_length,
             "temperature": temperature,
         }
-        
+
         # Add seed for deterministic generation (critical for ICP consensus)
         # When seed is set, all 13 ICP replicas get identical LLM output
         if seed is not None:
             ollama_options["seed"] = int(seed)
             logger.info(f"🎲 Using deterministic seed: {seed}")
-        
+
         # Track inference with Prometheus metrics
         with track_inference(MODEL_NAME, tier=tier) as inference_tracker:
             response = http_session.post(
@@ -883,88 +970,87 @@ def generate():
                     "model": MODEL_NAME,
                     "prompt": full_prompt,
                     "stream": False,
-                    "options": ollama_options
+                    "options": ollama_options,
                 },
-                timeout=600  # 10 minutes for large models like Qwen 32B/72B
+                timeout=600,  # 10 minutes for large models like Qwen 32B/72B
             )
-            
+
             if response.status_code != 200:
-                inference_tracker.set_status('error')
+                inference_tracker.set_status("error")
                 raise Exception(f"Ollama returned status {response.status_code}")
-            
+
             result = response.json()
-            generated_text = result.get('response', '')
+            generated_text = result.get("response", "")
             tokens_generated = len(generated_text.split())  # Rough approximation
             inference_tracker.set_tokens(tokens_generated)
-        
+
         # Parse reasoning output if reasoning mode was enabled
         reasoning_result = None
         final_response = generated_text
         if reasoning_mode and not is_small_model():
             reasoning_result = parse_reasoning_response(generated_text)
             # Use the extracted answer as the main response
-            if reasoning_result.get('answer'):
-                final_response = reasoning_result['answer']
-            logger.info(f"🧠 Reasoning parsed: thinking={bool(reasoning_result.get('thinking'))}, plan={bool(reasoning_result.get('plan'))}")
-        
+            if reasoning_result.get("answer"):
+                final_response = reasoning_result["answer"]
+            logger.info(
+                f"🧠 Reasoning parsed: thinking={bool(reasoning_result.get('thinking'))}, plan={bool(reasoning_result.get('plan'))}"
+            )
+
         # Calculate metrics
         latency_ms = (time.time() - start_time) * 1000
         tokens_generated = len(generated_text.split())  # Rough approximation
-        
+
         # Record success
         metrics.record_request(True, tokens_generated, latency_ms)
-        
+
         logger.info(f"[{PROVIDER_ID}] Generated {tokens_generated} tokens in {latency_ms:.0f}ms")
-        
+
         # Build response - ICP requests get deterministic fields only for consensus
         response_data = {
-            'response': final_response,  # Main response (or extracted answer)
-            'model': MODEL_NAME,
-            'provider_id': PROVIDER_ID,
-            'done': True,
+            "response": final_response,  # Main response (or extracted answer)
+            "model": MODEL_NAME,
+            "provider_id": PROVIDER_ID,
+            "done": True,
         }
-        
+
         # Include reasoning components if available
         if reasoning_result:
-            response_data['reasoning'] = {
-                'thinking': reasoning_result.get('thinking'),
-                'plan': reasoning_result.get('plan'),
-                'raw': reasoning_result.get('raw')
+            response_data["reasoning"] = {
+                "thinking": reasoning_result.get("thinking"),
+                "plan": reasoning_result.get("plan"),
+                "raw": reasoning_result.get("raw"),
             }
-        
+
         # Only include non-deterministic fields for non-ICP requests
         # ICP runs 13 replicas - they must all get identical responses
         if not is_icp_request:
-            response_data['prompt'] = user_prompt
-            response_data['generated_text'] = final_response
-            response_data['gpu_type'] = GPU_TYPE
-            response_data['tokens_generated'] = tokens_generated
-            response_data['latency_ms'] = latency_ms
-            response_data['timestamp'] = datetime.utcnow().isoformat()
-        
+            response_data["prompt"] = user_prompt
+            response_data["generated_text"] = final_response
+            response_data["gpu_type"] = GPU_TYPE
+            response_data["tokens_generated"] = tokens_generated
+            response_data["latency_ms"] = latency_ms
+            response_data["timestamp"] = datetime.utcnow().isoformat()
+
         return jsonify(response_data)
-        
+
     except ValueError as e:
         metrics.record_request(False, 0, 0)
-        track_error('ValidationError', '/generate')
+        track_error("ValidationError", "/generate")
         logger.warning(f"Validation error: {e}")
-        return jsonify({'error': str(e), 'provider_id': PROVIDER_ID}), 400
-        
+        return jsonify({"error": str(e), "provider_id": PROVIDER_ID}), 400
+
     except requests.Timeout:
         metrics.record_request(False, 0, 0)
-        track_error('TimeoutError', '/generate')
+        track_error("TimeoutError", "/generate")
         logger.error("Ollama request timed out")
-        return jsonify({'error': 'Request timeout', 'provider_id': PROVIDER_ID}), 504
-        
+        return jsonify({"error": "Request timeout", "provider_id": PROVIDER_ID}), 504
+
     except Exception as e:
         metrics.record_request(False, 0, 0)
-        track_error('InferenceError', '/generate')
+        track_error("InferenceError", "/generate")
         logger.error(f"Generation error: {e}", exc_info=True)
-        return jsonify({
-            'error': f'Generation failed: {str(e)}',
-            'provider_id': PROVIDER_ID
-        }), 500
-        
+        return jsonify({"error": f"Generation failed: {str(e)}", "provider_id": PROVIDER_ID}), 500
+
     finally:
         metrics.end_request()
 
@@ -973,18 +1059,19 @@ def generate():
 # SIMPLE GENERATE ENDPOINT (Minimal, no decorators, no context building)
 # ============================================================================
 
-@app.route('/generate/simple', methods=['POST'])
+
+@app.route("/generate/simple", methods=["POST"])
 @rate_limit
 def generate_simple():
     """
     Ultra-minimal generate endpoint for testing and debugging.
     No auth, no context, no user memory, no metrics - just prompt → Ollama → response.
-    
+
     Request JSON:
         - prompt: text to generate from (required)
         - max_length: max tokens (default: 200)
         - temperature: 0.1-2.0 (default: 0.7)
-    
+
     Response JSON:
         - response: AI-generated text
         - model: model name
@@ -992,17 +1079,17 @@ def generate_simple():
     """
     try:
         data = request.json or {}
-        prompt = data.get('prompt', '').strip()
-        
+        prompt = data.get("prompt", "").strip()
+
         if not prompt:
-            return jsonify({'ok': False, 'error': 'No prompt provided'}), 400
-        
-        max_length = min(data.get('max_length', 150), 300)  # Cap at 300 tokens
-        temperature = data.get('temperature', 0.7)
-        
+            return jsonify({"ok": False, "error": "No prompt provided"}), 400
+
+        max_length = min(data.get("max_length", 150), 300)  # Cap at 300 tokens
+        temperature = data.get("temperature", 0.7)
+
         # Add minimal framing to prevent hallucination (TinyLlama needs guidance)
         framed_prompt = f"User: {prompt}\n\nAssistant:"
-        
+
         # Direct Ollama call - nothing fancy
         response = http_session.post(
             f"{OLLAMA_HOST}/api/generate",
@@ -1013,28 +1100,24 @@ def generate_simple():
                 "options": {
                     "num_predict": max_length,
                     "temperature": temperature,
-                    "stop": ["User:", "\n\nUser"]  # Stop before hallucinating next turn
-                }
+                    "stop": ["User:", "\n\nUser"],  # Stop before hallucinating next turn
+                },
             },
-            timeout=120
+            timeout=120,
         )
-        
+
         if response.status_code != 200:
-            return jsonify({'ok': False, 'error': f'Ollama error: {response.status_code}'}), 500
-        
+            return jsonify({"ok": False, "error": f"Ollama error: {response.status_code}"}), 500
+
         result = response.json()
-        return jsonify({
-            'ok': True,
-            'response': result.get('response', ''),
-            'model': MODEL_NAME
-        })
-        
+        return jsonify({"ok": True, "response": result.get("response", ""), "model": MODEL_NAME})
+
     except Exception as e:
         logger.error(f"Simple generate error: {e}")
-        return jsonify({'ok': False, 'error': str(e)}), 500
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
-@app.route('/generate/simple/stream', methods=['POST'])
+@app.route("/generate/simple/stream", methods=["POST"])
 @rate_limit
 def generate_simple_stream():
     """
@@ -1043,17 +1126,17 @@ def generate_simple_stream():
     """
     try:
         data = request.json or {}
-        prompt = data.get('prompt', '').strip()
-        
+        prompt = data.get("prompt", "").strip()
+
         if not prompt:
-            return jsonify({'ok': False, 'error': 'No prompt provided'}), 400
-        
-        max_length = min(data.get('max_length', 150), 300)  # Cap at 300
-        temperature = data.get('temperature', 0.7)
-        
+            return jsonify({"ok": False, "error": "No prompt provided"}), 400
+
+        max_length = min(data.get("max_length", 150), 300)  # Cap at 300
+        temperature = data.get("temperature", 0.7)
+
         # Add minimal framing (TinyLlama needs guidance)
         framed_prompt = f"User: {prompt}\n\nAssistant:"
-        
+
         def stream_response():
             try:
                 response = http_session.post(
@@ -1065,78 +1148,79 @@ def generate_simple_stream():
                         "options": {
                             "num_predict": max_length,
                             "temperature": temperature,
-                            "stop": ["User:", "\n\nUser"]  # Stop before hallucinating
-                        }
+                            "stop": ["User:", "\n\nUser"],  # Stop before hallucinating
+                        },
                     },
                     stream=True,
-                    timeout=120
+                    timeout=120,
                 )
-                
+
                 for line in response.iter_lines():
                     if line:
                         try:
                             chunk = json.loads(line)
-                            token = chunk.get('response', '')
+                            token = chunk.get("response", "")
                             if token:
                                 yield f"data: {json.dumps({'token': token})}\n\n"
-                            if chunk.get('done'):
+                            if chunk.get("done"):
                                 yield f"data: {json.dumps({'done': True})}\n\n"
                         except json.JSONDecodeError:
                             pass
             except Exception as e:
                 yield f"data: {json.dumps({'error': str(e)})}\n\n"
-        
+
         return Response(
             stream_response(),
-            mimetype='text/event-stream',
+            mimetype="text/event-stream",
             headers={
-                'Cache-Control': 'no-cache',
-                'Connection': 'keep-alive',
-                'X-Accel-Buffering': 'no',
-                'Access-Control-Allow-Origin': '*'
-            }
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+                "Access-Control-Allow-Origin": "*",
+            },
         )
-        
+
     except Exception as e:
         logger.error(f"Simple stream error: {e}")
-        return jsonify({'ok': False, 'error': str(e)}), 500
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 # ============================================================================
 # STREAMING GENERATE ENDPOINT
 # ============================================================================
 
-@app.route('/generate/stream', methods=['POST'])
+
+@app.route("/generate/stream", methods=["POST"])
 @rate_limit
 def generate_stream():
     """
     Generate text using AI model with Server-Sent Events (SSE) streaming.
     Tokens are sent as they're generated for real-time display.
-    
+
     Request JSON: Same as /generate
     Response: SSE stream with data: {"token": "..."} events
     """
     from flask import Response, stream_with_context
-    
+
     # Check capacity
     if metrics.active_requests >= MAX_QUEUE_SIZE:
-        return jsonify({'error': 'Server at capacity'}), 503
-    
+        return jsonify({"error": "Server at capacity"}), 503
+
     metrics.start_request()
-    
+
     try:
         data = request.json
         if not data:
             raise ValueError("No JSON data provided")
-        
-        user_prompt = data.get('prompt', '')
-        max_length = data.get('max_length', 800)
-        context_memory = data.get('contextMemory', [])
-        principal = data.get('principal')
-        document_context = data.get('documentContext')
-        temperature = data.get('temperature', 0.7)
-        reasoning_mode = data.get('reasoning_mode', False)  # Enable structured reasoning
-        
+
+        user_prompt = data.get("prompt", "")
+        max_length = data.get("max_length", 800)
+        context_memory = data.get("contextMemory", [])
+        principal = data.get("principal")
+        document_context = data.get("documentContext")
+        temperature = data.get("temperature", 0.7)
+        reasoning_mode = data.get("reasoning_mode", False)  # Enable structured reasoning
+
         # Load user memory if principal provided
         user_memory = None
         if principal:
@@ -1144,12 +1228,12 @@ def generate_stream():
                 user_memory = load_user_memory(principal)
             except Exception:
                 pass
-        
+
         # Prepend document context if attached
         if document_context:
             doc_prefix = f"[Attached Document]\n{document_context[:30000]}\n[End Document]\n\nBased on the above document, "
             user_prompt = doc_prefix + user_prompt
-        
+
         # Build full prompt - use reasoning mode for /think command
         if reasoning_mode and not is_small_model():
             full_prompt = build_reasoning_prompt(user_prompt, context_memory, user_memory)
@@ -1158,9 +1242,11 @@ def generate_stream():
             logger.info("🧠 STREAM: Using DEEP REASONING mode with extended output")
         else:
             full_prompt = build_prompt_with_context(user_prompt, context_memory, user_memory)
-        
-        logger.info(f"🌊 Streaming request: {len(user_prompt.split())} words, {len(context_memory)} ctx, reasoning={reasoning_mode}")
-        
+
+        logger.info(
+            f"🌊 Streaming request: {len(user_prompt.split())} words, {len(context_memory)} ctx, reasoning={reasoning_mode}"
+        )
+
         def generate_sse():
             """Generator that yields SSE-formatted chunks"""
             try:
@@ -1174,115 +1260,116 @@ def generate_stream():
                         "options": {
                             "num_predict": max_length,
                             "temperature": temperature,
-                        }
+                        },
                     },
                     stream=True,
-                    timeout=300
+                    timeout=300,
                 )
-                
+
                 if response.status_code != 200:
                     yield f"data: {json.dumps({'error': 'Ollama error'})}\n\n"
                     return
-                
+
                 full_response = ""
                 for line in response.iter_lines():
                     if line:
                         try:
                             chunk = json.loads(line)
-                            token = chunk.get('response', '')
+                            token = chunk.get("response", "")
                             full_response += token
-                            
+
                             # Send token to client
                             yield f"data: {json.dumps({'token': token})}\n\n"
-                            
+
                             # Check if done
-                            if chunk.get('done', False):
+                            if chunk.get("done", False):
                                 yield f"data: {json.dumps({'done': True, 'model': MODEL_NAME})}\n\n"
                                 break
                         except json.JSONDecodeError:
                             continue
-                
+
                 metrics.record_request(True, len(full_response.split()), 0)
-                
+
             except Exception as e:
                 logger.error(f"Streaming error: {e}")
                 yield f"data: {json.dumps({'error': str(e)})}\n\n"
             finally:
                 metrics.end_request()
-        
+
         return Response(
             stream_with_context(generate_sse()),
-            mimetype='text/event-stream',
+            mimetype="text/event-stream",
             headers={
-                'Cache-Control': 'no-cache',
-                'Connection': 'keep-alive',
-                'X-Accel-Buffering': 'no',  # Disable nginx buffering
-            }
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",  # Disable nginx buffering
+            },
         )
-        
+
     except Exception as e:
         metrics.end_request()
         logger.error(f"Stream setup error: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({"error": str(e)}), 500
 
 
 # ============================================================================
 # AGENTIC MULTI-PASS GENERATION
 # ============================================================================
 
-@app.route('/generate/agent', methods=['POST'])
+
+@app.route("/generate/agent", methods=["POST"])
 @rate_limit
 def generate_agent():
     """
     Agentic multi-pass generation with streaming.
-    
+
     V4.0 Enhancements:
     - Semantic memory retrieval (if available)
     - Tool detection and execution
     - Multi-model routing (Tier 2+)
     - Self-consistency voting for complex questions
-    
+
     Automatically routes by complexity:
     - Simple: 1 pass (direct answer)
     - Medium: 3 passes (understand → execute → critique)
     - Complex: 5 passes (full pipeline with planning and refinement)
-    
+
     Request JSON:
         - prompt: user question (required)
         - contextMemory: list of previous messages (optional)
         - principal: user principal ID for memory lookup (optional)
         - force_mode: "simple", "medium", "complex", or null for auto (optional)
         - enable_voting: boolean to force voting on/off (optional)
-    
+
     Response: SSE stream with:
         - {"phase": "understanding", "message": "🤔 Analyzing..."}
         - {"token": "..."} during execution
         - {"done": true, "response": {...}} when complete
     """
+    from config import MODEL_NAME, OLLAMA_HOST
     from flask import Response, stream_with_context
     from services.agent import AgentPipeline
-    from config import OLLAMA_HOST, MODEL_NAME
-    
+
     # Check capacity
     if metrics.active_requests >= MAX_QUEUE_SIZE:
-        return jsonify({'error': 'Server at capacity'}), 503
-    
+        return jsonify({"error": "Server at capacity"}), 503
+
     metrics.start_request()
-    
+
     try:
         data = request.json
         if not data:
             raise ValueError("No JSON data provided")
-        
-        user_prompt = data.get('prompt', '')
-        context_memory = data.get('contextMemory', [])
-        principal = data.get('principal')
-        force_mode = data.get('force_mode')  # "simple", "medium", "complex", or None
-        enable_voting = data.get('enable_voting')  # True/False/None
-        
+
+        user_prompt = data.get("prompt", "")
+        context_memory = data.get("contextMemory", [])
+        principal = data.get("principal")
+        force_mode = data.get("force_mode")  # "simple", "medium", "complex", or None
+        enable_voting = data.get("enable_voting")  # True/False/None
+
         if not user_prompt:
-            return jsonify({'error': 'No prompt provided'}), 400
-        
+            return jsonify({"error": "No prompt provided"}), 400
+
         # Load user memory if principal provided
         user_memory = None
         if principal:
@@ -1290,35 +1377,41 @@ def generate_agent():
                 user_memory = load_user_memory(principal)
             except Exception:
                 pass
-        
+
         # V4.0: Build enhanced context with semantic memory
         enhanced_context = context_memory
         semantic_context = None
         if V4_FEATURES_AVAILABLE and principal:
             try:
                 enhanced_context, semantic_context = build_enhanced_context(
-                    principal_id=principal,
-                    query=user_prompt,
-                    recent_messages=context_memory
+                    principal_id=principal, query=user_prompt, recent_messages=context_memory
                 )
                 if semantic_context:
-                    logger.info(f"🧠 V4.0 semantic context: {len(semantic_context)} relevant items retrieved")
+                    logger.info(
+                        f"🧠 V4.0 semantic context: {len(semantic_context)} relevant items retrieved"
+                    )
             except Exception as e:
                 logger.warning(f"⚠️ Semantic memory fallback: {e}")
                 enhanced_context = context_memory
-        
+
         # Create pipeline instance with V4.0 options
         pipeline = AgentPipeline(OLLAMA_HOST, MODEL_NAME)
-        
+
         # V4.0: Pass additional context to pipeline
-        v4_options = {
-            'semantic_context': semantic_context,
-            'enable_voting': enable_voting,
-            'principal_id': principal
-        } if V4_FEATURES_AVAILABLE else {}
-        
-        logger.info(f"🧠 Agent request: {len(user_prompt.split())} words, force_mode={force_mode}, v4={V4_FEATURES_AVAILABLE}")
-        
+        v4_options = (
+            {
+                "semantic_context": semantic_context,
+                "enable_voting": enable_voting,
+                "principal_id": principal,
+            }
+            if V4_FEATURES_AVAILABLE
+            else {}
+        )
+
+        logger.info(
+            f"🧠 Agent request: {len(user_prompt.split())} words, force_mode={force_mode}, v4={V4_FEATURES_AVAILABLE}"
+        )
+
         def generate_sse():
             """Generator that yields SSE-formatted chunks"""
             try:
@@ -1327,56 +1420,55 @@ def generate_agent():
                     context_messages=enhanced_context,
                     user_memory=user_memory,
                     force_complexity=force_mode,
-                    **v4_options
+                    **v4_options,
                 ):
                     yield f"data: {json.dumps(event)}\n\n"
-                
+
                 metrics.record_request(True, 0, 0)
-                
+
                 # V4.0: Index the interaction for future retrieval
                 if V4_FEATURES_AVAILABLE and principal:
                     try:
                         vector_store = get_user_vector_store(principal)
                         vector_store.add_message_embedding(
-                            content=user_prompt,
-                            role='user',
-                            timestamp=time.time()
+                            content=user_prompt, role="user", timestamp=time.time()
                         )
                     except Exception as idx_error:
                         logger.debug(f"V4.0 indexing skipped: {idx_error}")
-                
+
             except Exception as e:
                 logger.error(f"Agent streaming error: {e}")
                 yield f"data: {json.dumps({'error': str(e)})}\n\n"
             finally:
                 metrics.end_request()
-        
+
         return Response(
             stream_with_context(generate_sse()),
-            mimetype='text/event-stream',
+            mimetype="text/event-stream",
             headers={
-                'Cache-Control': 'no-cache',
-                'Connection': 'keep-alive',
-                'X-Accel-Buffering': 'no',
-            }
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
         )
-        
+
     except Exception as e:
         metrics.end_request()
         logger.error(f"Agent setup error: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({"error": str(e)}), 500
 
 
 # ============================================================================
 # LANGGRAPH MULTI-AGENT GENERATION (V5.0)
 # ============================================================================
 
-@app.route('/generate/langgraph', methods=['POST'])
+
+@app.route("/generate/langgraph", methods=["POST"])
 @rate_limit
 def generate_langgraph():
     """
     LangGraph multi-agent generation with complexity routing and A/B experiments.
-    
+
     V5.0 Features:
     - StateGraph with specialized agents (Research, Reasoning, Coding)
     - Supervisor agent for query routing
@@ -1384,7 +1476,7 @@ def generate_langgraph():
     - Observability integration for metrics
     - A/B experiment integration (Phase 4)
     - Parallel execution mode for comparison
-    
+
     Mode routing:
     - auto (default): Uses complexity analysis to decide
         - Simple/Medium queries → Legacy agent pipeline
@@ -1392,13 +1484,13 @@ def generate_langgraph():
     - langgraph: Force LangGraph pipeline
     - legacy: Force legacy agent pipeline
     - parallel: Run both pipelines and vote on best result
-    
+
     Request JSON:
         - prompt: user question (required)
         - contextMemory: list of previous messages (optional)
         - principal: user principal ID for memory lookup (optional)
         - mode: "auto", "langgraph", "legacy", or "parallel" (default: "auto")
-    
+
     Response JSON:
         - response: final synthesized answer
         - mode_used: which pipeline was actually used
@@ -1410,78 +1502,77 @@ def generate_langgraph():
         - latency_ms: how long it took
         - _experiments: (if experiments active) experiment assignments
     """
-    from services.complexity import classify_complexity
     from flask import g
-    
+    from services.complexity import classify_complexity
+
     # Apply experiment assignments
     try:
-        from middleware.ab_test import get_session_id, get_experiment_config, record_exposure
+        from middleware.ab_test import get_experiment_config, get_session_id
         from services.experiments import assign_variant
-        
+
         session_id = get_session_id()
-        
+
         # Initialize experiments on request context
-        if not hasattr(g, 'experiments'):
+        if not hasattr(g, "experiments"):
             g.experiments = {}
-        
+
         # Assign experiments
-        for exp_name in ['agent_mode', 'complexity_threshold', 'reasoning_depth']:
+        for exp_name in ["agent_mode", "complexity_threshold", "reasoning_depth"]:
             variant = assign_variant(exp_name, session_id)
             if variant:
-                g.experiments[exp_name] = {
-                    'variant': variant.name,
-                    'config': variant.config
-                }
-        
+                g.experiments[exp_name] = {"variant": variant.name, "config": variant.config}
+
         EXPERIMENTS_ENABLED = True
     except ImportError:
         EXPERIMENTS_ENABLED = False
-    
+
     # Check if LangGraph is available
     if not LANGGRAPH_AVAILABLE:
-        return jsonify({
-            'error': 'LangGraph not available',
-            'fallback': '/generate/agent is available'
-        }), 503
-    
+        return (
+            jsonify(
+                {"error": "LangGraph not available", "fallback": "/generate/agent is available"}
+            ),
+            503,
+        )
+
     # Check capacity
     if metrics.active_requests >= MAX_QUEUE_SIZE:
-        return jsonify({'error': 'Server at capacity'}), 503
-    
+        return jsonify({"error": "Server at capacity"}), 503
+
     metrics.start_request()
     start_time = time.time()
-    tier = str(DEPLOYMENT_TIER) if DEPLOYMENT_TIER else 'unknown'
-    
+    tier = str(DEPLOYMENT_TIER) if DEPLOYMENT_TIER else "unknown"
+
     try:
         data = request.json
         if not data:
             raise ValueError("No JSON data provided")
-        
-        user_prompt = data.get('prompt', '')
-        context_memory = data.get('contextMemory', [])
-        principal = data.get('principal')
-        mode = data.get('mode', 'auto')  # auto, langgraph, legacy, parallel
-        
+
+        user_prompt = data.get("prompt", "")
+        context_memory = data.get("contextMemory", [])
+        principal = data.get("principal")
+        mode = data.get("mode", "auto")  # auto, langgraph, legacy, parallel
+
         if not user_prompt:
-            return jsonify({'error': 'No prompt provided'}), 400
-        
+            return jsonify({"error": "No prompt provided"}), 400
+
         # Analyze complexity
         complexity = classify_complexity(user_prompt)
-        
+
         # Check experiment overrides for mode
-        if EXPERIMENTS_ENABLED and mode == 'auto':
-            exp_mode = get_experiment_config('agent_mode', 'mode')
+        if EXPERIMENTS_ENABLED and mode == "auto":
+            exp_mode = get_experiment_config("agent_mode", "mode")
             if exp_mode:
                 mode = exp_mode
                 logger.info(f"🧪 Experiment override: mode={mode}")
-        
+
         # Handle parallel mode
-        if mode == 'parallel':
+        if mode == "parallel":
             try:
                 from services.parallel import get_parallel_pipeline
-                
+
                 parallel_pipeline = get_parallel_pipeline(OLLAMA_HOST, MODEL_NAME)
-                
+
                 # Load user memory
                 user_memory = None
                 if principal:
@@ -1489,62 +1580,63 @@ def generate_langgraph():
                         user_memory = load_user_memory(principal)
                     except Exception:
                         pass
-                
+
                 result = parallel_pipeline.process(
                     question=user_prompt,
                     context_messages=context_memory,
                     user_memory=user_memory,
-                    complexity=complexity
+                    complexity=complexity,
                 )
-                
+
                 latency_ms = (time.time() - start_time) * 1000
                 metrics.record_request(True, 0, latency_ms)
-                
+
                 response_data = {
-                    'response': result.final_response,
-                    'mode_used': 'parallel',
-                    'winner': result.winner,
-                    'confidence': result.confidence,
-                    'voting_reason': result.voting_reason,
-                    'complexity': complexity,
-                    'agents_invoked': ['parallel_legacy', 'parallel_langgraph'],
-                    'iterations': 1,
-                    'model': MODEL_NAME,
-                    'provider_id': PROVIDER_ID,
-                    'latency_ms': latency_ms,
-                    'parallel_details': {
-                        'legacy_duration_ms': result.legacy_result.duration_seconds * 1000,
-                        'langgraph_duration_ms': result.langgraph_result.duration_seconds * 1000,
-                        'legacy_success': result.legacy_result.success,
-                        'langgraph_success': result.langgraph_result.success
-                    }
+                    "response": result.final_response,
+                    "mode_used": "parallel",
+                    "winner": result.winner,
+                    "confidence": result.confidence,
+                    "voting_reason": result.voting_reason,
+                    "complexity": complexity,
+                    "agents_invoked": ["parallel_legacy", "parallel_langgraph"],
+                    "iterations": 1,
+                    "model": MODEL_NAME,
+                    "provider_id": PROVIDER_ID,
+                    "latency_ms": latency_ms,
+                    "parallel_details": {
+                        "legacy_duration_ms": result.legacy_result.duration_seconds * 1000,
+                        "langgraph_duration_ms": result.langgraph_result.duration_seconds * 1000,
+                        "legacy_success": result.legacy_result.success,
+                        "langgraph_success": result.langgraph_result.success,
+                    },
                 }
-                
+
                 # Add experiment info if available
-                if EXPERIMENTS_ENABLED and hasattr(g, 'experiments') and g.experiments:
-                    response_data['_experiments'] = {
-                        name: {'variant': data['variant']}
-                        for name, data in g.experiments.items()
+                if EXPERIMENTS_ENABLED and hasattr(g, "experiments") and g.experiments:
+                    response_data["_experiments"] = {
+                        name: {"variant": data["variant"]} for name, data in g.experiments.items()
                     }
-                
+
                 return jsonify(response_data)
-                
+
             except Exception as e:
                 logger.error(f"Parallel execution failed: {e}, falling back to auto")
-                mode = 'auto'  # Fallback to auto mode
-        
+                mode = "auto"  # Fallback to auto mode
+
         # Determine which pipeline to use
         # should_use_langgraph(complexity, mode) -> bool
         use_langgraph = should_use_langgraph(complexity, mode)
-        
-        mode_used = 'langgraph' if use_langgraph else 'legacy'
-        logger.info(f"🔀 LangGraph routing: complexity={complexity}, mode={mode}, use_langgraph={use_langgraph}")
-        
+
+        "langgraph" if use_langgraph else "legacy"
+        logger.info(
+            f"🔀 LangGraph routing: complexity={complexity}, mode={mode}, use_langgraph={use_langgraph}"
+        )
+
         # If not using LangGraph, redirect to legacy agent
         if not use_langgraph:
             # Use existing agent pipeline
             from services.agent import AgentPipeline
-            
+
             # Load user memory if available
             user_memory = None
             if principal:
@@ -1552,37 +1644,34 @@ def generate_langgraph():
                     user_memory = load_user_memory(principal)
                 except Exception:
                     pass
-            
+
             pipeline = AgentPipeline(OLLAMA_HOST, MODEL_NAME)
             result = pipeline.process(
-                question=user_prompt,
-                context_messages=context_memory,
-                user_memory=user_memory
+                question=user_prompt, context_messages=context_memory, user_memory=user_memory
             )
-            
+
             latency_ms = (time.time() - start_time) * 1000
             metrics.record_request(True, 0, latency_ms)
-            
+
             response_data = {
-                'response': result.final_answer,
-                'mode_used': 'legacy',
-                'complexity': complexity,
-                'agents_invoked': ['legacy_agent'],
-                'iterations': result.passes_used,
-                'model': MODEL_NAME,
-                'provider_id': PROVIDER_ID,
-                'latency_ms': latency_ms
+                "response": result.final_answer,
+                "mode_used": "legacy",
+                "complexity": complexity,
+                "agents_invoked": ["legacy_agent"],
+                "iterations": result.passes_used,
+                "model": MODEL_NAME,
+                "provider_id": PROVIDER_ID,
+                "latency_ms": latency_ms,
             }
-            
+
             # Add experiment info if available
-            if EXPERIMENTS_ENABLED and hasattr(g, 'experiments') and g.experiments:
-                response_data['_experiments'] = {
-                    name: {'variant': data['variant']}
-                    for name, data in g.experiments.items()
+            if EXPERIMENTS_ENABLED and hasattr(g, "experiments") and g.experiments:
+                response_data["_experiments"] = {
+                    name: {"variant": data["variant"]} for name, data in g.experiments.items()
                 }
-            
+
             return jsonify(response_data)
-        
+
         # Use LangGraph multi-agent pipeline
         with track_inference(MODEL_NAME, tier=tier) as inference_tracker:
             # Build context string from previous messages
@@ -1590,75 +1679,81 @@ def generate_langgraph():
             if context_memory:
                 recent_exchanges = context_memory[-6:]  # Last 6 messages
                 for ctx_msg in recent_exchanges:
-                    role = ctx_msg.get('role', 'user')
-                    content = ctx_msg.get('content', '')
+                    role = ctx_msg.get("role", "user")
+                    content = ctx_msg.get("content", "")
                     context_str += f"{role}: {content}\n"
-            
+
             # Execute graph with user message and context
             final_state = execute_graph(
                 user_message=user_prompt,
                 complexity=complexity,
                 max_iterations=5,
-                context={'prior_context': context_str} if context_str else None
+                context={"prior_context": context_str} if context_str else None,
             )
-            
+
             # Extract results
-            final_answer = final_state.get('final_answer', '')
-            iterations = final_state.get('iteration', 0)
+            final_answer = final_state.get("final_answer", "")
+            iterations = final_state.get("iteration", 0)
             tokens_generated = len(final_answer.split())
             inference_tracker.set_tokens(tokens_generated)
-        
+
         latency_ms = (time.time() - start_time) * 1000
         metrics.record_request(True, tokens_generated, latency_ms)
-        
+
         # Determine which agents were invoked from final state
-        agents_invoked = ['router']  # Always starts with router
-        if final_state.get('research_context'):
-            agents_invoked.append('research')
-        if final_state.get('reasoning_output'):
-            agents_invoked.append('reasoning')
-        if final_state.get('code_output'):
-            agents_invoked.append('coding')
-        agents_invoked.append('synthesis')  # Always ends with synthesis
-        
-        logger.info(f"✅ LangGraph complete: {tokens_generated} tokens, {iterations} iterations, {latency_ms:.0f}ms")
-        
+        agents_invoked = ["router"]  # Always starts with router
+        if final_state.get("research_context"):
+            agents_invoked.append("research")
+        if final_state.get("reasoning_output"):
+            agents_invoked.append("reasoning")
+        if final_state.get("code_output"):
+            agents_invoked.append("coding")
+        agents_invoked.append("synthesis")  # Always ends with synthesis
+
+        logger.info(
+            f"✅ LangGraph complete: {tokens_generated} tokens, {iterations} iterations, {latency_ms:.0f}ms"
+        )
+
         response_data = {
-            'response': final_answer,
-            'mode_used': 'langgraph',
-            'complexity': complexity,
-            'agents_invoked': agents_invoked,
-            'iterations': iterations,
-            'model': MODEL_NAME,
-            'provider_id': PROVIDER_ID,
-            'latency_ms': latency_ms
+            "response": final_answer,
+            "mode_used": "langgraph",
+            "complexity": complexity,
+            "agents_invoked": agents_invoked,
+            "iterations": iterations,
+            "model": MODEL_NAME,
+            "provider_id": PROVIDER_ID,
+            "latency_ms": latency_ms,
         }
-        
+
         # Add experiment info if available
-        if EXPERIMENTS_ENABLED and hasattr(g, 'experiments') and g.experiments:
-            response_data['_experiments'] = {
-                name: {'variant': data['variant']}
-                for name, data in g.experiments.items()
+        if EXPERIMENTS_ENABLED and hasattr(g, "experiments") and g.experiments:
+            response_data["_experiments"] = {
+                name: {"variant": data["variant"]} for name, data in g.experiments.items()
             }
-        
+
         return jsonify(response_data)
-        
+
     except ValueError as e:
         metrics.record_request(False, 0, 0)
-        track_error('ValidationError', '/generate/langgraph')
+        track_error("ValidationError", "/generate/langgraph")
         logger.warning(f"Validation error: {e}")
-        return jsonify({'error': str(e), 'provider_id': PROVIDER_ID}), 400
-        
+        return jsonify({"error": str(e), "provider_id": PROVIDER_ID}), 400
+
     except Exception as e:
         metrics.record_request(False, 0, 0)
-        track_error('LangGraphError', '/generate/langgraph')
+        track_error("LangGraphError", "/generate/langgraph")
         logger.error(f"LangGraph generation error: {e}", exc_info=True)
-        return jsonify({
-            'error': f'LangGraph generation failed: {str(e)}',
-            'provider_id': PROVIDER_ID,
-            'fallback': '/generate/agent available'
-        }), 500
-        
+        return (
+            jsonify(
+                {
+                    "error": f"LangGraph generation failed: {str(e)}",
+                    "provider_id": PROVIDER_ID,
+                    "fallback": "/generate/agent available",
+                }
+            ),
+            500,
+        )
+
     finally:
         metrics.end_request()
 
@@ -1667,16 +1762,17 @@ def generate_langgraph():
 # WEB SEARCH & BROWSE TOOLS
 # ============================================================================
 
-@app.route('/tools/search', methods=['POST'])
+
+@app.route("/tools/search", methods=["POST"])
 @rate_limit
 def web_search():
     """
     Search the web using Brave Search API.
-    
+
     Request JSON:
         - query: search query string (required)
         - count: number of results (default: 5, max: 10)
-    
+
     Response JSON:
         - query: the search query
         - results: array of { title, url, snippet }
@@ -1684,76 +1780,75 @@ def web_search():
     """
     try:
         if not BRAVE_SEARCH_API_KEY:
-            return jsonify({
-                'error': 'Web search not configured. Set BRAVE_SEARCH_API_KEY environment variable.',
-                'results': []
-            }), 503
-        
+            return (
+                jsonify(
+                    {
+                        "error": "Web search not configured. Set BRAVE_SEARCH_API_KEY environment variable.",
+                        "results": [],
+                    }
+                ),
+                503,
+            )
+
         data = request.json or {}
-        query = data.get('query', '').strip()
-        count = min(int(data.get('count', 5)), 10)  # Cap at 10 results
-        
+        query = data.get("query", "").strip()
+        count = min(int(data.get("count", 5)), 10)  # Cap at 10 results
+
         if not query:
-            return jsonify({'error': 'No search query provided', 'results': []}), 400
-        
+            return jsonify({"error": "No search query provided", "results": []}), 400
+
         # Call Brave Search API
         response = http_session.get(
-            'https://api.search.brave.com/res/v1/web/search',
-            headers={
-                'Accept': 'application/json',
-                'X-Subscription-Token': BRAVE_SEARCH_API_KEY
-            },
-            params={
-                'q': query,
-                'count': count,
-                'safesearch': 'moderate'
-            },
-            timeout=10
+            "https://api.search.brave.com/res/v1/web/search",
+            headers={"Accept": "application/json", "X-Subscription-Token": BRAVE_SEARCH_API_KEY},
+            params={"q": query, "count": count, "safesearch": "moderate"},
+            timeout=10,
         )
-        
+
         if response.status_code != 200:
             logger.error(f"Brave Search API error: {response.status_code}")
-            return jsonify({
-                'error': f'Search API returned status {response.status_code}',
-                'results': []
-            }), 502
-        
+            return (
+                jsonify(
+                    {"error": f"Search API returned status {response.status_code}", "results": []}
+                ),
+                502,
+            )
+
         search_data = response.json()
-        web_results = search_data.get('web', {}).get('results', [])
-        
+        web_results = search_data.get("web", {}).get("results", [])
+
         # Extract relevant fields
         results = []
         for r in web_results[:count]:
-            results.append({
-                'title': r.get('title', ''),
-                'url': r.get('url', ''),
-                'snippet': r.get('description', '')
-            })
-        
+            results.append(
+                {
+                    "title": r.get("title", ""),
+                    "url": r.get("url", ""),
+                    "snippet": r.get("description", ""),
+                }
+            )
+
         logger.info(f"🔍 Web search: '{query}' returned {len(results)} results")
-        
-        return jsonify({
-            'query': query,
-            'results': results
-        })
-        
+
+        return jsonify({"query": query, "results": results})
+
     except requests.Timeout:
-        return jsonify({'error': 'Search request timed out', 'results': []}), 504
+        return jsonify({"error": "Search request timed out", "results": []}), 504
     except Exception as e:
         logger.error(f"Web search error: {e}")
-        return jsonify({'error': str(e), 'results': []}), 500
+        return jsonify({"error": str(e), "results": []}), 500
 
 
-@app.route('/tools/browse', methods=['POST'])
+@app.route("/tools/browse", methods=["POST"])
 @rate_limit
 def browse_url():
     """
     Fetch and extract text content from a URL.
-    
+
     Request JSON:
         - url: the URL to fetch (required)
         - max_length: maximum content length (default: 30000)
-    
+
     Response JSON:
         - url: the fetched URL
         - title: page title if found
@@ -1762,104 +1857,104 @@ def browse_url():
     """
     try:
         data = request.json or {}
-        url = data.get('url', '').strip()
-        max_length = min(int(data.get('max_length', 30000)), 50000)  # Cap at 50k chars
-        
+        url = data.get("url", "").strip()
+        max_length = min(int(data.get("max_length", 30000)), 50000)  # Cap at 50k chars
+
         if not url:
-            return jsonify({'error': 'No URL provided'}), 400
-        
+            return jsonify({"error": "No URL provided"}), 400
+
         # Validate URL format
-        if not url.startswith(('http://', 'https://')):
-            return jsonify({'error': 'URL must start with http:// or https://'}), 400
-        
+        if not url.startswith(("http://", "https://")):
+            return jsonify({"error": "URL must start with http:// or https://"}), 400
+
         # SECURITY: SSRF protection - block internal/private URLs
         is_safe, error_msg = is_safe_url(url)
         if not is_safe:
             logger.warning(f"🚨 SSRF blocked: {url} - {error_msg}")
-            return jsonify({'error': error_msg, 'url': url}), 403
-        
+            return jsonify({"error": error_msg, "url": url}), 403
+
         # Fetch the page
         response = http_session.get(
             url,
             headers={
-                'User-Agent': 'Mozilla/5.0 (compatible; TrinityBot/1.0; +https://dubya.ai)',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+                "User-Agent": "Mozilla/5.0 (compatible; TrinityBot/1.0; +https://dubya.ai)",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             },
             timeout=15,
-            allow_redirects=True
+            allow_redirects=True,
         )
-        
+
         if response.status_code != 200:
-            return jsonify({
-                'error': f'Failed to fetch URL: status {response.status_code}',
-                'url': url
-            }), 502
-        
-        content_type = response.headers.get('Content-Type', '')
-        
+            return (
+                jsonify(
+                    {"error": f"Failed to fetch URL: status {response.status_code}", "url": url}
+                ),
+                502,
+            )
+
+        content_type = response.headers.get("Content-Type", "")
+
         # Handle different content types
-        if 'application/json' in content_type:
+        if "application/json" in content_type:
             # JSON response - return as pretty-printed text
             try:
                 json_content = response.json()
                 content = json.dumps(json_content, indent=2)[:max_length]
-                return jsonify({
-                    'url': url,
-                    'title': 'JSON Response',
-                    'content': content,
-                    'content_type': 'application/json'
-                })
+                return jsonify(
+                    {
+                        "url": url,
+                        "title": "JSON Response",
+                        "content": content,
+                        "content_type": "application/json",
+                    }
+                )
             except (json.JSONDecodeError, ValueError, TypeError) as e:
                 # Not JSON content, continue to HTML parsing
                 logger.debug(f"Response is not JSON: {e}")
-        
+
         # HTML content - extract text using BeautifulSoup (more reliable than regex)
         from bs4 import BeautifulSoup
-        
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
+
+        soup = BeautifulSoup(response.text, "html.parser")
+
         # Extract title
-        title = soup.title.string.strip() if soup.title and soup.title.string else ''
-        
+        title = soup.title.string.strip() if soup.title and soup.title.string else ""
+
         # Remove script, style, and other non-content elements
-        for element in soup(['script', 'style', 'head', 'meta', 'link', 'noscript', 'iframe']):
+        for element in soup(["script", "style", "head", "meta", "link", "noscript", "iframe"]):
             element.decompose()
-        
+
         # Get text content with proper spacing
-        clean = soup.get_text(separator=' ', strip=True)
-        
+        clean = soup.get_text(separator=" ", strip=True)
+
         # Normalize whitespace
         import re
-        clean = re.sub(r'\s+', ' ', clean)
+
+        clean = re.sub(r"\s+", " ", clean)
         clean = clean.strip()[:max_length]
-        
+
         logger.info(f"🌐 Browsed URL: {url} - {len(clean)} chars extracted")
-        
-        return jsonify({
-            'url': url,
-            'title': title,
-            'content': clean,
-            'content_type': 'text/html'
-        })
-        
+
+        return jsonify({"url": url, "title": title, "content": clean, "content_type": "text/html"})
+
     except requests.Timeout:
-        return jsonify({'error': 'Request timed out', 'url': url}), 504
+        return jsonify({"error": "Request timed out", "url": url}), 504
     except Exception as e:
         logger.error(f"Browse error: {e}")
-        return jsonify({'error': str(e), 'url': url}), 500
+        return jsonify({"error": str(e), "url": url}), 500
 
 
-@app.route('/tools/search-and-summarize', methods=['POST'])
+@app.route("/tools/search-and-summarize", methods=["POST"])
 @rate_limit
 def search_and_summarize():
     """
     Combined tool: Search web, fetch top results, and return context for LLM.
     This is the main entry point for giving Trinity web access.
-    
+
     Request JSON:
         - query: search query string (required)
         - num_results: how many results to fetch content from (default: 3, max: 5)
-    
+
     Response JSON:
         - query: the search query
         - context: formatted text ready to inject into LLM prompt
@@ -1868,71 +1963,64 @@ def search_and_summarize():
     """
     try:
         if not BRAVE_SEARCH_API_KEY:
-            return jsonify({
-                'error': 'Web search not configured',
-                'context': '',
-                'sources': []
-            }), 503
-        
+            return (
+                jsonify({"error": "Web search not configured", "context": "", "sources": []}),
+                503,
+            )
+
         data = request.json or {}
-        query = data.get('query', '').strip()
-        num_results = min(int(data.get('num_results', 3)), 5)
-        
+        query = data.get("query", "").strip()
+        num_results = min(int(data.get("num_results", 3)), 5)
+
         if not query:
-            return jsonify({'error': 'No search query provided'}), 400
-        
+            return jsonify({"error": "No search query provided"}), 400
+
         # Step 1: Search
         search_response = http_session.get(
-            'https://api.search.brave.com/res/v1/web/search',
-            headers={
-                'Accept': 'application/json',
-                'X-Subscription-Token': BRAVE_SEARCH_API_KEY
-            },
-            params={'q': query, 'count': num_results + 2, 'safesearch': 'moderate'},
-            timeout=10
+            "https://api.search.brave.com/res/v1/web/search",
+            headers={"Accept": "application/json", "X-Subscription-Token": BRAVE_SEARCH_API_KEY},
+            params={"q": query, "count": num_results + 2, "safesearch": "moderate"},
+            timeout=10,
         )
-        
+
         if search_response.status_code != 200:
-            return jsonify({
-                'error': 'Search failed',
-                'context': '',
-                'sources': []
-            }), 502
-        
+            return jsonify({"error": "Search failed", "context": "", "sources": []}), 502
+
         search_data = search_response.json()
-        web_results = search_data.get('web', {}).get('results', [])[:num_results]
-        
+        web_results = search_data.get("web", {}).get("results", [])[:num_results]
+
         # Step 2: Fetch content from each result
         from bs4 import BeautifulSoup
-        
+
         sources = []
         context_parts = [f"Web search results for: {query}\n"]
-        
+
         for i, result in enumerate(web_results, 1):
-            title = result.get('title', 'Untitled')
-            url = result.get('url', '')
-            snippet = result.get('description', '')
-            
-            sources.append({'title': title, 'url': url})
-            
+            title = result.get("title", "Untitled")
+            url = result.get("url", "")
+            snippet = result.get("description", "")
+
+            sources.append({"title": title, "url": url})
+
             # Try to fetch full content
             try:
                 page_response = http_session.get(
                     url,
-                    headers={'User-Agent': 'Mozilla/5.0 (compatible; TrinityBot/1.0)'},
+                    headers={"User-Agent": "Mozilla/5.0 (compatible; TrinityBot/1.0)"},
                     timeout=8,
-                    allow_redirects=True
+                    allow_redirects=True,
                 )
-                
+
                 if page_response.status_code == 200:
                     # Extract text using BeautifulSoup
-                    soup = BeautifulSoup(page_response.text, 'html.parser')
-                    for element in soup(['script', 'style', 'head', 'meta', 'noscript']):
+                    soup = BeautifulSoup(page_response.text, "html.parser")
+                    for element in soup(["script", "style", "head", "meta", "noscript"]):
                         element.decompose()
-                    clean = soup.get_text(separator=' ', strip=True)
+                    clean = soup.get_text(separator=" ", strip=True)
                     import re
-                    clean = re.sub(r'\s+', ' ', clean).strip()[:3000]  # 3k chars per source
-                    
+
+                    clean = re.sub(r"\s+", " ", clean).strip()[:3000]  # 3k chars per source
+
                     context_parts.append(f"\n[Source {i}: {title}]\n{clean}\n")
                 else:
                     # Use snippet if page fetch fails
@@ -1941,409 +2029,421 @@ def search_and_summarize():
                 # Use snippet if page fetch or parsing fails
                 logger.debug(f"Failed to fetch source {i}: {e}")
                 context_parts.append(f"\n[Source {i}: {title}]\n{snippet}\n")
-        
+
         context = "\n".join(context_parts)
-        
-        logger.info(f"🔍 Search+summarize: '{query}' - {len(sources)} sources, {len(context)} chars")
-        
-        return jsonify({
-            'query': query,
-            'context': context,
-            'sources': sources
-        })
-        
+
+        logger.info(
+            f"🔍 Search+summarize: '{query}' - {len(sources)} sources, {len(context)} chars"
+        )
+
+        return jsonify({"query": query, "context": context, "sources": sources})
+
     except Exception as e:
         logger.error(f"Search and summarize error: {e}")
-        return jsonify({'error': str(e), 'context': '', 'sources': []}), 500
+        return jsonify({"error": str(e), "context": "", "sources": []}), 500
 
 
 # ============================================================================
 # NEW ENDPOINTS: CHAT PERSISTENCE & ARCHIVE
 # ============================================================================
 
-@app.route('/chat/autosave', methods=['POST'])
+
+@app.route("/chat/autosave", methods=["POST"])
 @require_auth
 @storage_rate_limit
 def autosave_chat():
     """Save chat - encrypts and uploads directly to IPFS via Lighthouse"""
-    with track_storage('autosave_chat'):
+    with track_storage("autosave_chat"):
         try:
             # Principal is set by @require_auth decorator
             principal = request.principal
             data = request.json
-            
+
             # Privacy: Only log request metadata, not content
-            logger.debug(f'📥 Autosave request from {principal[:16]}...')
-            
-            chat_id = data.get('chatId')
-            messages = data.get('messages', [])
-            metadata = data.get('metadata', {})
-            
+            logger.debug(f"📥 Autosave request from {principal[:16]}...")
+
+            chat_id = data.get("chatId")
+            messages = data.get("messages", [])
+            metadata = data.get("metadata", {})
+
             # Validate inputs
             if not chat_id:
-                logger.error('❌ Missing chatId in autosave request')
-                return jsonify({'error': 'Missing chatId'}), 400
-            
+                logger.error("❌ Missing chatId in autosave request")
+                return jsonify({"error": "Missing chatId"}), 400
+
             if not validate_chat_id(chat_id):
-                logger.warning(f'⚠️ Invalid chatId format: {chat_id[:20]}...')
-                return jsonify({'error': 'Invalid chatId format'}), 400
-            
+                logger.warning(f"⚠️ Invalid chatId format: {chat_id[:20]}...")
+                return jsonify({"error": "Invalid chatId format"}), 400
+
             if not validate_principal_id(principal):
-                logger.warning(f'⚠️ Invalid principal format: {principal[:20]}...')
-                return jsonify({'error': 'Invalid principal format'}), 400
-            
+                logger.warning(f"⚠️ Invalid principal format: {principal[:20]}...")
+                return jsonify({"error": "Invalid principal format"}), 400
+
             # Privacy: Don't log metadata (may contain user-generated titles)
-            logger.debug(f'   chatId: {chat_id}, messages: {len(messages)}')
-            
+            logger.debug(f"   chatId: {chat_id}, messages: {len(messages)}")
+
             # Prepare chat data for encryption
             chat_data = {
-                'chatId': chat_id,
-                'messages': messages,
-                'metadata': metadata,
-                'principal': principal,  # Include for verification on restore
-                'savedAt': int(time.time() * 1000)
+                "chatId": chat_id,
+                "messages": messages,
+                "metadata": metadata,
+                "principal": principal,  # Include for verification on restore
+                "savedAt": int(time.time() * 1000),
             }
-            
+
             # Encrypt content
             encrypted = EncryptionUtils.encrypt_chat(chat_data, principal)
             encrypted_json = json.dumps(encrypted)
-            
+
             # ==========================================
             # UPLOAD TO IPFS (Primary Storage)
             # IPFS is the source of truth - no local disk cache
             # ==========================================
             lighthouse_filename = f"{principal[:16]}_{chat_id}.json"
             cid = upload_to_ipfs(
-                encrypted_json.encode('utf-8'),
-                lighthouse_filename,
-                principal_id=principal
+                encrypted_json.encode("utf-8"), lighthouse_filename, principal_id=principal
             )
-            
+
             if not cid:
-                logger.error(f'❌ IPFS upload failed for chat {chat_id[:8]}')
-                return jsonify({'success': False, 'error': 'IPFS upload failed'}), 500
-            
-            logger.info(f'☁️  Saved to IPFS: {cid[:16]}...')
-            
+                logger.error(f"❌ IPFS upload failed for chat {chat_id[:8]}")
+                return jsonify({"success": False, "error": "IPFS upload failed"}), 500
+
+            logger.info(f"☁️  Saved to IPFS: {cid[:16]}...")
+
             # Update metadata with CID for later retrieval
             user_metadata = load_metadata(principal)
-            
+
             # Find or create chat entry in metadata
-            chat_entry = next((c for c in user_metadata['chats'] if c['chatId'] == chat_id), None)
+            chat_entry = next((c for c in user_metadata["chats"] if c["chatId"] == chat_id), None)
             if not chat_entry:
                 chat_entry = {
-                    'chatId': chat_id,
-                    'title': metadata.get('title', 'Untitled'),
-                    'createdAt': int(time.time() * 1000),
-                    'isArchived': False
+                    "chatId": chat_id,
+                    "title": metadata.get("title", "Untitled"),
+                    "createdAt": int(time.time() * 1000),
+                    "isArchived": False,
                 }
-                user_metadata['chats'].append(chat_entry)
-            
-            chat_entry['lastUpdated'] = metadata.get('updatedAt', int(time.time() * 1000))
-            chat_entry['messageCount'] = len(messages)
+                user_metadata["chats"].append(chat_entry)
+
+            chat_entry["lastUpdated"] = metadata.get("updatedAt", int(time.time() * 1000))
+            chat_entry["messageCount"] = len(messages)
             if cid:
-                chat_entry['cid'] = cid  # Store CID for retrieval after redeploy
-            
+                chat_entry["cid"] = cid  # Store CID for retrieval after redeploy
+
             save_metadata(principal, user_metadata)
-            
+
             # Also sync metadata to IPFS (so we can restore chat list)
             try:
                 metadata_filename = f"{principal[:16]}_metadata.json"
                 metadata_encrypted = EncryptionUtils.encrypt_chat(user_metadata, principal)
                 upload_to_ipfs(
-                    json.dumps(metadata_encrypted).encode('utf-8'),
+                    json.dumps(metadata_encrypted).encode("utf-8"),
                     metadata_filename,
                     principal_id=principal,
-                    is_master_bundle=True
+                    is_master_bundle=True,
                 )
             except Exception as meta_sync_error:
-                logger.warning(f'⚠️  Metadata sync failed: {meta_sync_error}')
-            
-            # Privacy: Single minimal log line for successful autosave
-            logger.info(f'💾 Autosaved chat {chat_id[:8]}... ({len(messages)} msgs)')
-            
-            return jsonify({
-                'success': True,
-                'chatId': chat_id,
-                'savedAt': int(time.time() * 1000),
-                'cid': cid,  # Return CID to frontend
-                'nextAutoDeleteAt': int(time.time() * 1000) + (7 * 24 * 60 * 60 * 1000)
-            })
-        
-        except Exception as e:
-            track_error('StorageError', '/chat/autosave')
-            logger.error(f'❌ Autosave error: {e}', exc_info=True)
-            return jsonify({'success': False, 'error': str(e)}), 500
+                logger.warning(f"⚠️  Metadata sync failed: {meta_sync_error}")
 
-@app.route('/chat/list', methods=['GET'])
+            # Privacy: Single minimal log line for successful autosave
+            logger.info(f"💾 Autosaved chat {chat_id[:8]}... ({len(messages)} msgs)")
+
+            return jsonify(
+                {
+                    "success": True,
+                    "chatId": chat_id,
+                    "savedAt": int(time.time() * 1000),
+                    "cid": cid,  # Return CID to frontend
+                    "nextAutoDeleteAt": int(time.time() * 1000) + (7 * 24 * 60 * 60 * 1000),
+                }
+            )
+
+        except Exception as e:
+            track_error("StorageError", "/chat/autosave")
+            logger.error(f"❌ Autosave error: {e}", exc_info=True)
+            return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/chat/list", methods=["GET"])
 @require_auth
 @storage_rate_limit
 def list_chats():
     """List all chats for user - fetches from IPFS via Lighthouse"""
     try:
         principal = request.principal
-        
+
         # ==========================================
         # FETCH CHAT LIST FROM IPFS
         # IPFS is the source of truth - no local disk
         # ==========================================
-        logger.info(f'🔍 Fetching chat list from IPFS for {principal[:16]}...')
-        
+        logger.info(f"🔍 Fetching chat list from IPFS for {principal[:16]}...")
+
         chats = []
         try:
             # Look for user's metadata bundle in Lighthouse
             uploads = get_lighthouse_uploads(principal)
             metadata_cid = None
-            
+
             for upload in uploads:
-                filename = upload.get('fileName', '')
-                if principal[:16] in filename and 'metadata' in filename:
-                    metadata_cid = upload.get('cid')
+                filename = upload.get("fileName", "")
+                if principal[:16] in filename and "metadata" in filename:
+                    metadata_cid = upload.get("cid")
                     break
-            
+
             if metadata_cid:
-                logger.info(f'☁️  Found metadata on IPFS: {metadata_cid[:16]}...')
-                gateway_url = f'{LIGHTHOUSE_GATEWAY}/ipfs/{metadata_cid}'
+                logger.info(f"☁️  Found metadata on IPFS: {metadata_cid[:16]}...")
+                gateway_url = f"{LIGHTHOUSE_GATEWAY}/ipfs/{metadata_cid}"
                 response = http_session.get(gateway_url, timeout=30)
-                
+
                 if response.status_code == 200:
                     encrypted_metadata = response.json()
                     recovered_metadata = EncryptionUtils.decrypt_chat(encrypted_metadata, principal)
-                    chats = recovered_metadata.get('chats', [])
-                    logger.info(f'✅ Retrieved {len(chats)} chats from IPFS')
+                    chats = recovered_metadata.get("chats", [])
+                    logger.info(f"✅ Retrieved {len(chats)} chats from IPFS")
             else:
                 # No metadata bundle, but check for individual chat files
                 for upload in uploads[:50]:  # Limit to recent 50
-                    filename = upload.get('fileName', '')
-                    if principal[:16] in filename and 'metadata' not in filename:
+                    filename = upload.get("fileName", "")
+                    if principal[:16] in filename and "metadata" not in filename:
                         # Extract chat_id from filename pattern: principal_chatId.json
-                        parts = filename.replace('.json', '').split('_')
+                        parts = filename.replace(".json", "").split("_")
                         if len(parts) >= 2:
                             chat_id = parts[-1]
-                            chats.append({
-                                'chatId': chat_id,
-                                'title': 'Recovered Chat',
-                                'cid': upload.get('cid'),
-                                'lastUpdated': upload.get('createdAt', 0),
-                                'isArchived': False
-                            })
+                            chats.append(
+                                {
+                                    "chatId": chat_id,
+                                    "title": "Recovered Chat",
+                                    "cid": upload.get("cid"),
+                                    "lastUpdated": upload.get("createdAt", 0),
+                                    "isArchived": False,
+                                }
+                            )
                 if chats:
-                    logger.info(f'✅ Found {len(chats)} individual chats on IPFS')
-                    
-        except Exception as ipfs_error:
-            logger.warning(f'⚠️  IPFS fetch failed: {ipfs_error}')
-        
-        # Sort by last updated (newest first)
-        chats.sort(key=lambda x: x.get('lastUpdated', 0), reverse=True)
-        
-        return jsonify({
-            'chats': chats,
-            'count': len(chats)
-        })
-    
-    except Exception as e:
-        logger.error(f'List chats error: {e}')
-        return jsonify({'error': str(e)}), 500
+                    logger.info(f"✅ Found {len(chats)} individual chats on IPFS")
 
-@app.route('/chat/<chat_id>', methods=['GET'])
+        except Exception as ipfs_error:
+            logger.warning(f"⚠️  IPFS fetch failed: {ipfs_error}")
+
+        # Sort by last updated (newest first)
+        chats.sort(key=lambda x: x.get("lastUpdated", 0), reverse=True)
+
+        return jsonify({"chats": chats, "count": len(chats)})
+
+    except Exception as e:
+        logger.error(f"List chats error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/chat/<chat_id>", methods=["GET"])
 @require_auth
 @storage_rate_limit
 def get_chat(chat_id):
     """Load specific chat from IPFS"""
     try:
         principal = request.principal
-        
+
         # Validate inputs
         if not validate_chat_id(chat_id):
-            logger.warning(f'⚠️ Invalid chatId format in GET: {chat_id[:20]}...')
-            return jsonify({'error': 'Invalid chatId format'}), 400
-        
+            logger.warning(f"⚠️ Invalid chatId format in GET: {chat_id[:20]}...")
+            return jsonify({"error": "Invalid chatId format"}), 400
+
         # ==========================================
         # FETCH CHAT FROM IPFS
         # IPFS is the source of truth - no local disk
         # ==========================================
-        logger.info(f'🔍 Fetching chat from IPFS: {chat_id[:8]}...')
-        
+        logger.info(f"🔍 Fetching chat from IPFS: {chat_id[:8]}...")
+
         cid = None
         # Try to find CID by filename pattern in Lighthouse
         try:
             uploads = get_lighthouse_uploads(principal)
             for upload in uploads:
-                filename = upload.get('fileName', '')
-                if chat_id in filename and 'metadata' not in filename:
-                    cid = upload.get('cid')
+                filename = upload.get("fileName", "")
+                if chat_id in filename and "metadata" not in filename:
+                    cid = upload.get("cid")
                     break
         except Exception as e:
-            logger.warning(f'Could not search Lighthouse uploads: {e}')
-        
+            logger.warning(f"Could not search Lighthouse uploads: {e}")
+
         if cid:
-            logger.info(f'☁️  Found CID: {cid[:16]}..., downloading from IPFS')
+            logger.info(f"☁️  Found CID: {cid[:16]}..., downloading from IPFS")
             try:
                 # Download from Lighthouse gateway
-                gateway_url = f'{LIGHTHOUSE_GATEWAY}/ipfs/{cid}'
+                gateway_url = f"{LIGHTHOUSE_GATEWAY}/ipfs/{cid}"
                 response = http_session.get(gateway_url, timeout=30)
-                
+
                 if response.status_code == 200:
                     encrypted_data = response.json()
                     decrypted = EncryptionUtils.decrypt_chat(encrypted_data, principal)
-                    logger.info(f'✅ Loaded chat from IPFS: {chat_id[:8]}...')
+                    logger.info(f"✅ Loaded chat from IPFS: {chat_id[:8]}...")
                     return jsonify(decrypted)
                 else:
-                    logger.warning(f'IPFS gateway returned {response.status_code}')
+                    logger.warning(f"IPFS gateway returned {response.status_code}")
             except Exception as ipfs_error:
-                logger.error(f'Failed to download from IPFS: {ipfs_error}')
-        
-        return jsonify({'error': 'Chat not found on IPFS'}), 404
-    
-    except ValueError as e:
-        return jsonify({'error': str(e)}), 401
-    except Exception as e:
-        logger.error(f'Get chat error: {e}')
-        return jsonify({'error': str(e)}), 500
+                logger.error(f"Failed to download from IPFS: {ipfs_error}")
 
-@app.route('/chat/<chat_id>', methods=['DELETE'])
+        return jsonify({"error": "Chat not found on IPFS"}), 404
+
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 401
+    except Exception as e:
+        logger.error(f"Get chat error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/chat/<chat_id>", methods=["DELETE"])
 @require_auth
 @storage_rate_limit
 def delete_chat(chat_id):
     """Delete chat - marks as deleted in metadata (IPFS is immutable, but we update the index)"""
     try:
         principal = request.principal
-        
+
         # Validate inputs
         if not validate_chat_id(chat_id):
-            logger.warning(f'⚠️ Invalid chatId format in DELETE: {chat_id[:20]}...')
-            return jsonify({'error': 'Invalid chatId format'}), 400
-        
+            logger.warning(f"⚠️ Invalid chatId format in DELETE: {chat_id[:20]}...")
+            return jsonify({"error": "Invalid chatId format"}), 400
+
         # Note: IPFS content is immutable, but we can update the metadata index
         # to remove the chat from the user's list. The encrypted content
         # remains on IPFS but is no longer discoverable without the CID.
-        
+
         # Fetch current metadata from IPFS
         uploads = get_lighthouse_uploads(principal)
         metadata_cid = None
         for upload in uploads:
-            filename = upload.get('fileName', '')
-            if principal[:16] in filename and 'metadata' in filename:
-                metadata_cid = upload.get('cid')
+            filename = upload.get("fileName", "")
+            if principal[:16] in filename and "metadata" in filename:
+                metadata_cid = upload.get("cid")
                 break
-        
+
         if metadata_cid:
-            gateway_url = f'{LIGHTHOUSE_GATEWAY}/ipfs/{metadata_cid}'
+            gateway_url = f"{LIGHTHOUSE_GATEWAY}/ipfs/{metadata_cid}"
             response = http_session.get(gateway_url, timeout=30)
             if response.status_code == 200:
                 encrypted_metadata = response.json()
                 user_metadata = EncryptionUtils.decrypt_chat(encrypted_metadata, principal)
-                
+
                 # Remove chat from list
-                user_metadata['chats'] = [c for c in user_metadata.get('chats', []) if c['chatId'] != chat_id]
-                
+                user_metadata["chats"] = [
+                    c for c in user_metadata.get("chats", []) if c["chatId"] != chat_id
+                ]
+
                 # Upload updated metadata to IPFS
                 metadata_filename = f"{principal[:16]}_metadata.json"
                 metadata_encrypted = EncryptionUtils.encrypt_chat(user_metadata, principal)
                 upload_to_ipfs(
-                    json.dumps(metadata_encrypted).encode('utf-8'),
+                    json.dumps(metadata_encrypted).encode("utf-8"),
                     metadata_filename,
                     principal_id=principal,
-                    is_master_bundle=True
+                    is_master_bundle=True,
                 )
-        
-        logger.info(f'🗑️  Chat deleted from index: {chat_id[:8]}...')
-        
-        return jsonify({
-            'success': True,
-            'deletedAt': int(time.time() * 1000)
-        })
-    
-    except Exception as e:
-        logger.error(f'Delete chat error: {e}')
-        return jsonify({'error': str(e)}), 500
 
-@app.route('/chat/<chat_id>/archive', methods=['POST'])
+        logger.info(f"🗑️  Chat deleted from index: {chat_id[:8]}...")
+
+        return jsonify({"success": True, "deletedAt": int(time.time() * 1000)})
+
+    except Exception as e:
+        logger.error(f"Delete chat error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/chat/<chat_id>/archive", methods=["POST"])
 @require_auth
 @storage_rate_limit
 def archive_chat(chat_id):
     """Mark chat as archived - chat is already on IPFS, this just flags it as permanent"""
     try:
         principal = request.principal
-        
+
         # Validate inputs
         if not validate_chat_id(chat_id):
-            logger.warning(f'⚠️ Invalid chatId format in archive: {chat_id[:20]}...')
-            return jsonify({'error': 'Invalid chatId format'}), 400
-        
+            logger.warning(f"⚠️ Invalid chatId format in archive: {chat_id[:20]}...")
+            return jsonify({"error": "Invalid chatId format"}), 400
+
         # Fetch current metadata from IPFS
         uploads = get_lighthouse_uploads(principal)
         metadata_cid = None
         chat_cid = None
-        
+
         for upload in uploads:
-            filename = upload.get('fileName', '')
-            if principal[:16] in filename and 'metadata' in filename:
-                metadata_cid = upload.get('cid')
-            if chat_id in filename and 'metadata' not in filename:
-                chat_cid = upload.get('cid')
-        
+            filename = upload.get("fileName", "")
+            if principal[:16] in filename and "metadata" in filename:
+                metadata_cid = upload.get("cid")
+            if chat_id in filename and "metadata" not in filename:
+                chat_cid = upload.get("cid")
+
         if not chat_cid:
-            return jsonify({'error': 'Chat not found on IPFS'}), 404
-        
+            return jsonify({"error": "Chat not found on IPFS"}), 404
+
         # Load metadata from IPFS
-        user_metadata = {'chats': []}
+        user_metadata = {"chats": []}
         if metadata_cid:
-            gateway_url = f'{LIGHTHOUSE_GATEWAY}/ipfs/{metadata_cid}'
+            gateway_url = f"{LIGHTHOUSE_GATEWAY}/ipfs/{metadata_cid}"
             response = http_session.get(gateway_url, timeout=30)
             if response.status_code == 200:
                 encrypted_metadata = response.json()
                 user_metadata = EncryptionUtils.decrypt_chat(encrypted_metadata, principal)
-        
+
         # Find chat entry in metadata
-        chat_entry = next((c for c in user_metadata.get('chats', []) if c['chatId'] == chat_id), None)
-        
+        chat_entry = next(
+            (c for c in user_metadata.get("chats", []) if c["chatId"] == chat_id), None
+        )
+
         if not chat_entry:
             # Create entry if not in metadata
-            chat_entry = {'chatId': chat_id, 'cid': chat_cid}
-            user_metadata.setdefault('chats', []).append(chat_entry)
+            chat_entry = {"chatId": chat_id, "cid": chat_cid}
+            user_metadata.setdefault("chats", []).append(chat_entry)
 
         # Check if already archived
-        if chat_entry.get('isArchived'):
-            return jsonify({'error': 'Chat is already archived'}), 400
+        if chat_entry.get("isArchived"):
+            return jsonify({"error": "Chat is already archived"}), 400
 
         # Hard limit: Maximum 10 archived chats
-        archived_count = sum(1 for c in user_metadata.get('chats', []) if c.get('isArchived', False))
+        archived_count = sum(
+            1 for c in user_metadata.get("chats", []) if c.get("isArchived", False)
+        )
         if archived_count >= 10:
-            return jsonify({
-                'error': 'Maximum 10 archived chats reached. Please delete an archived chat first.',
-                'limit': 10,
-                'current': archived_count
-            }), 400
+            return (
+                jsonify(
+                    {
+                        "error": "Maximum 10 archived chats reached. Please delete an archived chat first.",
+                        "limit": 10,
+                        "current": archived_count,
+                    }
+                ),
+                400,
+            )
 
         # Mark as archived
-        chat_entry['isArchived'] = True
-        chat_entry['archivedAt'] = int(time.time() * 1000)
-        chat_entry['cid'] = chat_cid
+        chat_entry["isArchived"] = True
+        chat_entry["archivedAt"] = int(time.time() * 1000)
+        chat_entry["cid"] = chat_cid
 
         # Upload updated metadata to IPFS
         metadata_filename = f"{principal[:16]}_metadata.json"
         metadata_encrypted = EncryptionUtils.encrypt_chat(user_metadata, principal)
         new_metadata_cid = upload_to_ipfs(
-            json.dumps(metadata_encrypted).encode('utf-8'),
+            json.dumps(metadata_encrypted).encode("utf-8"),
             metadata_filename,
             principal_id=principal,
-            is_master_bundle=True
+            is_master_bundle=True,
         )
 
-        logger.info(f'✅ Chat archived: {chat_id[:8]}... CID: {chat_cid[:16]}...')
+        logger.info(f"✅ Chat archived: {chat_id[:8]}... CID: {chat_cid[:16]}...")
 
-        return jsonify({
-            'success': True,
-            'chatId': chat_id,
-            'cid': chat_cid,
-            'archivedAt': chat_entry['archivedAt'],
-            'archivedCount': archived_count + 1
-        })
+        return jsonify(
+            {
+                "success": True,
+                "chatId": chat_id,
+                "cid": chat_cid,
+                "archivedAt": chat_entry["archivedAt"],
+                "archivedCount": archived_count + 1,
+            }
+        )
 
     except Exception as e:
-        logger.error(f'❌ Archive error: {e}', exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"❌ Archive error: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
 
 
 def update_master_bundle(principal_id: str, user_metadata: Dict = None) -> Optional[str]:
@@ -2365,29 +2465,29 @@ def update_master_bundle(principal_id: str, user_metadata: Dict = None) -> Optio
         # Build manifest of all archived chats
         archived_chats = [
             {
-                'chatId': c['chatId'],
-                'title': c.get('title', 'Untitled'),
-                'cid': c.get('cid'),
-                'archivedAt': c.get('archivedAt'),
-                'messageCount': c.get('messageCount', 0)
+                "chatId": c["chatId"],
+                "title": c.get("title", "Untitled"),
+                "cid": c.get("cid"),
+                "archivedAt": c.get("archivedAt"),
+                "messageCount": c.get("messageCount", 0),
             }
-            for c in user_metadata.get('chats', [])
-            if c.get('isArchived') and c.get('cid')
+            for c in user_metadata.get("chats", [])
+            if c.get("isArchived") and c.get("cid")
         ]
 
         if not archived_chats:
-            logger.info(f'No archived chats with CIDs for {principal_id[:20]}...')
+            logger.info(f"No archived chats with CIDs for {principal_id[:20]}...")
             return None
 
         # Create master bundle manifest
         manifest = {
-            'version': '1.0',
-            'type': 'master_bundle',
-            'principal': principal_id,
-            'createdAt': int(time.time() * 1000),
-            'bundleVersion': user_metadata.get('lastBundleVersion', 0) + 1,
-            'chats': archived_chats,
-            'chatCount': len(archived_chats)
+            "version": "1.0",
+            "type": "master_bundle",
+            "principal": principal_id,
+            "createdAt": int(time.time() * 1000),
+            "bundleVersion": user_metadata.get("lastBundleVersion", 0) + 1,
+            "chats": archived_chats,
+            "chatCount": len(archived_chats),
         }
 
         # Encrypt manifest with principal ID
@@ -2395,29 +2495,34 @@ def update_master_bundle(principal_id: str, user_metadata: Dict = None) -> Optio
 
         # Upload master bundle to Pinata
         bundle_filename = f"{principal_id[:20]}_master_bundle.json"
-        bundle_data = json.dumps(encrypted_manifest).encode('utf-8')
+        bundle_data = json.dumps(encrypted_manifest).encode("utf-8")
 
-        bundle_cid = upload_to_ipfs(bundle_data, bundle_filename, principal_id=principal_id, is_master_bundle=True)
+        bundle_cid = upload_to_ipfs(
+            bundle_data, bundle_filename, principal_id=principal_id, is_master_bundle=True
+        )
 
         if bundle_cid:
             # Update local metadata with new bundle CID
-            user_metadata['currentBundleCID'] = bundle_cid
-            user_metadata['lastBundleVersion'] = manifest['bundleVersion']
-            user_metadata['lastSyncedAt'] = int(time.time() * 1000)
+            user_metadata["currentBundleCID"] = bundle_cid
+            user_metadata["lastBundleVersion"] = manifest["bundleVersion"]
+            user_metadata["lastSyncedAt"] = int(time.time() * 1000)
             save_metadata(principal_id, user_metadata)
 
-            logger.info(f'✅ Master bundle updated: {bundle_cid} (v{manifest["bundleVersion"]}, {len(archived_chats)} chats)')
+            logger.info(
+                f'✅ Master bundle updated: {bundle_cid} (v{manifest["bundleVersion"]}, {len(archived_chats)} chats)'
+            )
 
         return bundle_cid
 
     except Exception as e:
-        logger.error(f'❌ Master bundle update error: {e}', exc_info=True)
+        logger.error(f"❌ Master bundle update error: {e}", exc_info=True)
         return None
 
 
 # ===== ARCHIVE RECOVERY ENDPOINTS =====
 
-@app.route('/chat/recover-archives', methods=['GET'])
+
+@app.route("/chat/recover-archives", methods=["GET"])
 @require_auth
 def recover_archives():
     """
@@ -2429,11 +2534,11 @@ def recover_archives():
     """
     try:
         principal = request.principal
-        logger.info(f'🔍 Recovering archives for {principal[:20]}...')
+        logger.info(f"🔍 Recovering archives for {principal[:20]}...")
 
         # First check local metadata for known bundle CID
         user_metadata = load_metadata(principal)
-        local_bundle_cid = user_metadata.get('currentBundleCID')
+        local_bundle_cid = user_metadata.get("currentBundleCID")
 
         # Note: Lighthouse doesn't support metadata search like Pinata
         # We rely on local metadata for bundle CID tracking
@@ -2441,59 +2546,55 @@ def recover_archives():
         uploads = get_lighthouse_uploads(principal_id=principal)
 
         if not uploads and not local_bundle_cid:
-            return jsonify({
-                'success': True,
-                'message': 'No archived chats found',
-                'archives': [],
-                'count': 0
-            })
+            return jsonify(
+                {"success": True, "message": "No archived chats found", "archives": [], "count": 0}
+            )
 
         # Use the local bundle CID (Lighthouse doesn't have per-user metadata)
         bundle_cid = local_bundle_cid
 
         if not bundle_cid:
-            return jsonify({
-                'success': True,
-                'message': 'No master bundle found',
-                'archives': [],
-                'count': 0
-            })
+            return jsonify(
+                {"success": True, "message": "No master bundle found", "archives": [], "count": 0}
+            )
 
-        logger.info(f'📥 Downloading master bundle: {bundle_cid}')
+        logger.info(f"📥 Downloading master bundle: {bundle_cid}")
 
         # Download master bundle from IPFS
         bundle_data = download_from_ipfs(bundle_cid)
 
         if not bundle_data:
-            return jsonify({
-                'error': 'Failed to download master bundle from IPFS',
-                'cid': bundle_cid
-            }), 500
+            return (
+                jsonify({"error": "Failed to download master bundle from IPFS", "cid": bundle_cid}),
+                500,
+            )
 
         # Parse and decrypt master bundle
-        encrypted_manifest = json.loads(bundle_data.decode('utf-8'))
+        encrypted_manifest = json.loads(bundle_data.decode("utf-8"))
         manifest = EncryptionUtils.decrypt_chat(encrypted_manifest, principal)
 
         logger.info(f'✅ Recovered {manifest.get("chatCount", 0)} archived chats')
 
-        return jsonify({
-            'success': True,
-            'masterBundleCID': bundle_cid,
-            'bundleVersion': manifest.get('bundleVersion', 0),
-            'archives': manifest.get('chats', []),
-            'count': manifest.get('chatCount', 0),
-            'recoveredAt': int(time.time() * 1000)
-        })
+        return jsonify(
+            {
+                "success": True,
+                "masterBundleCID": bundle_cid,
+                "bundleVersion": manifest.get("bundleVersion", 0),
+                "archives": manifest.get("chats", []),
+                "count": manifest.get("chatCount", 0),
+                "recoveredAt": int(time.time() * 1000),
+            }
+        )
 
     except ValueError as e:
-        logger.error(f'Decryption failed during recovery: {e}')
-        return jsonify({'error': 'Failed to decrypt archives - wrong principal?'}), 401
+        logger.error(f"Decryption failed during recovery: {e}")
+        return jsonify({"error": "Failed to decrypt archives - wrong principal?"}), 401
     except Exception as e:
-        logger.error(f'❌ Archive recovery error: {e}', exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"❌ Archive recovery error: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
 
 
-@app.route('/chat/archive/<cid>', methods=['GET'])
+@app.route("/chat/archive/<cid>", methods=["GET"])
 @require_auth
 def get_archived_chat(cid):
     """
@@ -2507,54 +2608,53 @@ def get_archived_chat(cid):
     """
     try:
         principal = request.principal
-        
+
         # Validate CID format
         if not validate_cid(cid):
-            logger.warning(f'⚠️ Invalid CID format: {cid[:20]}...')
-            return jsonify({'error': 'Invalid CID format'}), 400
-        
-        logger.info(f'📥 Downloading archived chat: {cid}')
+            logger.warning(f"⚠️ Invalid CID format: {cid[:20]}...")
+            return jsonify({"error": "Invalid CID format"}), 400
+
+        logger.info(f"📥 Downloading archived chat: {cid}")
 
         # Download from IPFS
         chat_data = download_from_ipfs(cid)
 
         if not chat_data:
-            return jsonify({
-                'error': 'Failed to download chat from IPFS',
-                'cid': cid
-            }), 404
+            return jsonify({"error": "Failed to download chat from IPFS", "cid": cid}), 404
 
         # Parse and decrypt
-        encrypted_chat = json.loads(chat_data.decode('utf-8'))
+        encrypted_chat = json.loads(chat_data.decode("utf-8"))
         decrypted_chat = EncryptionUtils.decrypt_chat(encrypted_chat, principal)
 
-        logger.info(f'✅ Archived chat recovered: {cid}')
+        logger.info(f"✅ Archived chat recovered: {cid}")
 
-        return jsonify({
-            'success': True,
-            'cid': cid,
-            'chat': decrypted_chat,
-            'recoveredAt': int(time.time() * 1000)
-        })
+        return jsonify(
+            {
+                "success": True,
+                "cid": cid,
+                "chat": decrypted_chat,
+                "recoveredAt": int(time.time() * 1000),
+            }
+        )
 
     except ValueError as e:
-        logger.error(f'Decryption failed: {e}')
-        return jsonify({'error': 'Failed to decrypt chat - wrong principal?'}), 401
+        logger.error(f"Decryption failed: {e}")
+        return jsonify({"error": "Failed to decrypt chat - wrong principal?"}), 401
     except Exception as e:
-        logger.error(f'❌ Archive download error: {e}', exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"❌ Archive download error: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
 
 
-@app.route('/chat/archive/status/<cid>', methods=['GET'])
+@app.route("/chat/archive/status/<cid>", methods=["GET"])
 def get_archive_status(cid):
     """
     Check IPFS availability status for an archived chat.
-    
+
     No auth required - CID is public, status is public information.
-    
+
     Args:
         cid: The IPFS CID to check
-        
+
     Returns:
         Status information including:
         - status: 'available' or 'error'
@@ -2563,30 +2663,32 @@ def get_archive_status(cid):
     try:
         # Validate CID format
         if not validate_cid(cid):
-            logger.warning(f'⚠️ Invalid CID format in status check: {cid[:20]}...')
-            return jsonify({'error': 'Invalid CID format'}), 400
-        
-        logger.info(f'📊 Checking IPFS status for: {cid}')
-        
-        return jsonify({
-            'cid': cid,
-            'status': 'available',
-            'message': 'Content is pinned on IPFS via Lighthouse',
-            'gateways': [
-                f'{LIGHTHOUSE_GATEWAY}/ipfs/{cid}',
-                f'https://ipfs.io/ipfs/{cid}',
-                f'https://dweb.link/ipfs/{cid}'
-            ],
-            'checkedAt': int(time.time() * 1000)
-        })
-        
+            logger.warning(f"⚠️ Invalid CID format in status check: {cid[:20]}...")
+            return jsonify({"error": "Invalid CID format"}), 400
+
+        logger.info(f"📊 Checking IPFS status for: {cid}")
+
+        return jsonify(
+            {
+                "cid": cid,
+                "status": "available",
+                "message": "Content is pinned on IPFS via Lighthouse",
+                "gateways": [
+                    f"{LIGHTHOUSE_GATEWAY}/ipfs/{cid}",
+                    f"https://ipfs.io/ipfs/{cid}",
+                    f"https://dweb.link/ipfs/{cid}",
+                ],
+                "checkedAt": int(time.time() * 1000),
+            }
+        )
+
     except Exception as e:
-        logger.error(f'❌ Status check error: {e}', exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"❌ Status check error: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
 
 
 # ===== USER MEMORY ENDPOINTS =====
-@app.route('/user/memory', methods=['GET'])
+@app.route("/user/memory", methods=["GET"])
 @require_auth
 @storage_rate_limit
 def get_user_memory():
@@ -2594,15 +2696,16 @@ def get_user_memory():
     try:
         principal = request.principal
         memory = load_user_memory(principal)
-        
+
         logger.debug(f'📖 Loaded user memory: {len(memory.get("facts", []))} facts')
         return jsonify(memory)
-    
-    except Exception as e:
-        logger.error(f'❌ Error loading user memory: {e}', exc_info=True)
-        return jsonify({'error': str(e)}), 500
 
-@app.route('/user/memory', methods=['POST'])
+    except Exception as e:
+        logger.error(f"❌ Error loading user memory: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/user/memory", methods=["POST"])
 @require_auth
 @storage_rate_limit
 def update_user_memory():
@@ -2610,33 +2713,31 @@ def update_user_memory():
     try:
         principal = request.principal
         data = request.json
-        
-        if not data:
-            return jsonify({'error': 'No data provided'}), 400
-        
-        memory = load_user_memory(principal)
-        
-        # Update facts if provided
-        if 'facts' in data:
-            memory['facts'] = data['facts']
-        
-        # Update preferences if provided
-        if 'preferences' in data:
-            memory['preferences'] = data['preferences']
-        
-        save_user_memory(principal, memory)
-        
-        logger.debug(f'💾 Updated user memory')
-        return jsonify({
-            'success': True,
-            'memory': memory
-        })
-    
-    except Exception as e:
-        logger.error(f'❌ Error updating user memory: {e}', exc_info=True)
-        return jsonify({'error': str(e)}), 500
 
-@app.route('/user/memory/fact', methods=['POST'])
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+
+        memory = load_user_memory(principal)
+
+        # Update facts if provided
+        if "facts" in data:
+            memory["facts"] = data["facts"]
+
+        # Update preferences if provided
+        if "preferences" in data:
+            memory["preferences"] = data["preferences"]
+
+        save_user_memory(principal, memory)
+
+        logger.debug(f"💾 Updated user memory")
+        return jsonify({"success": True, "memory": memory})
+
+    except Exception as e:
+        logger.error(f"❌ Error updating user memory: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/user/memory/fact", methods=["POST"])
 @require_auth
 @storage_rate_limit
 def add_memory_fact():
@@ -2644,34 +2745,31 @@ def add_memory_fact():
     try:
         principal = request.principal
         data = request.json
-        
-        if not data or 'fact' not in data:
-            return jsonify({'error': 'Fact is required'}), 400
-        
-        memory = load_user_memory(principal)
-        
-        new_fact = {
-            'fact': data['fact'],
-            'addedAt': int(time.time() * 1000),
-            'fromChatId': data.get('chatId'),
-            'category': data.get('category', 'general')
-        }
-        
-        memory['facts'].append(new_fact)
-        save_user_memory(principal, memory)
-        
-        logger.info(f'➕ Added fact to user memory (total: {len(memory["facts"])})')
-        return jsonify({
-            'success': True,
-            'fact': new_fact,
-            'totalFacts': len(memory['facts'])
-        })
-    
-    except Exception as e:
-        logger.error(f'❌ Error adding memory fact: {e}', exc_info=True)
-        return jsonify({'error': str(e)}), 500
 
-@app.route('/user/memory/fact/<int:index>', methods=['DELETE'])
+        if not data or "fact" not in data:
+            return jsonify({"error": "Fact is required"}), 400
+
+        memory = load_user_memory(principal)
+
+        new_fact = {
+            "fact": data["fact"],
+            "addedAt": int(time.time() * 1000),
+            "fromChatId": data.get("chatId"),
+            "category": data.get("category", "general"),
+        }
+
+        memory["facts"].append(new_fact)
+        save_user_memory(principal, memory)
+
+        logger.info(f'➕ Added fact to user memory (total: {len(memory["facts"])})')
+        return jsonify({"success": True, "fact": new_fact, "totalFacts": len(memory["facts"])})
+
+    except Exception as e:
+        logger.error(f"❌ Error adding memory fact: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/user/memory/fact/<int:index>", methods=["DELETE"])
 @require_auth
 @storage_rate_limit
 def delete_memory_fact(index):
@@ -2679,351 +2777,346 @@ def delete_memory_fact(index):
     try:
         principal = request.principal
         memory = load_user_memory(principal)
-        
-        if index < 0 or index >= len(memory['facts']):
-            return jsonify({'error': 'Invalid fact index'}), 400
-        
-        deleted_fact = memory['facts'].pop(index)
+
+        if index < 0 or index >= len(memory["facts"]):
+            return jsonify({"error": "Invalid fact index"}), 400
+
+        deleted_fact = memory["facts"].pop(index)
         save_user_memory(principal, memory)
-        
+
         logger.info(f'🗑️ Deleted fact #{index} from user memory (remaining: {len(memory["facts"])})')
-        return jsonify({
-            'success': True,
-            'deletedFact': deleted_fact,
-            'totalFacts': len(memory['facts'])
-        })
-    
+        return jsonify(
+            {"success": True, "deletedFact": deleted_fact, "totalFacts": len(memory["facts"])}
+        )
+
     except Exception as e:
-        logger.error(f'❌ Error deleting memory fact: {e}', exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"❌ Error deleting memory fact: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
 
 
 # ============================================================================
 # V4.0 INTELLIGENCE ENDPOINTS - Semantic Memory, Vector DB, Tools
 # ============================================================================
 
-@app.route('/v4/vector/index', methods=['POST'])
+
+@app.route("/v4/vector/index", methods=["POST"])
 @require_auth
 @storage_rate_limit
 def index_chat_history():
     """
     Bulk index chat history into the user's vector database for semantic retrieval.
-    
+
     Request JSON:
         - messages: list of {role, content, timestamp} objects
         - chatId: optional chat ID for organization
-    
+
     Response JSON:
         - success: boolean
         - indexed: number of messages indexed
         - vectorDbSize: current total embeddings
     """
     if not V4_FEATURES_AVAILABLE:
-        return jsonify({'error': 'V4.0 features not available', 'v4_available': False}), 503
-    
+        return jsonify({"error": "V4.0 features not available", "v4_available": False}), 503
+
     try:
         principal = request.principal
         data = request.json or {}
-        messages = data.get('messages', [])
-        chat_id = data.get('chatId', 'default')
-        
+        messages = data.get("messages", [])
+        chat_id = data.get("chatId", "default")
+
         if not messages:
-            return jsonify({'error': 'No messages provided'}), 400
-        
+            return jsonify({"error": "No messages provided"}), 400
+
         # Get or create user's vector store
         vector_store = get_user_vector_store(principal)
-        
+
         # Index each message
         indexed_count = 0
         for msg in messages:
-            content = msg.get('content', '')
-            role = msg.get('role', 'user')
-            timestamp = msg.get('timestamp', time.time())
-            
+            content = msg.get("content", "")
+            role = msg.get("role", "user")
+            timestamp = msg.get("timestamp", time.time())
+
             if content and len(content) > 10:  # Skip very short messages
                 vector_store.add_message_embedding(
-                    content=content,
-                    role=role,
-                    timestamp=timestamp,
-                    chat_id=chat_id
+                    content=content, role=role, timestamp=timestamp, chat_id=chat_id
                 )
                 indexed_count += 1
-        
+
         # Get total count
         total_embeddings = vector_store.get_total_embeddings()
-        
-        logger.info(f'📊 Indexed {indexed_count} messages for {principal[:16]}... (total: {total_embeddings})')
-        
-        return jsonify({
-            'success': True,
-            'indexed': indexed_count,
-            'vectorDbSize': total_embeddings
-        })
-        
+
+        logger.info(
+            f"📊 Indexed {indexed_count} messages for {principal[:16]}... (total: {total_embeddings})"
+        )
+
+        return jsonify(
+            {"success": True, "indexed": indexed_count, "vectorDbSize": total_embeddings}
+        )
+
     except Exception as e:
-        logger.error(f'❌ Vector indexing error: {e}', exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"❌ Vector indexing error: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
 
 
-@app.route('/v4/vector/document', methods=['POST'])
+@app.route("/v4/vector/document", methods=["POST"])
 @require_auth
 @storage_rate_limit
 def embed_document():
     """
     Embed and store document chunks for RAG retrieval.
-    
+
     Request JSON:
         - content: document text content
         - filename: document filename
         - chunkSize: optional chunk size (default from config)
-    
+
     Response JSON:
         - success: boolean
         - chunks: number of chunks created
         - documentId: unique identifier for the document
     """
     if not V4_FEATURES_AVAILABLE:
-        return jsonify({'error': 'V4.0 features not available', 'v4_available': False}), 503
-    
+        return jsonify({"error": "V4.0 features not available", "v4_available": False}), 503
+
     try:
         principal = request.principal
         data = request.json or {}
-        content = data.get('content', '')
-        filename = data.get('filename', 'document.txt')
-        
+        content = data.get("content", "")
+        filename = data.get("filename", "document.txt")
+
         if not content:
-            return jsonify({'error': 'No content provided'}), 400
-        
+            return jsonify({"error": "No content provided"}), 400
+
         if len(content) > MAX_DOCUMENT_SIZE:
-            return jsonify({'error': f'Document too large (max {MAX_DOCUMENT_SIZE} bytes)'}), 400
-        
-        from config import RAG_CHUNK_SIZE, RAG_CHUNK_OVERLAP
+            return jsonify({"error": f"Document too large (max {MAX_DOCUMENT_SIZE} bytes)"}), 400
+
+        from config import RAG_CHUNK_OVERLAP, RAG_CHUNK_SIZE
         from services.embeddings import chunk_text
-        
+
         # Chunk the document
         chunks = chunk_text(content, RAG_CHUNK_SIZE, RAG_CHUNK_OVERLAP)
-        
+
         # Get user's vector store
         vector_store = get_user_vector_store(principal)
-        
+
         # Generate document ID
         document_id = f"{filename}_{int(time.time())}"
-        
+
         # Store chunks with embeddings
-        vector_store.add_document_chunks(
-            chunks=chunks,
-            document_id=document_id,
-            filename=filename
+        vector_store.add_document_chunks(chunks=chunks, document_id=document_id, filename=filename)
+
+        logger.info(
+            f'📄 Embedded document "{filename}" ({len(chunks)} chunks) for {principal[:16]}...'
         )
-        
-        logger.info(f'📄 Embedded document "{filename}" ({len(chunks)} chunks) for {principal[:16]}...')
-        
-        return jsonify({
-            'success': True,
-            'chunks': len(chunks),
-            'documentId': document_id,
-            'filename': filename
-        })
-        
+
+        return jsonify(
+            {
+                "success": True,
+                "chunks": len(chunks),
+                "documentId": document_id,
+                "filename": filename,
+            }
+        )
+
     except Exception as e:
-        logger.error(f'❌ Document embedding error: {e}', exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"❌ Document embedding error: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
 
 
-@app.route('/v4/vector/search', methods=['POST'])
+@app.route("/v4/vector/search", methods=["POST"])
 @require_auth
 def semantic_search():
     """
     Search the user's vector database for semantically similar content.
-    
+
     Request JSON:
         - query: search query string
         - top_k: number of results (default 5)
         - search_type: 'all', 'messages', or 'documents' (default 'all')
-    
+
     Response JSON:
         - results: list of {content, score, type, metadata}
         - query: the original query
     """
     if not V4_FEATURES_AVAILABLE:
-        return jsonify({'error': 'V4.0 features not available', 'v4_available': False}), 503
-    
+        return jsonify({"error": "V4.0 features not available", "v4_available": False}), 503
+
     try:
         principal = request.principal
         data = request.json or {}
-        query = data.get('query', '').strip()
-        top_k = min(int(data.get('top_k', 5)), 20)  # Cap at 20
-        search_type = data.get('search_type', 'all')
-        
+        query = data.get("query", "").strip()
+        top_k = min(int(data.get("top_k", 5)), 20)  # Cap at 20
+        search_type = data.get("search_type", "all")
+
         if not query:
-            return jsonify({'error': 'No query provided'}), 400
-        
+            return jsonify({"error": "No query provided"}), 400
+
         vector_store = get_user_vector_store(principal)
         results = []
-        
+
         # Search messages
-        if search_type in ['all', 'messages']:
+        if search_type in ["all", "messages"]:
             msg_results = vector_store.search_messages(query, top_k=top_k)
             for r in msg_results:
-                results.append({
-                    'content': r['content'],
-                    'score': r['score'],
-                    'type': 'message',
-                    'metadata': {'role': r.get('role'), 'timestamp': r.get('timestamp')}
-                })
-        
+                results.append(
+                    {
+                        "content": r["content"],
+                        "score": r["score"],
+                        "type": "message",
+                        "metadata": {"role": r.get("role"), "timestamp": r.get("timestamp")},
+                    }
+                )
+
         # Search documents
-        if search_type in ['all', 'documents']:
+        if search_type in ["all", "documents"]:
             doc_results = vector_store.search_documents(query, top_k=top_k)
             for r in doc_results:
-                results.append({
-                    'content': r['content'],
-                    'score': r['score'],
-                    'type': 'document',
-                    'metadata': {'filename': r.get('filename'), 'document_id': r.get('document_id')}
-                })
-        
+                results.append(
+                    {
+                        "content": r["content"],
+                        "score": r["score"],
+                        "type": "document",
+                        "metadata": {
+                            "filename": r.get("filename"),
+                            "document_id": r.get("document_id"),
+                        },
+                    }
+                )
+
         # Sort by score and limit
-        results.sort(key=lambda x: x['score'], reverse=True)
+        results.sort(key=lambda x: x["score"], reverse=True)
         results = results[:top_k]
-        
-        logger.info(f'🔍 Semantic search for {principal[:16]}...: "{query[:50]}" → {len(results)} results')
-        
-        return jsonify({
-            'results': results,
-            'query': query
-        })
-        
+
+        logger.info(
+            f'🔍 Semantic search for {principal[:16]}...: "{query[:50]}" → {len(results)} results'
+        )
+
+        return jsonify({"results": results, "query": query})
+
     except Exception as e:
-        logger.error(f'❌ Semantic search error: {e}', exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"❌ Semantic search error: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
 
 
-@app.route('/v4/vector/sync', methods=['POST'])
+@app.route("/v4/vector/sync", methods=["POST"])
 @require_auth
 @storage_rate_limit
 def sync_vector_db():
     """
     Sync user's vector database to/from IPFS.
-    
+
     Request JSON:
         - action: 'upload' or 'download'
-    
+
     Response JSON:
         - success: boolean
         - cid: IPFS CID (for upload)
         - embeddings: count restored (for download)
     """
     if not V4_FEATURES_AVAILABLE:
-        return jsonify({'error': 'V4.0 features not available', 'v4_available': False}), 503
-    
+        return jsonify({"error": "V4.0 features not available", "v4_available": False}), 503
+
     try:
         principal = request.principal
         data = request.json or {}
-        action = data.get('action', 'upload')
-        
-        if action == 'upload':
+        action = data.get("action", "upload")
+
+        if action == "upload":
             cid = upload_vector_db(principal)
             if cid:
-                logger.info(f'☁️ Uploaded vector DB for {principal[:16]}... → {cid[:16]}')
-                return jsonify({'success': True, 'cid': cid})
+                logger.info(f"☁️ Uploaded vector DB for {principal[:16]}... → {cid[:16]}")
+                return jsonify({"success": True, "cid": cid})
             else:
-                return jsonify({'success': False, 'error': 'Upload failed'}), 500
-        
-        elif action == 'download':
+                return jsonify({"success": False, "error": "Upload failed"}), 500
+
+        elif action == "download":
             success, count = sync_vector_db_on_login(principal)
             if success:
-                logger.info(f'☁️ Downloaded vector DB for {principal[:16]}... ({count} embeddings)')
-                return jsonify({'success': True, 'embeddings': count})
+                logger.info(f"☁️ Downloaded vector DB for {principal[:16]}... ({count} embeddings)")
+                return jsonify({"success": True, "embeddings": count})
             else:
-                return jsonify({'success': False, 'error': 'Download failed or no data'}), 404
-        
+                return jsonify({"success": False, "error": "Download failed or no data"}), 404
+
         else:
-            return jsonify({'error': 'Invalid action. Use "upload" or "download"'}), 400
-        
+            return jsonify({"error": 'Invalid action. Use "upload" or "download"'}), 400
+
     except Exception as e:
-        logger.error(f'❌ Vector DB sync error: {e}', exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"❌ Vector DB sync error: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
 
 
-@app.route('/v4/tools/execute', methods=['POST'])
+@app.route("/v4/tools/execute", methods=["POST"])
 @require_auth
 def execute_tool_endpoint():
     """
     Execute a tool and return the result.
-    
+
     Request JSON:
         - tool: tool name (calculator, code_execute, web_search, etc.)
         - args: tool arguments
-    
+
     Response JSON:
         - success: boolean
         - result: tool output
         - error: error message if failed
     """
     if not V4_FEATURES_AVAILABLE:
-        return jsonify({'error': 'V4.0 features not available', 'v4_available': False}), 503
-    
+        return jsonify({"error": "V4.0 features not available", "v4_available": False}), 503
+
     try:
         principal = request.principal
         data = request.json or {}
-        tool_name = data.get('tool', '')
-        tool_args = data.get('args', {})
-        
+        tool_name = data.get("tool", "")
+        tool_args = data.get("args", {})
+
         if not tool_name:
-            return jsonify({'error': 'No tool specified'}), 400
-        
+            return jsonify({"error": "No tool specified"}), 400
+
         # Execute the tool
         result = execute_tool(tool_name, tool_args, principal_id=principal)
-        
+
         logger.info(f'🔧 Executed tool "{tool_name}" for {principal[:16]}...')
-        
-        return jsonify({
-            'success': True,
-            'tool': tool_name,
-            'result': result
-        })
-        
+
+        return jsonify({"success": True, "tool": tool_name, "result": result})
+
     except Exception as e:
-        logger.error(f'❌ Tool execution error: {e}', exc_info=True)
-        return jsonify({'success': False, 'error': str(e)}), 500
+        logger.error(f"❌ Tool execution error: {e}", exc_info=True)
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
-@app.route('/v4/status', methods=['GET'])
+@app.route("/v4/status", methods=["GET"])
 def v4_status():
     """
     Get V4.0 feature availability status.
-    
+
     Response JSON:
         - available: boolean (all features available)
         - features: dict of individual feature status
         - import_error: last import error if any
     """
     features = {
-        'embeddings': V4_EMBEDDINGS_AVAILABLE,
-        'vector_store': V4_VECTOR_STORE_AVAILABLE,
-        'semantic_memory': V4_MEMORY_AVAILABLE,
-        'tools': V4_TOOLS_AVAILABLE,
-        'code_executor': V4_CODE_EXECUTOR_AVAILABLE,
-        'voting': V4_VOTING_AVAILABLE,
-        'structured': V4_STRUCTURED_AVAILABLE
+        "embeddings": V4_EMBEDDINGS_AVAILABLE,
+        "vector_store": V4_VECTOR_STORE_AVAILABLE,
+        "semantic_memory": V4_MEMORY_AVAILABLE,
+        "tools": V4_TOOLS_AVAILABLE,
+        "code_executor": V4_CODE_EXECUTOR_AVAILABLE,
+        "voting": V4_VOTING_AVAILABLE,
+        "structured": V4_STRUCTURED_AVAILABLE,
     }
-    
-    response = {
-        'available': V4_FEATURES_AVAILABLE,
-        'features': features,
-        'version': '4.0.0'
-    }
-    
+
+    response = {"available": V4_FEATURES_AVAILABLE, "features": features, "version": "4.0.0"}
+
     if V4_IMPORT_ERROR:
-        response['import_error'] = V4_IMPORT_ERROR
-    
+        response["import_error"] = V4_IMPORT_ERROR
+
     return jsonify(response)
 
 
 # ============================================================================
 # AI TOOLS ENDPOINTS (Using Ollama/Llama3)
 # ============================================================================
+
 
 def call_ollama_for_tools(prompt: str, temperature: float = 0.7) -> str:
     """Helper function to call Ollama API for tools."""
@@ -3034,12 +3127,12 @@ def call_ollama_for_tools(prompt: str, temperature: float = 0.7) -> str:
                 "model": MODEL_NAME,
                 "prompt": prompt,
                 "stream": False,
-                "options": {"temperature": temperature}
+                "options": {"temperature": temperature},
             },
-            timeout=300  # 5 minutes for large models
+            timeout=300,  # 5 minutes for large models
         )
         response.raise_for_status()
-        return response.json().get('response', '')
+        return response.json().get("response", "")
     except Exception as e:
         logger.error(f"Ollama call failed: {e}")
         raise
@@ -3047,26 +3140,32 @@ def call_ollama_for_tools(prompt: str, temperature: float = 0.7) -> str:
 
 # ----- CHAT WITH DOCUMENTS -----
 
-@app.route('/tools/documents/upload', methods=['POST'])
+
+@app.route("/tools/documents/upload", methods=["POST"])
 @rate_limit  # Apply rate limiting to prevent abuse
 def upload_document():
     """Upload a document for querying."""
     try:
         data = request.json
-        content = data.get('content', '')
-        filename = data.get('filename', 'uploaded_document.txt')
-        session_id = data.get('sessionId', str(time.time()))
+        content = data.get("content", "")
+        filename = data.get("filename", "uploaded_document.txt")
+        session_id = data.get("sessionId", str(time.time()))
 
         if not content:
-            return jsonify({'error': 'No content provided'}), 400
+            return jsonify({"error": "No content provided"}), 400
 
         # SECURITY: Enforce document size limit to prevent DoS
         if len(content) > MAX_DOCUMENT_SIZE:
-            return jsonify({
-                'error': f'Document too large (max {MAX_DOCUMENT_SIZE // 1_000_000}MB)',
-                'received': len(content),
-                'max_allowed': MAX_DOCUMENT_SIZE
-            }), 413
+            return (
+                jsonify(
+                    {
+                        "error": f"Document too large (max {MAX_DOCUMENT_SIZE // 1_000_000}MB)",
+                        "received": len(content),
+                        "max_allowed": MAX_DOCUMENT_SIZE,
+                    }
+                ),
+                413,
+            )
 
         # Run cleanup before adding new document
         cleanup_document_store()
@@ -3074,42 +3173,44 @@ def upload_document():
         # Thread-safe document store access
         with _document_store_lock:
             document_store[session_id] = {
-                'content': content,
-                'filename': filename,
-                'uploaded_at': datetime.now(tz=None).isoformat(),  # Use timezone-aware
-                'uploaded_at_ts': time.time()  # For TTL tracking
+                "content": content,
+                "filename": filename,
+                "uploaded_at": datetime.now(tz=None).isoformat(),  # Use timezone-aware
+                "uploaded_at_ts": time.time(),  # For TTL tracking
             }
 
-        logger.info(f'📄 Document uploaded: {filename} ({len(content)} chars)')
-        return jsonify({
-            'success': True,
-            'sessionId': session_id,
-            'filename': filename,
-            'documentLength': len(content)
-        })
+        logger.info(f"📄 Document uploaded: {filename} ({len(content)} chars)")
+        return jsonify(
+            {
+                "success": True,
+                "sessionId": session_id,
+                "filename": filename,
+                "documentLength": len(content),
+            }
+        )
     except Exception as e:
-        logger.error(f'❌ Document upload error: {e}', exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"❌ Document upload error: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
 
 
-@app.route('/tools/documents/query', methods=['POST'])
+@app.route("/tools/documents/query", methods=["POST"])
 def query_document():
     """Query an uploaded document using Ollama."""
     try:
         data = request.json
-        session_id = data.get('sessionId', '')
-        query = data.get('query', '')
+        session_id = data.get("sessionId", "")
+        query = data.get("query", "")
 
         if not query:
-            return jsonify({'error': 'No query provided'}), 400
+            return jsonify({"error": "No query provided"}), 400
 
         # Thread-safe document store access
         with _document_store_lock:
             if not session_id or session_id not in document_store:
-                return jsonify({'error': 'No document found. Please upload first.'}), 400
+                return jsonify({"error": "No document found. Please upload first."}), 400
             doc = document_store[session_id].copy()  # Copy to release lock quickly
 
-        doc_content = doc['content'][:30000]
+        doc_content = doc["content"][:30000]
 
         prompt = f"""You are a helpful document analysis assistant.
 Answer based ONLY on this document. If not found, say so.
@@ -3123,23 +3224,24 @@ Answer:"""
 
         answer = call_ollama_for_tools(prompt, temperature=0.3)
         logger.info(f'📄 Document query: "{query[:50]}..."')
-        return jsonify({'answer': answer, 'documentUsed': doc['filename'], 'model': MODEL_NAME})
+        return jsonify({"answer": answer, "documentUsed": doc["filename"], "model": MODEL_NAME})
     except Exception as e:
-        logger.error(f'❌ Document query error: {e}', exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"❌ Document query error: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
 
 
 # ----- TRANSCRIPT CLEANER -----
 
-@app.route('/tools/transcript/clean', methods=['POST'])
+
+@app.route("/tools/transcript/clean", methods=["POST"])
 def clean_transcript():
     """Clean and polish a transcript."""
     try:
         data = request.json
-        raw_text = data.get('text', '')
+        raw_text = data.get("text", "")
 
         if not raw_text:
-            return jsonify({'error': 'No text provided'}), 400
+            return jsonify({"error": "No text provided"}), 400
 
         prompt = f"""You are a professional transcript editor. Clean this transcript:
 1. Fix grammar, spelling, punctuation
@@ -3157,99 +3259,107 @@ Return ONLY the cleaned transcript.
 Cleaned transcript:"""
 
         cleaned = call_ollama_for_tools(prompt, temperature=0.3)
-        logger.info(f'🎙️ Transcript cleaned: {len(raw_text)} -> {len(cleaned)} chars')
-        return jsonify({
-            'cleanedText': cleaned,
-            'originalLength': len(raw_text),
-            'cleanedLength': len(cleaned),
-            'model': MODEL_NAME
-        })
+        logger.info(f"🎙️ Transcript cleaned: {len(raw_text)} -> {len(cleaned)} chars")
+        return jsonify(
+            {
+                "cleanedText": cleaned,
+                "originalLength": len(raw_text),
+                "cleanedLength": len(cleaned),
+                "model": MODEL_NAME,
+            }
+        )
     except Exception as e:
-        logger.error(f'❌ Transcript error: {e}', exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"❌ Transcript error: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
 
 
-@app.route('/tools/status')
+@app.route("/tools/status")
 def tools_status():
     """Check status of all AI tools."""
     ollama_ok = check_ollama_connection()
-    return jsonify({
-        'ollama_connected': ollama_ok,
-        'model': MODEL_NAME,
-        'tools': {
-            'chatWithDocuments': {'available': ollama_ok},
-            'transcriptCleaner': {'available': ollama_ok}
-        },
-        'activeDocumentSessions': len(document_store)
-    })
+    return jsonify(
+        {
+            "ollama_connected": ollama_ok,
+            "model": MODEL_NAME,
+            "tools": {
+                "chatWithDocuments": {"available": ollama_ok},
+                "transcriptCleaner": {"available": ollama_ok},
+            },
+            "activeDocumentSessions": len(document_store),
+        }
+    )
 
 
-@app.route('/stats')
-
+@app.route("/stats")
 def stats():
     """
     Get detailed statistics in JSON format
     Useful for monitoring dashboards and debugging
     """
-    return jsonify({
-        'provider_id': PROVIDER_ID,
-        'model': MODEL_NAME,
-        'gpu_type': GPU_TYPE,
-        'metrics': metrics.get_stats(),
-        'system': get_system_info(),
-        'config': {
-            'ollama_host': OLLAMA_HOST,
-            'max_queue_size': MAX_QUEUE_SIZE,
-        },
-        'timestamp': datetime.utcnow().isoformat(),
-    })
+    return jsonify(
+        {
+            "provider_id": PROVIDER_ID,
+            "model": MODEL_NAME,
+            "gpu_type": GPU_TYPE,
+            "metrics": metrics.get_stats(),
+            "system": get_system_info(),
+            "config": {
+                "ollama_host": OLLAMA_HOST,
+                "max_queue_size": MAX_QUEUE_SIZE,
+            },
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+    )
+
 
 @app.before_request
 def log_request():
     """Log all incoming requests for debugging"""
     logger.debug(f"{request.method} {request.path} from {request.remote_addr}")
 
+
 # ============================================================================
 # 7-DAY CHAT AUTO-DELETE CLEANUP JOB
 # ============================================================================
 
+
 def cleanup_inactive_chats():
     """Delete chats that haven't been updated in 7 days (except archived)"""
     try:
-        logger.info('Running 7-day cleanup job...')
+        logger.info("Running 7-day cleanup job...")
         chats_root = Path(CHATS_DIR)
         current_time = time.time()
         seven_days_seconds = 7 * 24 * 60 * 60
         deleted_count = 0
-        
+
         # Iterate through all users
         for principal_dir in chats_root.iterdir():
             if not principal_dir.is_dir():
                 continue
-            
+
             principal_id = principal_dir.name
-            metadata_path = principal_dir / 'metadata.json'
-            
+            metadata_path = principal_dir / "metadata.json"
+
             if not metadata_path.exists():
                 continue
-            
+
             try:
                 # Load metadata
-                with open(metadata_path, 'r') as f:
+                with open(metadata_path, "r") as f:
                     metadata = json.load(f)
-                
+
                 chats_to_keep = []
-                
+
                 # Check each chat
-                for chat in metadata.get('chats', []):
-                    last_updated = chat.get('lastUpdated', 0) / 1000  # Convert ms to seconds
-                    is_archived = chat.get('isArchived', False)
-                    
+                for chat in metadata.get("chats", []):
+                    last_updated = chat.get("lastUpdated", 0) / 1000  # Convert ms to seconds
+                    is_archived = chat.get("isArchived", False)
+
                     # Skip archived chats
                     if is_archived:
                         chats_to_keep.append(chat)
                         continue
-                    
+
                     # Check if older than 7 days
                     if current_time - last_updated > seven_days_seconds:
                         # Delete the chat file
@@ -3260,48 +3370,61 @@ def cleanup_inactive_chats():
                             logger.info(f'Deleted inactive chat: {chat["chatId"]}')
                     else:
                         chats_to_keep.append(chat)
-                
+
                 # Update metadata
-                metadata['chats'] = chats_to_keep
-                with open(metadata_path, 'w') as f:
+                metadata["chats"] = chats_to_keep
+                with open(metadata_path, "w") as f:
                     json.dump(metadata, f, indent=2)
-            
+
             except Exception as e:
-                logger.error(f'Error processing user {principal_id}: {e}')
+                logger.error(f"Error processing user {principal_id}: {e}")
                 continue
-        
-        logger.info(f'Cleanup complete: deleted {deleted_count} inactive chats')
-    
+
+        logger.info(f"Cleanup complete: deleted {deleted_count} inactive chats")
+
     except Exception as e:
-        logger.error(f'Cleanup job error: {e}', exc_info=True)
+        logger.error(f"Cleanup job error: {e}", exc_info=True)
+
 
 # Schedule cleanup job to run daily at 2 AM
 scheduler = BackgroundScheduler()
-scheduler.add_job(cleanup_inactive_chats, 'cron', hour=2, minute=0, id='chat_cleanup')
+scheduler.add_job(cleanup_inactive_chats, "cron", hour=2, minute=0, id="chat_cleanup")
+
 
 @app.errorhandler(404)
 def not_found(e):
     """Handle 404 errors"""
-    return jsonify({
-        'error': 'Endpoint not found',
-        'provider_id': PROVIDER_ID,
-        'available_endpoints': [
-            '/health', '/generate', '/stats',
-            '/chat/autosave', '/chat/list', '/chat/{chatId}',
-            '/chat/{chatId}/archive', '/chat/recover-archives', '/chat/archive/{cid}'
-        ]
-    }), 404
+    return (
+        jsonify(
+            {
+                "error": "Endpoint not found",
+                "provider_id": PROVIDER_ID,
+                "available_endpoints": [
+                    "/health",
+                    "/generate",
+                    "/stats",
+                    "/chat/autosave",
+                    "/chat/list",
+                    "/chat/{chatId}",
+                    "/chat/{chatId}/archive",
+                    "/chat/recover-archives",
+                    "/chat/archive/{cid}",
+                ],
+            }
+        ),
+        404,
+    )
+
 
 @app.errorhandler(500)
 def internal_error(e):
     """Handle 500 errors"""
     logger.error(f"Internal server error: {e}", exc_info=True)
-    return jsonify({
-        'error': 'Internal server error',
-        'provider_id': PROVIDER_ID
-    }), 500
+    return jsonify({"error": "Internal server error", "provider_id": PROVIDER_ID}), 500
+
 
 # ===== STARTUP =====
+
 
 def warmup_model():
     """
@@ -3319,18 +3442,18 @@ def warmup_model():
                 "options": {
                     "num_predict": 10,  # Only generate a few tokens
                     "temperature": 0.7,
-                }
+                },
             },
-            timeout=300  # 5 minute timeout for model download
+            timeout=300,  # 5 minute timeout for model download
         )
-        
+
         if response.status_code == 200:
             logger.info(f"✓ Model warmed up successfully! Ready to serve requests.")
             return True
         else:
             logger.warning(f"⚠ Warmup request failed with status {response.status_code}")
             return False
-            
+
     except requests.Timeout:
         logger.error("❌ Model warmup timed out - model may still be downloading")
         logger.error("   First user request may be slow while model finishes loading")
@@ -3340,7 +3463,7 @@ def warmup_model():
         return False
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     logger.info("=" * 70)
     logger.info("🚀 Trinity Inference Server - Unified Backend")
     logger.info("=" * 70)
@@ -3352,7 +3475,7 @@ if __name__ == '__main__':
     logger.info(f"Chats Directory: {CHATS_DIR}")
     logger.info(f"Ollama Host: {OLLAMA_HOST}")
     logger.info("=" * 70)
-    
+
     # Check Ollama connection
     if check_ollama_connection():
         logger.info(f"✅ Successfully connected to Ollama ({MODEL_NAME})")
@@ -3361,20 +3484,14 @@ if __name__ == '__main__':
         logger.warning("⚠️  Could not connect to Ollama - server will start anyway")
         logger.warning("   Make sure Ollama is running: ollama serve")
         logger.warning(f"   Make sure model is available: ollama pull {MODEL_NAME}")
-    
+
     # Start background scheduler for cleanup jobs
     if not scheduler.running:
         scheduler.start()
         logger.info("✅ Cleanup scheduler started (runs daily at 2 AM)")
-    
+
     # Run Flask app
     logger.info(f"🌐 Starting Flask server on port 8000")
     logger.info("=" * 70)
-    
-    app.run(
-        host='0.0.0.0',
-        port=8000,
-        threaded=True,
-        debug=False
-    )
 
+    app.run(host="0.0.0.0", port=8000, threaded=True, debug=False)

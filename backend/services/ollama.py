@@ -5,10 +5,11 @@ LLM inference via Ollama API
 Phase 5: Integrated with TokenTracker for cost optimization.
 """
 
-import requests
 import logging
-from typing import Dict, Optional, Generator, Tuple
-from config import OLLAMA_HOST, MODEL_NAME
+from typing import Dict, Generator, Optional
+
+import requests
+from config import MODEL_NAME, OLLAMA_HOST
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,7 @@ def _get_token_tracker():
     if _token_tracker is None:
         try:
             from services.caching import get_token_tracker
+
             _token_tracker = get_token_tracker()
         except ImportError:
             logger.warning("Caching module not available - tokens will not be tracked")
@@ -33,8 +35,8 @@ def check_ollama_connection() -> bool:
     try:
         response = requests.get(f"{OLLAMA_HOST}/api/tags", timeout=5)
         if response.status_code == 200:
-            models = response.json().get('models', [])
-            return any(m['name'].startswith(MODEL_NAME) for m in models)
+            models = response.json().get("models", [])
+            return any(m["name"].startswith(MODEL_NAME) for m in models)
         return False
     except Exception as e:
         logger.error(f"Ollama connection check failed: {e}")
@@ -57,18 +59,18 @@ def warmup_model() -> bool:
                 "options": {
                     "num_predict": 10,  # Only generate a few tokens
                     "temperature": 0.7,
-                }
+                },
             },
-            timeout=300  # 5 minute timeout for model download
+            timeout=300,  # 5 minute timeout for model download
         )
-        
+
         if response.status_code == 200:
             logger.info(f"✓ Model warmed up successfully! Ready to serve requests.")
             return True
         else:
             logger.warning(f"⚠ Warmup request failed with status {response.status_code}")
             return False
-            
+
     except requests.Timeout:
         logger.error("❌ Model warmup timed out - model may still be downloading")
         logger.error("   First user request may be slow while model finishes loading")
@@ -83,18 +85,18 @@ def call_ollama(
     max_tokens: int = 500,
     temperature: float = 0.7,
     stream: bool = False,
-    user_id: Optional[str] = None
+    user_id: Optional[str] = None,
 ) -> Dict:
     """
     Call Ollama API for text generation.
-    
+
     Args:
         prompt: The formatted prompt to send
         max_tokens: Maximum tokens to generate
         temperature: Sampling temperature (0.1-2.0)
         stream: Whether to stream the response
         user_id: Optional user ID for token tracking
-        
+
     Returns:
         Dict with 'response' key containing generated text,
         plus token usage info when available
@@ -109,18 +111,18 @@ def call_ollama(
                 "options": {
                     "num_predict": max_tokens,
                     "temperature": temperature,
-                }
+                },
             },
-            timeout=120  # 2 minute timeout
+            timeout=120,  # 2 minute timeout
         )
-        
+
         if response.status_code == 200:
             result = response.json()
-            
+
             # Extract token usage from Ollama response
-            prompt_tokens = result.get('prompt_eval_count', 0)
-            completion_tokens = result.get('eval_count', 0)
-            
+            prompt_tokens = result.get("prompt_eval_count", 0)
+            completion_tokens = result.get("eval_count", 0)
+
             # Track tokens if available
             if prompt_tokens > 0 or completion_tokens > 0:
                 tracker = _get_token_tracker()
@@ -129,37 +131,35 @@ def call_ollama(
                         prompt_tokens=prompt_tokens,
                         completion_tokens=completion_tokens,
                         model=MODEL_NAME,
-                        user_id=user_id
+                        user_id=user_id,
                     )
                     # Add token info to result
-                    result['token_usage'] = {
-                        'prompt_tokens': prompt_tokens,
-                        'completion_tokens': completion_tokens,
-                        'total_tokens': prompt_tokens + completion_tokens,
-                        'estimated_cost_usd': usage.estimated_cost_usd
+                    result["token_usage"] = {
+                        "prompt_tokens": prompt_tokens,
+                        "completion_tokens": completion_tokens,
+                        "total_tokens": prompt_tokens + completion_tokens,
+                        "estimated_cost_usd": usage.estimated_cost_usd,
                     }
-            
+
             return result
         else:
             logger.error(f"Ollama returned status {response.status_code}")
-            return {'error': f'Ollama error: {response.status_code}'}
-            
+            return {"error": f"Ollama error: {response.status_code}"}
+
     except requests.Timeout:
         logger.error("Ollama request timed out")
-        return {'error': 'Request timed out'}
+        return {"error": "Request timed out"}
     except Exception as e:
         logger.error(f"Ollama call failed: {e}")
-        return {'error': str(e)}
+        return {"error": str(e)}
 
 
 def call_ollama_stream(
-    prompt: str,
-    max_tokens: int = 500,
-    temperature: float = 0.7
+    prompt: str, max_tokens: int = 500, temperature: float = 0.7
 ) -> Generator[str, None, None]:
     """
     Call Ollama API with streaming response.
-    
+
     Yields JSON strings for each token generated.
     """
     try:
@@ -172,19 +172,19 @@ def call_ollama_stream(
                 "options": {
                     "num_predict": max_tokens,
                     "temperature": temperature,
-                }
+                },
             },
             stream=True,
-            timeout=120
+            timeout=120,
         )
-        
+
         if response.status_code == 200:
             for line in response.iter_lines():
                 if line:
-                    yield line.decode('utf-8')
+                    yield line.decode("utf-8")
         else:
             yield f'{{"error": "Ollama error: {response.status_code}"}}'
-            
+
     except requests.Timeout:
         yield '{"error": "Request timed out"}'
     except Exception as e:

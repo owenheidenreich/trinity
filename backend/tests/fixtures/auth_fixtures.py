@@ -5,17 +5,18 @@ Provides Ed25519 test keypairs, valid/invalid signatures, and auth header genera
 Created: February 5, 2026
 """
 
-import pytest
 import time
+from typing import Callable, Dict
+
+import pytest
 from nacl.signing import SigningKey
-from typing import Dict, Callable
 
 
 @pytest.fixture
 def test_keypair() -> Dict:
     """
     Generate a fresh Ed25519 keypair for auth testing.
-    
+
     Returns:
         Dict with:
         - signing_key: NaCl SigningKey for signing
@@ -26,13 +27,13 @@ def test_keypair() -> Dict:
     """
     signing_key = SigningKey.generate()
     verify_key = signing_key.verify_key
-    
+
     return {
-        'signing_key': signing_key,
-        'verify_key': verify_key,
-        'private_key_hex': signing_key.encode().hex(),
-        'public_key_hex': verify_key.encode().hex(),
-        'principal': 'test-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx-xxx'
+        "signing_key": signing_key,
+        "verify_key": verify_key,
+        "private_key_hex": signing_key.encode().hex(),
+        "public_key_hex": verify_key.encode().hex(),
+        "principal": "test-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx-xxx",
     }
 
 
@@ -43,13 +44,13 @@ def second_keypair() -> Dict:
     """
     signing_key = SigningKey.generate()
     verify_key = signing_key.verify_key
-    
+
     return {
-        'signing_key': signing_key,
-        'verify_key': verify_key,
-        'private_key_hex': signing_key.encode().hex(),
-        'public_key_hex': verify_key.encode().hex(),
-        'principal': 'other-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx-xxx'
+        "signing_key": signing_key,
+        "verify_key": verify_key,
+        "private_key_hex": signing_key.encode().hex(),
+        "public_key_hex": verify_key.encode().hex(),
+        "principal": "other-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx-xxx",
     }
 
 
@@ -57,15 +58,16 @@ def second_keypair() -> Dict:
 def create_signature(test_keypair) -> Callable:
     """
     Factory fixture to create valid signatures for any message.
-    
+
     Usage:
         signature = create_signature(principal, timestamp, endpoint)
     """
+
     def _create_signature(principal: str, timestamp: str, endpoint: str) -> str:
         message = f"{principal}:{timestamp}:{endpoint}"
-        signed = test_keypair['signing_key'].sign(message.encode('utf-8'))
+        signed = test_keypair["signing_key"].sign(message.encode("utf-8"))
         return signed.signature.hex()
-    
+
     return _create_signature
 
 
@@ -73,28 +75,25 @@ def create_signature(test_keypair) -> Callable:
 def auth_headers(test_keypair, create_signature) -> Callable:
     """
     Factory fixture to generate valid authentication headers.
-    
+
     Usage:
         headers = auth_headers('/chat/autosave')  # Uses current timestamp
         headers = auth_headers('/chat/autosave', timestamp='1234567890000')
     """
+
     def _auth_headers(endpoint: str, timestamp: str = None) -> Dict[str, str]:
         if timestamp is None:
             timestamp = str(int(time.time() * 1000))
-        
-        signature = create_signature(
-            test_keypair['principal'],
-            timestamp,
-            endpoint
-        )
-        
+
+        signature = create_signature(test_keypair["principal"], timestamp, endpoint)
+
         return {
-            'ICP-Principal': test_keypair['principal'],
-            'ICP-Signature': signature,
-            'ICP-Timestamp': timestamp,
-            'ICP-PublicKey': test_keypair['public_key_hex']
+            "ICP-Principal": test_keypair["principal"],
+            "ICP-Signature": signature,
+            "ICP-Timestamp": timestamp,
+            "ICP-PublicKey": test_keypair["public_key_hex"],
         }
-    
+
     return _auth_headers
 
 
@@ -103,23 +102,20 @@ def expired_auth_headers(test_keypair, create_signature) -> Callable:
     """
     Factory fixture to generate expired authentication headers (>60s old).
     """
+
     def _expired_headers(endpoint: str) -> Dict[str, str]:
         # 120 seconds ago (well past the 60s window)
         old_timestamp = str(int((time.time() - 120) * 1000))
-        
-        signature = create_signature(
-            test_keypair['principal'],
-            old_timestamp,
-            endpoint
-        )
-        
+
+        signature = create_signature(test_keypair["principal"], old_timestamp, endpoint)
+
         return {
-            'ICP-Principal': test_keypair['principal'],
-            'ICP-Signature': signature,
-            'ICP-Timestamp': old_timestamp,
-            'ICP-PublicKey': test_keypair['public_key_hex']
+            "ICP-Principal": test_keypair["principal"],
+            "ICP-Signature": signature,
+            "ICP-Timestamp": old_timestamp,
+            "ICP-PublicKey": test_keypair["public_key_hex"],
         }
-    
+
     return _expired_headers
 
 
@@ -128,21 +124,18 @@ def future_auth_headers(test_keypair, create_signature) -> Callable:
     """
     Factory fixture to generate future authentication headers (>60s in future).
     """
+
     def _future_headers(endpoint: str) -> Dict[str, str]:
         # 120 seconds in the future
         future_timestamp = str(int((time.time() + 120) * 1000))
-        
-        signature = create_signature(
-            test_keypair['principal'],
-            future_timestamp,
-            endpoint
-        )
-        
+
+        signature = create_signature(test_keypair["principal"], future_timestamp, endpoint)
+
         return {
-            'ICP-Principal': test_keypair['principal'],
-            'ICP-Signature': signature,
-            'ICP-Timestamp': future_timestamp,
-            'ICP-PublicKey': test_keypair['public_key_hex']
+            "ICP-Principal": test_keypair["principal"],
+            "ICP-Signature": signature,
+            "ICP-Timestamp": future_timestamp,
+            "ICP-PublicKey": test_keypair["public_key_hex"],
         }
-    
+
     return _future_headers
