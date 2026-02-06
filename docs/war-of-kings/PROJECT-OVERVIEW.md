@@ -1,273 +1,191 @@
 # ⚔️ WAR OF THREE KINGS ⚔️
-## The Ultimate AI Tournament - Project Overview
+## Engineering-Grade AI Benchmark Tournament
 
-**Created:** February 6, 2026
-**Commanded by:** The God of This Universe
-**Status:** 🟡 AWAITING DIVINE COMMAND
+**Version:** 2.0 (Reengineered)  
+**Created:** February 6, 2026  
+**Status:** 🟡 AWAITING KINGS
 
 ---
 
-## 🌍 What Is This?
+## 🎯 Mission
 
-The **War of Three Kings** is a comprehensive benchmark tournament to determine which large language model reigns supreme on Trinity's decentralized infrastructure. Three 70B+ parameter models are deployed simultaneously on Akash Network, battling across three distinct challenges.
-
-### The Research Question
-> "Which open-source LLM provides the best balance of intelligence, throughput, and resilience for Trinity's decentralized AI platform?"
+Determine which open-source 70B+ LLM provides the best balance of **accuracy**, **speed**, and **reliability** for Trinity's decentralized AI platform.
 
 ---
 
 ## 👑 THE COMBATANTS
 
-| Crown | Name | Model | Parameters | Architecture | Status |
-|-------|------|-------|------------|--------------|--------|
-| 👑 | **Qwen Emperor** | qwen2.5:72b | 72B | Dense Transformer | 🟡 Loading |
-| 🦙 | **Llama Lord** | llama3.3:70b | 70B | Dense Transformer | 🟡 Loading |
-| 🔮 | **Mixtral Maven** | mixtral:8x22b | 141B (22B active) | MoE (8 experts) | 🟡 Loading |
+| Crown | Name | Model | Size | Status |
+|-------|------|-------|------|--------|
+| 👑 | **Qwen Emperor** | qwen2.5:72b | 47GB | 🔴 Pull Failed |
+| 🦙 | **Llama Lord** | llama3.3:70b | 40GB | 🟡 Loading |
+| 🔮 | **Mixtral Maven** | mixtral:8x22b | 80GB | 🟡 Loading |
 
 ### Endpoints
-```
-QWEN:    https://sptj5nup2lc939i2h4bhq532gs.ingress.quanglong.org
-LLAMA:   http://56oqg7o6n9fu53ijan3udmmb5o.ingress.h4i-dedicated.eu-sw-2.digitalfrontier.so
-MIXTRAL: https://bnivii01v9bcbchrqtej5pmd0k.ingress.4090.akashgpu.com
-```
-
----
-
-## ⚔️ THE THREE BATTLES
-
-### Battle 1: THE IQ TEST (40 Points)
-**Goal:** Measure raw intelligence and reasoning ability
-- 25 questions across 5 difficulty tiers (Easy → God-tier)
-- Questions test math, logic, coding, ethics, creativity
-- Scoring: Tier weights × correctness
-- **Winner:** Highest cumulative score
-
-### Battle 2: THE CROWD PLEASER (30 Points)
-**Goal:** Measure throughput under load
-- Ramping concurrent requests: 5 → 10 → 25 → 50 users
-- Simple prompts only (control for complexity)
-- Metrics: Tokens/second, latency P50/P95, success rate
-- **Winner:** Best performance at highest sustainable load
-
-### Battle 3: THE STRONGEST MAN (30 Points)
-**Goal:** Measure resilience under extreme pressure
-- 50 concurrent complex requests simultaneously
-- Chain-of-thought, multi-step, coding challenges
-- Metrics: Completion rate, quality score, error rate
-- **Winner:** Highest quality under maximum pressure
-
----
-
-## 📊 SCORING SYSTEM
-
-| Battle | Points | Weight |
-|--------|--------|--------|
-| IQ Test | 40 | 40% |
-| Crowd Pleaser | 30 | 30% |
-| Strongest Man | 30 | 30% |
-| **TOTAL** | **100** | 100% |
-
-### Ranking Points per Battle
-- 🥇 1st Place: Full points
-- 🥈 2nd Place: 60% of points
-- 🥉 3rd Place: 30% of points
-
----
-
-## 📁 DOCUMENTATION STRUCTURE
-
-```
-docs/war-of-kings/
-├── PROJECT-OVERVIEW.md      # This file - master overview
-├── README.md                # Tournament introduction
-├── EXECUTION.md             # Step-by-step execution guide
-├── kings/                   # Per-king documentation
-│   ├── qwen-emperor.md      # Qwen results & config
-│   ├── llama-lord.md        # Llama results & config
-│   ├── mixtral-maven.md     # Mixtral results & config
-│   └── *.yaml               # Deployment configs (6 kings)
-├── battles/                 # Battle specifications
-│   ├── battle-1-iq-test.md
-│   ├── battle-2-crowd-pleaser.md
-│   └── battle-3-strongest-man.md
-├── prompts/                 # Test prompts
-│   ├── iq-test-questions.md # 25 graded questions
-│   ├── simple-prompts.md    # 10 simple prompts
-│   └── complex-prompts.md   # 10 complex prompts
-├── research/                # Background research
-│   ├── cost-analysis-research.md
-│   ├── battle-of-qwen.md
-│   ├── BATTLE_REPORT_TIER2_qwen14b.md
-│   └── BATTLE_REPORT_TIER3_qwen32b.md
-└── results/                 # Tournament results
-    └── FINAL-RANKINGS.md    # Final scoreboard
-```
-
----
-
-## 💰 INFRASTRUCTURE COSTS
-
-All three kings run on **A100-80GB GPUs** via Akash Network:
-
-| Component | Per King | Total (3 Kings) |
-|-----------|----------|-----------------|
-| GPU | A100-80GB | 3× A100-80GB |
-| RAM | 96Gi | 288Gi |
-| Estimated Cost | ~$1.50-2.50/hr | ~$5-7.50/hr |
-
-**Tournament Duration:** ~2-4 hours
-**Estimated Total Cost:** ~$15-30
-
----
-
-## 🚀 EXECUTION PHASES
-
-### Phase 0: Pre-Flight (15 min)
-- [ ] Health check all endpoints
-- [ ] Warmup each model with simple prompt
-- [ ] Verify curl commands work
-- [ ] Start recording/logging
-
-### Phase 1: IQ Test (45-60 min)
-- [ ] Run 25 questions against each king
-- [ ] Record responses and timing
-- [ ] Grade each response (auto + manual)
-- [ ] Calculate IQ battle scores
-
-### Phase 2: Crowd Pleaser (30-45 min)
-- [ ] Run throughput tests at 5/10/25/50 concurrency
-- [ ] Measure tokens/sec, latency, success rate
-- [ ] Record peak sustainable throughput
-- [ ] Calculate throughput battle scores
-
-### Phase 3: Strongest Man (30-45 min)
-- [ ] Fire 50 concurrent complex requests
-- [ ] Measure completion rate & quality
-- [ ] Stress test until failure point
-- [ ] Calculate strength battle scores
-
-### Phase 4: Coronation (15 min)
-- [ ] Compile all scores
-- [ ] Determine final rankings
-- [ ] Crown the Ultimate King
-- [ ] Update FINAL-RANKINGS.md
-
----
-
-## 📋 PRE-EXECUTION CHECKLIST
-
-### Documentation Ready
-- [x] PROJECT-OVERVIEW.md created
-- [x] README.md with tournament intro
-- [x] EXECUTION.md with step-by-step guide
-- [x] All king markdown files ready
-- [x] All battle spec files ready
-- [x] All prompt files with curl commands
-- [x] FINAL-RANKINGS.md template ready
-- [x] Claude judge prompt template ready
-
-### Infrastructure Ready
-- [x] All 3 kings deployed on Akash
-- [x] A100-80GB GPUs allocated
-- [x] Endpoints accessible via HTTPS/HTTP
-- [ ] Models fully downloaded and loaded (~4-5 hours from deploy)
-- [ ] Health endpoints returning 200
-
-### Execution Scripts Ready
-- [x] `execute/run-war.sh` - Master commander (status/warmup/full)
-- [x] `execute/battle1-iq-test.sh` - 25 IQ questions with JSON output
-- [x] `execute/battle2-general-spam.sh` - Throughput stress test
-- [x] `execute/battle3-complex-spam.sh` - Complex reasoning stress
-- [x] `prompts/claude-judge-prompt.md` - Analysis template for Claude
-
-### Output Structure Ready
-- [x] `results/raw/qwen/battle1-iq/` - Qwen IQ responses
-- [x] `results/raw/qwen/battle2-general/` - Qwen throughput data
-- [x] `results/raw/qwen/battle3-complex/` - Qwen stress responses
-- [x] Same structure for llama/ and mixtral/
-
----
-
-## 🔥 STATUS DASHBOARD
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    WAR OF THREE KINGS                           │
-│                     STATUS: PREPARING                           │
-├─────────────────────────────────────────────────────────────────┤
-│ QWEN EMPEROR    │ ████████████░░░░░░░░ │ LOADING (72GB)        │
-│ LLAMA LORD      │ ████████████░░░░░░░░ │ LOADING (70GB)        │
-│ MIXTRAL MAVEN   │ ████████████░░░░░░░░ │ LOADING (80GB)        │
-├─────────────────────────────────────────────────────────────────┤
-│ Documentation   │ ████████████████████ │ READY                 │
-│ Curl Commands   │ ████████████████████ │ READY                 │
-│ Scoring System  │ ████████████████████ │ READY                 │
-├─────────────────────────────────────────────────────────────────┤
-│ AWAITING:       │ Divine Command to Begin                      │
-└─────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 🎯 QUICK EXECUTION COMMANDS
-
-### ONE COMMAND TO RULE THEM ALL
 ```bash
-# Check status
-./docs/war-of-kings/execute/run-war.sh status
-
-# Run full tournament (all 3 battles)
-./docs/war-of-kings/execute/run-war.sh full
-
-# Export results for Claude analysis
-./docs/war-of-kings/execute/run-war.sh export
-```
-
-### Individual Battle Commands
-```bash
-# Battle 1: IQ Test (25 questions)
-./docs/war-of-kings/execute/battle1-iq-test.sh all
-
-# Battle 2: General Spam (throughput)
-./docs/war-of-kings/execute/battle2-general-spam.sh all
-
-# Battle 3: Complex Spam (stress)
-./docs/war-of-kings/execute/battle3-complex-spam.sh all
-```
-
-### Test Single King
-```bash
-./docs/war-of-kings/execute/battle1-iq-test.sh qwen
-./docs/war-of-kings/execute/battle2-general-spam.sh llama 25
-./docs/war-of-kings/execute/battle3-complex-spam.sh mixtral 50
-```
-
-### Manual Health Check
-```bash
-# Quick status
-curl -s "https://sptj5nup2lc939i2h4bhq532gs.ingress.quanglong.org/health"  # Qwen
-curl -s "http://56oqg7o6n9fu53ijan3udmmb5o.ingress.h4i-dedicated.eu-sw-2.digitalfrontier.so/health"  # Llama
-curl -s "https://bnivii01v9bcbchrqtej5pmd0k.ingress.4090.akashgpu.com/health"  # Mixtral
+QWEN="https://sptj5nup2lc939i2h4bhq532gs.ingress.quanglong.org"
+LLAMA="http://56oqg7o6n9fu53ijan3udmmb5o.ingress.h4i-dedicated.eu-sw-2.digitalfrontier.so"
+MIXTRAL="https://bnivii01v9bcbchrqtej5pmd0k.ingress.4090.akashgpu.com"
 ```
 
 ---
 
-## 🏆 VICTORY CONDITIONS
+## 📋 TEST OPTIONS
 
-The king with the **highest total score** across all three battles wins the crown and becomes Trinity's default model.
+### Option A: Quick Battle (RECOMMENDED)
+**Duration:** ~30 minutes  
+**Cost:** ~$5-10  
+**Data Points:** ~150 per king  
 
-**In case of tie:** The king with the higher IQ Test score wins (intelligence prioritized).
+```bash
+cd docs/war-of-kings/execute
+./quick-battle.sh
+```
+
+| Phase | Duration | What It Tests |
+|-------|----------|---------------|
+| 1. Health Check | 2 min | Verify kings are online, warm up |
+| 2. IQ Battle | 10 min | 25 scored questions (math, logic, coding) |
+| 3. Speed Trial | 8 min | Throughput: requests/second |
+| 4. Reasoning Gauntlet | 10 min | 10 hard problems (code, math, reasoning) |
+
+### Option B: Overnight Endurance
+**Duration:** 5 hours  
+**Cost:** ~$75-150  
+**Data Points:** ~1,100 per king  
+
+```bash
+cd docs/war-of-kings/execute
+nohup ./overnight-stress.sh > overnight.log 2>&1 &
+```
 
 ---
 
-## 📜 FINAL NOTES
+## 📊 WHAT WE MEASURE
 
-This tournament represents Trinity's commitment to **empirical, data-driven decision making**. Rather than choosing a model based on benchmarks or marketing, we let the models prove themselves in our actual deployment environment.
-
-May the best king reign.
+| Metric | Phase | Why It Matters |
+|--------|-------|----------------|
+| **IQ Score** | IQ Battle | Raw intelligence - can it answer correctly? |
+| **Avg Latency** | Speed Trial | User experience - how fast? |
+| **Throughput** | Speed Trial | Scalability - requests per second? |
+| **Gauntlet Completion** | Reasoning | Reliability - does it finish hard problems? |
+| **Token Efficiency** | All phases | Cost - tokens per response? |
 
 ---
 
-*Document generated: February 6, 2026*
-*Tournament Director: Claude (GitHub Copilot)*
-*Authority: The God of This Universe*
+## 📁 OUTPUT STRUCTURE
+
+```
+results/battles/battle_YYYYMMDD_HHMMSS/
+├── BATTLE_REPORT.md          # Final summary (human readable)
+├── health/                   # Warm-up results
+│   └── {king}_warmup.json
+├── iq/                       # IQ test results
+│   ├── {king}/q{0-24}.json   # Individual question results
+│   └── {king}_summary.json   # Score summary
+├── speed/                    # Throughput results
+│   ├── {king}/req{1-20}.json # Individual requests
+│   └── {king}_summary.json   # Latency stats
+├── gauntlet/                 # Hard problems
+│   ├── {king}/problem{0-9}.json
+│   └── {king}_summary.json
+└── summary/                  # Aggregated data
+```
+
+---
+
+## ✅ EXECUTION CHECKLIST
+
+### Before Running
+- [ ] At least 1 king responds to health check
+- [ ] Run `curl -s "$URL/api/tags"` - should return JSON, not 502
+- [ ] Sufficient Akash credits (~$10 for quick battle)
+
+### Quick Health Check
+```bash
+# Test each king
+curl -s --max-time 30 "https://bnivii01v9bcbchrqtej5pmd0k.ingress.4090.akashgpu.com/api/tags"
+```
+
+### Launch
+```bash
+cd /Users/gduby/Documents/Trinity/Trinity/docs/war-of-kings/execute
+./quick-battle.sh
+```
+
+### After Running
+- [ ] Check `BATTLE_REPORT.md` for summary
+- [ ] Review gauntlet responses for quality
+- [ ] Compare IQ scores across kings
+
+---
+
+## 🧮 SCORING FORMULA
+
+### IQ Battle (25 questions)
+- Each correct answer: +1 point
+- Categories: Math (5), Logic (5), Knowledge (5), Coding (5), Reasoning (5)
+- **Score:** X/25
+
+### Speed Trial
+- 20 rapid requests, minimal prompts
+- **Metrics:** avg/min/max latency, requests/second
+
+### Reasoning Gauntlet
+- 10 complex problems (2 min timeout each)
+- **Metrics:** completion rate, token usage, response quality
+
+---
+
+## 🔧 SCRIPTS
+
+| Script | Purpose | Duration |
+|--------|---------|----------|
+| `quick-battle.sh` | Full 4-phase benchmark | ~30 min |
+| `overnight-stress.sh` | Endurance test | ~5 hours |
+| `run-war.sh` | Legacy commander | varies |
+
+---
+
+## 📈 ANALYSIS
+
+### Quick Stats (after battle)
+```bash
+# View report
+cat results/battles/battle_*/BATTLE_REPORT.md
+
+# IQ Scores
+cat results/battles/battle_*/iq/*_summary.json | jq
+
+# Speed comparison
+cat results/battles/battle_*/speed/*_summary.json | jq
+```
+
+### Feed to Claude for Analysis
+```
+1. Zip the results folder
+2. Upload to Claude with prompts/claude-judge-prompt.md
+3. Get detailed analysis and winner determination
+```
+
+---
+
+## 🎯 DECISION FRAMEWORK
+
+After benchmark, choose based on priority:
+
+| If You Need | Choose |
+|-------------|--------|
+| Highest accuracy | Highest IQ score |
+| Fastest responses | Lowest latency |
+| Most throughput | Highest req/s |
+| Best overall | Weighted score across all |
+
+---
+
+## 📝 NOTES
+
+- Kings may be offline when Akash lease expires (~24hr default)
+- First request after cold start is slow (model loading into GPU)
+- 502 errors during test = king crashed, may need redeployment
+- All results saved even on failure for debugging
