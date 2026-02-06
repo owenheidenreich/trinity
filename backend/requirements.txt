@@ -33,9 +33,10 @@ prometheus-client==0.20.0
 
 # ===== LANGGRAPH MULTI-AGENT (Phase 3) =====
 # Added: February 5, 2026 - Multi-agent orchestration for complex queries
-langgraph>=0.2.0
-langchain-core>=0.3.0
-langchain-community>=0.3.0
+# PINNED: February 6, 2026 - Fixed versions to avoid pip resolution-too-deep error
+langgraph==0.2.62
+langchain-core==0.3.29
+langchain-community==0.3.14
 
 # ===== TESTING INFRASTRUCTURE (Phase 1) =====
 # Added: February 5, 2026

@@ -41,7 +41,7 @@ curl https://api.dubya.ai/health  # Backend health check
 
 **BEFORE making ANY change, identify which section is affected and complete the FULL checklist.**
 
-See `docs/CLAUDE.md#workflow-checklists-critical` for complete checklists:
+See `docs/ai-context/CLAUDE.md#workflow-checklists-critical` for complete checklists:
 - **DOCKER**: Any backend Python file or `deploy/docker/*` change
 - **BACKEND**: Any `backend/inference_server.py` or `backend/services/*` change
 - **FRONTEND**: Any `trinity-icp/src/*` change
@@ -111,7 +111,7 @@ Reference: `trinity-icp/src/state/contextMemory.js`
 - 6px border radius, 8px for modals
 - Text-only labels (no emojis)
 
-Reference: `docs/CLAUDE.md#ui-ux-design-system`
+Reference: `docs/ai-context/CLAUDE.md#ui-ux-design-system`
 
 ### Autosave
 - 2-second debounce after each message
@@ -151,7 +151,7 @@ Reference: `trinity-icp/src/storage/autosave.js`
 - Frontend modules: `trinity-icp/src/` with clear separation (auth/, state/, storage/, ui/)
 - Backend: `backend/` with modular structure (services/, middleware/, routes/)
 - Deploy configs: `deploy/` with docker/, akash/, local/ subfolders
-- Docs: `docs/` with authoritative CLAUDE.md reference (includes workflow checklists)
+- Docs: `docs/` with organized structure (ai-context/, architecture/, security/, getting-started/, reference/, lore/, archive/)
 
 ## Common Pitfalls
 
@@ -173,4 +173,4 @@ Reference: `trinity-icp/src/storage/autosave.js`
 - First request after Akash deployment takes 20-30 seconds (LLM loading)
 - This is expected behavior, not a bug
 
-Reference: `docs/CLAUDE.md#next-steps-analysis`
+Reference: `docs/ai-context/CLAUDE.md#next-steps-analysis`
