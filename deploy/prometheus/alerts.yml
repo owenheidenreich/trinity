@@ -1,0 +1,197 @@
+# Trinity Backend - Prometheus Alert Rules
+# Production alerting for AI inference server
+
+groups:
+  # =============================================================================
+  # CRITICAL ALERTS - Page immediately
+  # =============================================================================
+  - name: trinity_critical
+    interval: 30s
+    rules:
+      - alert: TrinityHighErrorRate
+        expr: |
+          (
+            sum(rate(trinity_http_requests_total{status=~"5.."}[5m])) 
+            / 
+            sum(rate(trinity_http_requests_total[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "Trinity error rate above 5%"
+          description: "Error rate is {{ $value | humanizePercentage }} over the last 5 minutes"
+          runbook: "Check /health endpoint, review logs for stack traces"
+
+      - alert: TrinityDown
+        expr: up{job="trinity-backend"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "Trinity backend is DOWN"
+          description: "The /metrics endpoint has been unreachable for 2+ minutes"
+          runbook: "Check Akash deployment status, verify pod is running"
+
+      - alert: TrinityInferenceTimeout
+        expr: |
+          histogram_quantile(0.99, 
+            sum(rate(trinity_inference_duration_seconds_bucket[5m])) by (le)
+          ) > 300
+        for: 5m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "LLM inference P99 exceeding 5 minutes"
+          description: "P99 inference latency is {{ $value | humanizeDuration }}"
+          runbook: "Check GPU memory, model may need restart"
+
+      - alert: TrinityStorageFailures
+        expr: |
+          sum(rate(trinity_storage_operations_total{status="error"}[5m])) 
+          / 
+          sum(rate(trinity_storage_operations_total[5m])) > 0.1
+        for: 5m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "Storage failure rate above 10%"
+          description: "Chat save/load operations failing at {{ $value | humanizePercentage }}"
+          runbook: "Check IPFS/Lighthouse connectivity, verify disk space"
+
+  # =============================================================================
+  # WARNING ALERTS - Review within 1 hour
+  # =============================================================================
+  - name: trinity_warnings
+    interval: 1m
+    rules:
+      - alert: TrinityHighLatency
+        expr: |
+          histogram_quantile(0.95, 
+            sum(rate(trinity_http_request_duration_seconds_bucket[5m])) by (le)
+          ) > 10
+        for: 10m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Trinity P95 latency above 10 seconds"
+          description: "P95 request latency is {{ $value | humanizeDuration }}"
+          runbook: "Check concurrent request count, may need scaling"
+
+      - alert: TrinityHighMemory
+        expr: trinity_system_memory_percent > 90
+        for: 10m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Memory usage above 90%"
+          description: "System memory at {{ $value }}%"
+          runbook: "Check for memory leaks, consider model offloading"
+
+      - alert: TrinityHighCPU
+        expr: trinity_system_cpu_percent > 95
+        for: 10m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "CPU usage above 95%"
+          description: "System CPU at {{ $value }}%"
+          runbook: "Check for runaway processes, inference queue depth"
+
+      - alert: TrinityAuthFailureSpike
+        expr: |
+          sum(rate(trinity_auth_attempts_total{status="failure"}[5m])) > 10
+        for: 5m
+        labels:
+          severity: warning
+          team: security
+        annotations:
+          summary: "High rate of authentication failures"
+          description: "{{ $value }} auth failures per second"
+          runbook: "Check for brute force attempts, review failure reasons"
+
+      - alert: TrinityQueueBacklog
+        expr: sum(trinity_http_requests_in_progress) > 5
+        for: 10m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Request queue building up"
+          description: "{{ $value }} requests currently in progress"
+          runbook: "Check inference performance, may need to scale"
+
+  # =============================================================================
+  # AGENT PIPELINE ALERTS
+  # =============================================================================
+  - name: trinity_agent
+    interval: 1m
+    rules:
+      - alert: TrinityAgentPassSlow
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(trinity_agent_pass_duration_seconds_bucket[5m])) by (le, pass_type)
+          ) > 60
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Agent {{ $labels.pass_type }} pass exceeding 60s"
+          description: "P95 for {{ $labels.pass_type }} is {{ $value | humanizeDuration }}"
+          runbook: "Check tool execution time, LLM response latency"
+
+      - alert: TrinityToolFailures
+        expr: |
+          sum(rate(trinity_tool_calls_total{status="error"}[5m])) by (tool) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Tool {{ $labels.tool }} failing frequently"
+          description: "{{ $value }} failures per second for {{ $labels.tool }}"
+          runbook: "Check tool API connectivity, rate limits"
+
+  # =============================================================================
+  # SLO TRACKING
+  # =============================================================================
+  - name: trinity_slo
+    interval: 5m
+    rules:
+      # Track error budget burn rate
+      - record: trinity:error_budget_remaining
+        expr: |
+          1 - (
+            sum(increase(trinity_http_requests_total{status=~"5.."}[24h]))
+            /
+            (sum(increase(trinity_http_requests_total[24h])) * 0.01)
+          )
+      
+      # Track SLO compliance
+      - record: trinity:slo_compliance_7d
+        expr: |
+          1 - (
+            sum(increase(trinity_http_requests_total{status=~"5.."}[7d]))
+            /
+            sum(increase(trinity_http_requests_total[7d]))
+          )
+      
+      # Alert when error budget is nearly exhausted
+      - alert: TrinityErrorBudgetLow
+        expr: trinity:error_budget_remaining < 0.2
+        for: 1h
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Error budget below 20%"
+          description: "Only {{ $value | humanizePercentage }} of monthly error budget remaining"
+          runbook: "Review recent deployments, consider rollback"

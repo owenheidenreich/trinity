@@ -10,6 +10,16 @@ from dataclasses import dataclass
 
 from config import CODE_EXECUTION_ENABLED
 
+# Observability (Phase 2B)
+try:
+    from middleware.observability import track_tool_call
+    OBSERVABILITY_AVAILABLE = True
+except ImportError:
+    OBSERVABILITY_AVAILABLE = False
+    from contextlib import contextmanager
+    @contextmanager
+    def track_tool_call(tool_name): yield type('obj', (object,), {'set_status': lambda s: None})()
+
 logger = logging.getLogger(__name__)
 
 

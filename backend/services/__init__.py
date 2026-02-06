@@ -55,6 +55,27 @@ from .code_executor import evaluate_math_expression, execute_python_code, execut
 from .voting import run_voting_pipeline, VotingResult, should_use_voting
 from .structured import generate_structured, generate_with_schema, SCHEMAS
 
+# ===== EXPERIMENTATION FRAMEWORK (Phase 4) =====
+from .experiments import (
+    Experiment, Variant,
+    assign_variant, list_experiments, get_experiment,
+    enable_experiment, disable_experiment, add_experiment,
+    get_all_assignments, EXPERIMENTS
+)
+from .parallel import (
+    ParallelAgentPipeline, ParallelResult, PipelineResult,
+    get_parallel_pipeline, reset_parallel_pipeline
+)
+
+# ===== COST OPTIMIZATION & CACHING (Phase 5) =====
+from .caching import (
+    EmbeddingCache, get_embedding_cache, reset_embedding_cache,
+    SemanticResponseCache, get_semantic_cache, reset_semantic_cache,
+    TokenUsage, TokenTracker, get_token_tracker, reset_token_tracker,
+    get_all_cache_stats, clear_all_caches,
+    estimate_tokens, estimate_tokens_accurate
+)
+
 __all__ = [
     'MetricsCollector',
     'metrics',
@@ -130,5 +151,36 @@ __all__ = [
     # Structured Output
     'generate_structured',
     'generate_with_schema',
-    'SCHEMAS'
+    'SCHEMAS',
+    # ===== EXPERIMENTATION FRAMEWORK (Phase 4) =====
+    'Experiment',
+    'Variant',
+    'assign_variant',
+    'list_experiments',
+    'get_experiment',
+    'enable_experiment',
+    'disable_experiment',
+    'add_experiment',
+    'get_all_assignments',
+    'EXPERIMENTS',
+    'ParallelAgentPipeline',
+    'ParallelResult',
+    'PipelineResult',
+    'get_parallel_pipeline',
+    'reset_parallel_pipeline',
+    # ===== COST OPTIMIZATION & CACHING (Phase 5) =====
+    'EmbeddingCache',
+    'get_embedding_cache',
+    'reset_embedding_cache',
+    'SemanticResponseCache',
+    'get_semantic_cache',
+    'reset_semantic_cache',
+    'TokenUsage',
+    'TokenTracker',
+    'get_token_tracker',
+    'reset_token_tracker',
+    'get_all_cache_stats',
+    'clear_all_caches',
+    'estimate_tokens',
+    'estimate_tokens_accurate',
 ]

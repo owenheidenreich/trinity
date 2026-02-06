@@ -13,6 +13,16 @@ import sys
 
 from config import CODE_EXECUTION_ENABLED, CODE_EXECUTION_TIMEOUT
 
+# Observability (Phase 2B)
+try:
+    from middleware.observability import track_tool_call
+    OBSERVABILITY_AVAILABLE = True
+except ImportError:
+    OBSERVABILITY_AVAILABLE = False
+    from contextlib import contextmanager
+    @contextmanager
+    def track_tool_call(tool_name): yield type('obj', (object,), {'set_status': lambda s: None})()
+
 logger = logging.getLogger(__name__)
 
 
@@ -280,33 +290,41 @@ def execute_tool(tool_name: str, params: Dict) -> Tuple[bool, str]:
     """
     tool_name = tool_name.lower()
     
-    if tool_name == 'calculator':
-        expression = params.get('expression', '')
-        return evaluate_math_expression(expression)
-    
-    elif tool_name == 'code_display':
-        language = params.get('language', 'python')
-        code = params.get('code', '')
-        execute = params.get('execute', '').lower() == 'true'
-        return format_code_display(language, code, execute)
-    
-    elif tool_name == 'document_search':
-        # This is handled by the agent pipeline (needs vector store access)
-        query = params.get('query', '')
-        return True, f'[Document search for: {query}]'
-    
-    elif tool_name == 'web_search':
-        # This is handled by the agent pipeline (needs Brave API)
-        query = params.get('query', '')
-        return True, f'[Web search for: {query}]'
-    
-    elif tool_name == 'fact_check':
-        # This triggers a web search with verification framing
-        claim = params.get('claim', '')
-        return True, f'[Fact checking: {claim}]'
-    
-    else:
-        return False, f'Unknown tool: {tool_name}'
+    with track_tool_call(tool_name) as tracker:
+        if tool_name == 'calculator':
+            expression = params.get('expression', '')
+            success, result = evaluate_math_expression(expression)
+            if not success:
+                tracker.set_status('error')
+            return success, result
+        
+        elif tool_name == 'code_display':
+            language = params.get('language', 'python')
+            code = params.get('code', '')
+            execute = params.get('execute', '').lower() == 'true'
+            success, result = format_code_display(language, code, execute)
+            if not success:
+                tracker.set_status('error')
+            return success, result
+        
+        elif tool_name == 'document_search':
+            # This is handled by the agent pipeline (needs vector store access)
+            query = params.get('query', '')
+            return True, f'[Document search for: {query}]'
+        
+        elif tool_name == 'web_search':
+            # This is handled by the agent pipeline (needs Brave API)
+            query = params.get('query', '')
+            return True, f'[Web search for: {query}]'
+        
+        elif tool_name == 'fact_check':
+            # This triggers a web search with verification framing
+            claim = params.get('claim', '')
+            return True, f'[Fact checking: {claim}]'
+        
+        else:
+            tracker.set_status('error')
+            return False, f'Unknown tool: {tool_name}'
 
 
 # Module availability flag for graceful degradation

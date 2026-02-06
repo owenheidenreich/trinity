@@ -11,6 +11,14 @@ import time
 from config import VOTING_CANDIDATES, VOTING_TEMPERATURES, VOTING_MIN_COMPLEXITY
 from services.embeddings import embed_text, cosine_similarity
 
+# Observability (Phase 2B)
+try:
+    from middleware.observability import record_voting
+    OBSERVABILITY_AVAILABLE = True
+except ImportError:
+    OBSERVABILITY_AVAILABLE = False
+    def record_voting(outcome, participants): pass
+
 logger = logging.getLogger(__name__)
 
 
@@ -228,7 +236,18 @@ def run_voting_pipeline(
     # Select best
     best_answer, confidence, best_idx = select_best_candidate(candidates, scores)
     
-    logger.info(f'Selected candidate {best_idx} with confidence {confidence:.2f}')
+    # Determine voting outcome for metrics
+    if confidence >= 0.8:
+        outcome = 'consensus'
+    elif confidence >= 0.5:
+        outcome = 'majority'
+    else:
+        outcome = 'tiebreak'
+    
+    # Record voting metrics
+    record_voting(outcome, len(candidates))
+    
+    logger.info(f'Selected candidate {best_idx} with confidence {confidence:.2f} ({outcome})')
     
     return VotingResult(
         selected_answer=best_answer,

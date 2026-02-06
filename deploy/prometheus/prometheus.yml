@@ -1,0 +1,66 @@
+# Trinity Backend - Prometheus Configuration
+# Production monitoring for Akash-deployed AI inference server
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    environment: production
+    service: trinity-backend
+
+# Rule files for alerting
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          # Uncomment when Alertmanager is deployed
+          # - alertmanager:9093
+
+scrape_configs:
+  # Trinity Backend on Akash
+  - job_name: 'trinity-backend'
+    scheme: https
+    static_configs:
+      - targets: ['api.dubya.ai']
+        labels:
+          tier: 'production'
+          provider: 'akash'
+    
+    # Scrape metrics endpoint
+    metrics_path: /metrics
+    
+    # TLS configuration for HTTPS
+    tls_config:
+      insecure_skip_verify: false
+    
+    # Relabel to add instance label
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'trinity-akash'
+  
+  # Local development (when running locally)
+  - job_name: 'trinity-local'
+    static_configs:
+      - targets: ['localhost:8000']
+        labels:
+          tier: 'development'
+          provider: 'local'
+    metrics_path: /metrics
+
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+# Remote write for long-term storage (optional)
+# Uncomment and configure for Grafana Cloud, Thanos, or similar
+# remote_write:
+#   - url: "https://prometheus-prod-01-prod-us-central-0.grafana.net/api/prom/push"
+#     basic_auth:
+#       username: "${GRAFANA_CLOUD_USERNAME}"
+#       password: "${GRAFANA_CLOUD_API_KEY}"

@@ -249,6 +249,221 @@ Trinity uses a multi-pass reasoning pipeline that routes questions by complexity
 
 ---
 
+## 🔬 LangGraph Multi-Agent System (Phase 3)
+
+Trinity implements a production-ready LangGraph-based multi-agent orchestration system for complex queries.
+
+### Architecture
+
+```
+User Query
+    ↓
+┌────────────────────────────────────────────────────────────┐
+│                  COMPLEXITY ROUTER                          │
+│  ┌──────────────┐    ┌──────────────┐   ┌──────────────┐  │
+│  │   Simple     │    │   Medium     │   │   Complex    │  │
+│  │  (Direct)    │    │ (3 passes)   │   │ (LangGraph)  │  │
+│  └──────────────┘    └──────────────┘   └──────────────┘  │
+└────────────────────────────────────────────────────────────┘
+         │                    │                   │
+         ↓                    ↓                   ↓
+    ┌─────────┐        ┌─────────────┐     ┌─────────────┐
+    │ Ollama  │        │  Agentic    │     │  LangGraph  │
+    │ Direct  │        │  Pipeline   │     │  Workflow   │
+    └─────────┘        └─────────────┘     └─────────────┘
+                                                  │
+                            ┌─────────────────────┼─────────────────────┐
+                            ↓                     ↓                     ↓
+                      ┌──────────┐          ┌──────────┐          ┌──────────┐
+                      │ Planner  │          │ Executor │          │ Reviewer │
+                      │  Agent   │          │  Agent   │          │  Agent   │
+                      └──────────┘          └──────────┘          └──────────┘
+```
+
+### Complexity Classification
+| Score | Classification | Pipeline | Traffic % |
+|-------|---------------|----------|-----------|
+| 0-3 | Simple | Direct Ollama | ~70% |
+| 4-6 | Medium | Agentic (3-pass) | ~20% |
+| 7-10 | Complex | LangGraph | ~10% |
+
+### Key Files
+| File | Purpose |
+|------|---------|
+| `backend/services/complexity.py` | Query complexity classification (0-10 score) |
+| `backend/tests/unit/test_langgraph.py` | LangGraph workflow unit tests |
+| `backend/tests/unit/test_langgraph_endpoint.py` | LangGraph endpoint integration tests |
+
+### Experiment Flag
+LangGraph routing is gated by the `langgraph_routing` experiment (see Experimentation Framework below). When enabled, complex queries are routed to the multi-agent workflow.
+
+---
+
+## 🧪 Experimentation Framework (Phase 4A)
+
+A comprehensive A/B testing system for controlled feature rollouts.
+
+### Experiment Configuration
+```python
+EXPERIMENTS = {
+    'langgraph_routing': {
+        'name': 'LangGraph Multi-Agent Routing',
+        'enabled': True,
+        'percentage': 20,  # 20% of complex queries
+        'description': 'Route complex queries to LangGraph workflow'
+    },
+    'agent_mode': {
+        'name': 'Agentic Processing Mode',
+        'enabled': True,
+        'percentage': 100,  # Fully rolled out
+        'description': 'Use multi-pass agentic pipeline'
+    }
+}
+```
+
+### Hash-Based Assignment
+Users are deterministically assigned to experiments using a hash of their session ID:
+```python
+def get_experiment_assignment(session_id: str, experiment_name: str) -> bool:
+    hash_value = int(hashlib.sha256(f"{session_id}:{experiment_name}".encode()).hexdigest(), 16)
+    return (hash_value % 100) < EXPERIMENTS[experiment_name]['percentage']
+```
+
+### Admin Endpoints
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/admin/experiments` | GET | List all experiments |
+| `/admin/experiments/assignment/<session_id>` | GET | Get user's assignments |
+| `/admin/experiments/<name>/enable` | POST | Enable experiment |
+| `/admin/experiments/<name>/disable` | POST | Disable experiment |
+
+### Key Files
+| File | Purpose |
+|------|---------|
+| `backend/tests/unit/test_experiments.py` | 44 experiment tests |
+| `docs/decisions/004-hash-based-experiments.md` | ADR for experiment design |
+
+---
+
+## 💾 Cost Optimization & Caching (Phase 4B)
+
+Production-grade caching layer for reducing LLM API costs.
+
+### Caching Architecture
+
+```
+User Query
+    ↓
+┌────────────────────────────────────────────────────────────┐
+│                    CACHING LAYER                            │
+│  ┌──────────────────┐    ┌──────────────────┐             │
+│  │  Embedding Cache │    │  Semantic Cache  │             │
+│  │    (LRU 1000)    │    │   (LRU 500)      │             │
+│  │  Hash → Vector   │    │  Vector → Resp   │             │
+│  └──────────────────┘    └──────────────────┘             │
+│            │                      │                        │
+│            ↓                      ↓                        │
+│  ┌──────────────────────────────────────────────┐         │
+│  │              Token Tracker                    │         │
+│  │   • Per-user token counts (1hr window)       │         │
+│  │   • Quota enforcement (10k tokens/hr)        │         │
+│  │   • Usage metrics for billing                │         │
+│  └──────────────────────────────────────────────┘         │
+└────────────────────────────────────────────────────────────┘
+```
+
+### Cache Types
+| Cache | Size | Key | Value | TTL |
+|-------|------|-----|-------|-----|
+| **EmbeddingCache** | 1000 | Text hash | Embedding vector | None (LRU eviction) |
+| **SemanticResponseCache** | 500 | Query embedding | Full response | None (LRU eviction) |
+| **TokenTracker** | Unbounded | Principal ID | Token counts | 1 hour rolling window |
+
+### Cache Performance
+- **Embedding Cache Hit Rate**: ~60-80% for repeat queries
+- **Semantic Cache Hit Rate**: ~20-40% for similar queries (cosine > 0.95)
+- **Token Savings**: Estimated 40-60% reduction in LLM calls for active users
+
+### Admin Endpoints
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/admin/cache/stats` | GET | Cache hit/miss statistics |
+| `/admin/cache/clear` | POST | Clear all caches |
+| `/admin/tokens/usage` | GET | Token usage by user |
+| `/admin/quota/usage` | GET | Quota status per user |
+
+### Key Files
+| File | Purpose |
+|------|---------|
+| `backend/tests/unit/test_caching.py` | 37 caching tests |
+| `docs/decisions/005-in-memory-caching.md` | ADR for caching design |
+
+---
+
+## 🧪 Testing Infrastructure
+
+Trinity maintains comprehensive test coverage using pytest.
+
+### Test Summary
+| Category | Tests | Coverage |
+|----------|-------|----------|
+| **Security & Auth** | 67 | 90%+ |
+| **LangGraph** | 53 | 85%+ |
+| **Observability** | 69 | 80%+ |
+| **Experiments** | 44 | 95%+ |
+| **Caching** | 37 | 90%+ |
+| **Encryption** | 35 | 95%+ |
+| **Validation** | 70 | 95%+ |
+| **E2E Pipeline** | 25 | N/A |
+| **Total** | **461** | **75%+** |
+
+### Running Tests
+```bash
+# Full test suite
+cd backend && pytest tests/ --no-cov -q
+
+# Specific test file
+pytest tests/unit/test_caching.py -v
+
+# With coverage report
+pytest tests/ --cov=. --cov-report=html
+
+# E2E tests only
+pytest tests/e2e/ -v
+```
+
+### Test Organization
+```
+backend/tests/
+├── e2e/
+│   └── test_full_pipeline.py    # End-to-end HTTP tests
+├── unit/
+│   ├── test_caching.py          # Cache layer tests
+│   ├── test_complexity.py       # Complexity classifier
+│   ├── test_encryption.py       # AES-GCM encryption
+│   ├── test_experiments.py      # A/B testing framework
+│   ├── test_icp_auth.py         # Ed25519 auth tests
+│   ├── test_langgraph.py        # LangGraph workflow tests
+│   ├── test_langgraph_endpoint.py # LangGraph API tests
+│   ├── test_observability.py    # Prometheus metrics
+│   ├── test_storage.py          # File storage tests
+│   └── test_validation.py       # Input validation
+├── conftest.py                  # Shared fixtures
+└── pytest.ini                   # Pytest configuration
+```
+
+### Coverage Tiers
+| Tier | Target | Modules |
+|------|--------|---------|
+| **Critical** | 90%+ | Auth, Encryption, Validation |
+| **High** | 80%+ | Storage, Caching, Complexity |
+| **Medium** | 60%+ | LangGraph, Experiments |
+| **Overall** | 75%+ | All modules |
+
+See `docs/decisions/002-tiered-test-coverage.md` for rationale.
+
+---
+
 ## 🧠 V4.0 Intelligence Upgrade (January 2026)
 
 A comprehensive intelligence enhancement adding semantic memory, tool use, multi-model routing, self-consistency voting, and structured outputs.

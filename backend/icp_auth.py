@@ -6,7 +6,7 @@ Verifies Ed25519 signatures from ICP Principal IDs
 import time
 import base64
 from typing import Tuple, Optional
-from flask import request
+from flask import request, jsonify
 import logging
 
 logger = logging.getLogger(__name__)

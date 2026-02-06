@@ -40,10 +40,24 @@ def is_safe_url(url: str) -> tuple[bool, str]:
     - Localhost and local hostnames
     - Cloud metadata endpoints (169.254.169.254)
     - Non-HTTP(S) schemes
+    - CGNAT (100.64.0.0/10) - RFC 6598 shared address space
+    - Multicast (224.0.0.0/4)
+    - Documentation ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24)
     
     Returns:
         (is_safe: bool, error_message: str)
     """
+    # Additional ranges not covered by Python's ipaddress checks
+    BLOCKED_NETWORKS = [
+        ipaddress.ip_network('100.64.0.0/10'),    # CGNAT (RFC 6598) - often overlooked!
+        ipaddress.ip_network('192.0.2.0/24'),     # TEST-NET-1 (documentation)
+        ipaddress.ip_network('198.51.100.0/24'),  # TEST-NET-2 (documentation)
+        ipaddress.ip_network('203.0.113.0/24'),   # TEST-NET-3 (documentation)
+        ipaddress.ip_network('224.0.0.0/4'),      # Multicast
+        ipaddress.ip_network('240.0.0.0/4'),      # Reserved (future use)
+        ipaddress.ip_network('198.18.0.0/15'),    # Benchmark testing (RFC 2544)
+    ]
+    
     try:
         parsed = urlparse(url)
         
@@ -82,7 +96,7 @@ def is_safe_url(url: str) -> tuple[bool, str]:
             try:
                 ip = ipaddress.ip_address(ip_str)
                 
-                # Block private/internal ranges
+                # Block private/internal ranges (Python built-in checks)
                 if ip.is_private:
                     return False, f"Access to private IP {ip_str} is not allowed"
                 if ip.is_loopback:
@@ -91,6 +105,13 @@ def is_safe_url(url: str) -> tuple[bool, str]:
                     return False, f"Access to link-local IP {ip_str} is not allowed"
                 if ip.is_reserved:
                     return False, f"Access to reserved IP {ip_str} is not allowed"
+                if ip.is_multicast:
+                    return False, f"Access to multicast IP {ip_str} is not allowed"
+                
+                # Block additional dangerous ranges not caught by built-in checks
+                for blocked_net in BLOCKED_NETWORKS:
+                    if ip in blocked_net:
+                        return False, f"Access to blocked IP range {ip_str} ({blocked_net}) is not allowed"
                     
             except ValueError:
                 continue

@@ -1,14 +1,31 @@
 """
 Trinity Backend - Ollama Service
 LLM inference via Ollama API
+
+Phase 5: Integrated with TokenTracker for cost optimization.
 """
 
 import requests
 import logging
-from typing import Dict, Optional, Generator
+from typing import Dict, Optional, Generator, Tuple
 from config import OLLAMA_HOST, MODEL_NAME
 
 logger = logging.getLogger(__name__)
+
+# Lazy-load token tracker to avoid circular imports
+_token_tracker = None
+
+
+def _get_token_tracker():
+    """Lazy-load the token tracker."""
+    global _token_tracker
+    if _token_tracker is None:
+        try:
+            from services.caching import get_token_tracker
+            _token_tracker = get_token_tracker()
+        except ImportError:
+            logger.warning("Caching module not available - tokens will not be tracked")
+    return _token_tracker
 
 
 def check_ollama_connection() -> bool:
@@ -65,7 +82,8 @@ def call_ollama(
     prompt: str,
     max_tokens: int = 500,
     temperature: float = 0.7,
-    stream: bool = False
+    stream: bool = False,
+    user_id: Optional[str] = None
 ) -> Dict:
     """
     Call Ollama API for text generation.
@@ -75,9 +93,11 @@ def call_ollama(
         max_tokens: Maximum tokens to generate
         temperature: Sampling temperature (0.1-2.0)
         stream: Whether to stream the response
+        user_id: Optional user ID for token tracking
         
     Returns:
-        Dict with 'response' key containing generated text
+        Dict with 'response' key containing generated text,
+        plus token usage info when available
     """
     try:
         response = requests.post(
@@ -95,7 +115,31 @@ def call_ollama(
         )
         
         if response.status_code == 200:
-            return response.json()
+            result = response.json()
+            
+            # Extract token usage from Ollama response
+            prompt_tokens = result.get('prompt_eval_count', 0)
+            completion_tokens = result.get('eval_count', 0)
+            
+            # Track tokens if available
+            if prompt_tokens > 0 or completion_tokens > 0:
+                tracker = _get_token_tracker()
+                if tracker:
+                    usage = tracker.record(
+                        prompt_tokens=prompt_tokens,
+                        completion_tokens=completion_tokens,
+                        model=MODEL_NAME,
+                        user_id=user_id
+                    )
+                    # Add token info to result
+                    result['token_usage'] = {
+                        'prompt_tokens': prompt_tokens,
+                        'completion_tokens': completion_tokens,
+                        'total_tokens': prompt_tokens + completion_tokens,
+                        'estimated_cost_usd': usage.estimated_cost_usd
+                    }
+            
+            return result
         else:
             logger.error(f"Ollama returned status {response.status_code}")
             return {'error': f'Ollama error: {response.status_code}'}

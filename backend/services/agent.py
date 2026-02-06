@@ -30,6 +30,11 @@ from .agent_prompts import (
 from .search import search_web, format_search_context, is_search_available, SearchResponse
 from .loading_messages import get_loading_message, format_phase_update
 
+# Observability (Phase 2B) - Direct import (Phase 5.5A cleanup)
+from middleware.observability import (
+    track_agent_pass, record_complexity, record_routing
+)
+
 # Import new v4.0 modules (with graceful fallback)
 try:
     from .tools import parse_tool_calls, detect_tools_needed, get_tool_definitions_for_prompt
@@ -325,6 +330,10 @@ class AgentPipeline:
         complexity = force_complexity or analysis.complexity
         passes_needed = get_pass_count(complexity)
         
+        # Record observability metrics
+        record_complexity(complexity)
+        record_routing('langgraph' if complexity == 'complex' else 'legacy')
+        
         logger.info(f"🧠 Agent: {complexity} question, {passes_needed} passes, search={analysis.needs_search}")
         
         context_messages = context_messages or []
@@ -435,6 +444,10 @@ class AgentPipeline:
         analysis = analyze_question(question)
         complexity = force_complexity or analysis.complexity
         passes_needed = get_pass_count(complexity)
+        
+        # Record observability metrics
+        record_complexity(complexity)
+        record_routing('langgraph' if complexity == 'complex' else 'legacy')
         
         logger.info(f"🧠 Agent streaming: {complexity} question, {passes_needed} passes, search={analysis.needs_search}")
         
@@ -560,35 +573,39 @@ class AgentPipeline:
         """Pass 1: Understand the question"""
         logger.info("🤔 Pass 1: Understanding...")
         
-        prompt = build_understand_prompt(question)
-        response = self.client.generate(
-            prompt,
-            max_tokens=PASS_TOKEN_LIMITS['understand'],
-            temperature=0.3,  # Lower temp for analysis
-            timeout=PASS_TIMEOUTS['understand']
-        )
-        
-        if not response:
-            return None
-        
-        return parse_understanding(response)
+        with track_agent_pass('understand') as tracker:
+            prompt = build_understand_prompt(question)
+            response = self.client.generate(
+                prompt,
+                max_tokens=PASS_TOKEN_LIMITS['understand'],
+                temperature=0.3,  # Lower temp for analysis
+                timeout=PASS_TIMEOUTS['understand']
+            )
+            
+            if not response:
+                tracker.set_status('error')
+                return None
+            
+            return parse_understanding(response)
     
     def _pass_plan(self, question: str, understanding: UnderstandingResult) -> Optional[PlanResult]:
         """Pass 2: Create a plan"""
         logger.info("📋 Pass 2: Planning...")
         
-        prompt = build_plan_prompt(question, understanding)
-        response = self.client.generate(
-            prompt,
-            max_tokens=PASS_TOKEN_LIMITS['plan'],
-            temperature=0.3,
-            timeout=PASS_TIMEOUTS['plan']
-        )
-        
-        if not response:
-            return None
-        
-        return parse_plan(response)
+        with track_agent_pass('plan') as tracker:
+            prompt = build_plan_prompt(question, understanding)
+            response = self.client.generate(
+                prompt,
+                max_tokens=PASS_TOKEN_LIMITS['plan'],
+                temperature=0.3,
+                timeout=PASS_TIMEOUTS['plan']
+            )
+            
+            if not response:
+                tracker.set_status('error')
+                return None
+            
+            return parse_plan(response)
     
     def _pass_execute(
         self,
@@ -602,15 +619,20 @@ class AgentPipeline:
         """Pass 3: Execute (non-streaming version)"""
         logger.info("✍️ Pass 3: Executing...")
         
-        prompt = build_execute_prompt(question, understanding, plan, context_messages, user_memory, search_context)
-        response = self.client.generate(
-            prompt,
-            max_tokens=PASS_TOKEN_LIMITS['execute'],
-            temperature=0.7,
-            timeout=PASS_TIMEOUTS['execute']
-        )
-        
-        return response or "I was unable to generate a response."
+        with track_agent_pass('execute') as tracker:
+            prompt = build_execute_prompt(question, understanding, plan, context_messages, user_memory, search_context)
+            response = self.client.generate(
+                prompt,
+                max_tokens=PASS_TOKEN_LIMITS['execute'],
+                temperature=0.7,
+                timeout=PASS_TIMEOUTS['execute']
+            )
+            
+            if not response:
+                tracker.set_status('error')
+                return "I was unable to generate a response."
+            
+            return response
     
     def _pass_execute_simple(self, question: str, context_messages: List[Dict], user_memory: Dict, search_context: str = "") -> str:
         """Simple execute without understanding/plan"""
@@ -630,39 +652,46 @@ class AgentPipeline:
         """Pass 4: Critique the response"""
         logger.info("🔍 Pass 4: Critiquing...")
         
-        prompt = build_critique_prompt(question, response)
-        critique_response = self.client.generate(
-            prompt,
-            max_tokens=PASS_TOKEN_LIMITS['critique'],
-            temperature=0.3,  # Lower temp for objective critique
-            timeout=PASS_TIMEOUTS['critique']
-        )
-        
-        if not critique_response:
-            return None
-        
-        critique = parse_critique(critique_response)
-        
-        # Sanity check: if no weaknesses found, be suspicious
-        if critique.weakness1 == "No weakness identified" and critique.weakness2 == "No weakness identified":
-            logger.warning("Critique found no weaknesses - response might be suspicious")
-        
-        logger.info(f"🔍 Critique score: {critique.score}/10")
-        return critique
+        with track_agent_pass('critique') as tracker:
+            prompt = build_critique_prompt(question, response)
+            critique_response = self.client.generate(
+                prompt,
+                max_tokens=PASS_TOKEN_LIMITS['critique'],
+                temperature=0.3,  # Lower temp for objective critique
+                timeout=PASS_TIMEOUTS['critique']
+            )
+            
+            if not critique_response:
+                tracker.set_status('error')
+                return None
+            
+            critique = parse_critique(critique_response)
+            
+            # Sanity check: if no weaknesses found, be suspicious
+            if critique.weakness1 == "No weakness identified" and critique.weakness2 == "No weakness identified":
+                logger.warning("Critique found no weaknesses - response might be suspicious")
+            
+            logger.info(f"🔍 Critique score: {critique.score}/10")
+            return critique
     
     def _pass_refine(self, question: str, response: str, critique: CritiqueResult) -> str:
         """Pass 5: Refine based on critique"""
         logger.info(f"✨ Pass 5: Refining (addressing score {critique.score}/10)...")
         
-        prompt = build_refine_prompt(question, response, critique)
-        refined = self.client.generate(
-            prompt,
-            max_tokens=PASS_TOKEN_LIMITS['refine'],
-            temperature=0.7,
-            timeout=PASS_TIMEOUTS['refine']
-        )
-        
-        return refined or response  # Fall back to original if refine fails
+        with track_agent_pass('refine') as tracker:
+            prompt = build_refine_prompt(question, response, critique)
+            refined = self.client.generate(
+                prompt,
+                max_tokens=PASS_TOKEN_LIMITS['refine'],
+                temperature=0.7,
+                timeout=PASS_TIMEOUTS['refine']
+            )
+            
+            if not refined:
+                tracker.set_status('error')
+                return response  # Fall back to original if refine fails
+            
+            return refined
 
 
 # ============================================================================

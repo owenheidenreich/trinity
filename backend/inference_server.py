@@ -52,6 +52,10 @@ from lighthouse import (
 
 # Import new modular middleware and services
 from middleware import rate_limit, storage_rate_limit, icp_idempotent, icp_cache
+from middleware import (
+    PROMETHEUS_AVAILABLE, get_metrics_response, track_inference, 
+    track_storage, track_auth, track_error, set_model_loaded, set_uptime
+)
 from services import (
     MetricsCollector, metrics, get_system_info,
     TRINITY_SYSTEM_PROMPT, REASONING_SYSTEM_PROMPT,
@@ -139,6 +143,17 @@ V4_FEATURES_AVAILABLE = all([
 ])
 logger.info(f"🧠 V4.0 Intelligence features: {'ENABLED' if V4_FEATURES_AVAILABLE else 'PARTIAL'}")
 
+# V5.0 LangGraph Multi-Agent System
+LANGGRAPH_AVAILABLE = False
+try:
+    from services.graph import get_trinity_graph, execute_graph, AgentState
+    from services.graph.edges import should_use_langgraph
+    from services.complexity import classify_complexity
+    LANGGRAPH_AVAILABLE = True
+    logger.info("✅ LangGraph multi-agent system: ENABLED")
+except Exception as e:
+    logger.warning(f"⚠️ LangGraph not available: {e}")
+
 # Input validation
 from validation import validate_chat_id, validate_principal_id, validate_cid, is_safe_url
 
@@ -225,6 +240,7 @@ def health():
         - system: CPU and memory usage
         - metrics: performance statistics
         - ollama_connected: whether Ollama is responsive
+        - features: which advanced features are available
     """
     ollama_healthy = check_ollama_connection()
     system_info = get_system_info()
@@ -249,6 +265,12 @@ def health():
         'metrics': stats,
         'queue_size': metrics.active_requests,
         'max_queue_size': MAX_QUEUE_SIZE,
+        'features': {
+            'v4_intelligence': V4_FEATURES_AVAILABLE,
+            'langgraph_agents': LANGGRAPH_AVAILABLE,
+            'semantic_memory': V4_MEMORY_AVAILABLE,
+            'web_search': bool(BRAVE_SEARCH_API_KEY),
+        }
     }), 200 if is_healthy else 503
 
 
@@ -276,6 +298,170 @@ def health_icp():
         'version': '2.1.0',
         'icp_compatible': True
     }), 200 if ollama_healthy else 503
+
+
+@app.route('/metrics')
+def prometheus_metrics():
+    """
+    Prometheus metrics endpoint for monitoring and alerting.
+    
+    Exposes application metrics in Prometheus text format:
+    - Request rates, latencies, and error counts (RED method)
+    - Model inference timing and token generation
+    - System resources: CPU, memory (USE method)
+    - Authentication success/failure rates
+    - Storage operation metrics
+    
+    Configure Prometheus to scrape this endpoint:
+        scrape_configs:
+          - job_name: 'trinity'
+            static_configs:
+              - targets: ['api.dubya.ai:443']
+            scheme: https
+    """
+    content, content_type = get_metrics_response()
+    return Response(content, mimetype=content_type)
+
+
+# =============================================================================
+# EXPERIMENT ENDPOINTS (Phase 4)
+# =============================================================================
+
+@app.route('/admin/experiments')
+def get_experiments_status():
+    """
+    Get all experiment definitions and current status.
+    
+    Returns:
+        - experiments: Dict of all experiments with variants and status
+        - enabled_count: Number of currently enabled experiments
+    """
+    try:
+        from services.experiments import list_experiments, EXPERIMENTS
+        
+        all_experiments = list_experiments(enabled_only=False)
+        enabled_count = sum(1 for exp in EXPERIMENTS.values() if exp.enabled)
+        
+        return jsonify({
+            'experiments': all_experiments,
+            'enabled_count': enabled_count,
+            'total_count': len(all_experiments)
+        })
+    except ImportError:
+        return jsonify({
+            'error': 'Experiments module not available',
+            'experiments': {}
+        }), 503
+
+
+@app.route('/admin/experiments/<experiment_name>/enable', methods=['POST'])
+def enable_experiment_endpoint(experiment_name: str):
+    """Enable a specific experiment."""
+    try:
+        from services.experiments import enable_experiment
+        
+        success = enable_experiment(experiment_name)
+        if success:
+            return jsonify({'status': 'enabled', 'experiment': experiment_name})
+        else:
+            return jsonify({'error': f'Experiment not found: {experiment_name}'}), 404
+    except ImportError:
+        return jsonify({'error': 'Experiments module not available'}), 503
+
+
+@app.route('/admin/experiments/<experiment_name>/disable', methods=['POST'])
+def disable_experiment_endpoint(experiment_name: str):
+    """Disable a specific experiment."""
+    try:
+        from services.experiments import disable_experiment
+        
+        success = disable_experiment(experiment_name)
+        if success:
+            return jsonify({'status': 'disabled', 'experiment': experiment_name})
+        else:
+            return jsonify({'error': f'Experiment not found: {experiment_name}'}), 404
+    except ImportError:
+        return jsonify({'error': 'Experiments module not available'}), 503
+
+
+@app.route('/admin/experiments/assignment/<session_id>')
+def get_experiment_assignments(session_id: str):
+    """
+    Get all experiment assignments for a specific session.
+    Useful for debugging experiment assignment logic.
+    """
+    try:
+        from services.experiments import get_all_assignments
+        
+        assignments = get_all_assignments(session_id)
+        return jsonify({
+            'session_id': session_id,
+            'assignments': assignments
+        })
+    except ImportError:
+        return jsonify({'error': 'Experiments module not available'}), 503
+
+
+# =============================================================================
+# ADMIN ENDPOINTS - COST & CACHING (Phase 5)
+# =============================================================================
+
+@app.route('/admin/cache/stats')
+def get_cache_stats():
+    """
+    Get statistics for all caches (embedding, semantic, token tracking).
+    """
+    try:
+        from services.caching import get_all_cache_stats
+        stats = get_all_cache_stats()
+        return jsonify(stats)
+    except ImportError:
+        return jsonify({'error': 'Caching module not available'}), 503
+
+
+@app.route('/admin/cache/clear', methods=['POST'])
+def clear_caches():
+    """
+    Clear all caches (admin action).
+    """
+    try:
+        from services.caching import clear_all_caches
+        clear_all_caches()
+        return jsonify({'status': 'cleared', 'message': 'All caches cleared'})
+    except ImportError:
+        return jsonify({'error': 'Caching module not available'}), 503
+
+
+@app.route('/admin/tokens/usage')
+def get_token_usage():
+    """
+    Get token usage statistics.
+    """
+    try:
+        from services.caching import get_token_tracker
+        tracker = get_token_tracker()
+        return jsonify({
+            'totals': tracker.get_totals(),
+            'top_users': tracker.get_top_users(limit=20)
+        })
+    except ImportError:
+        return jsonify({'error': 'Caching module not available'}), 503
+
+
+@app.route('/admin/quota/usage')
+def get_quota_usage():
+    """
+    Get per-user token quota usage.
+    """
+    try:
+        from middleware.rate_limit import get_all_user_usage
+        usage = get_all_user_usage()
+        return jsonify({
+            'users': usage,
+            'user_count': len(usage)
+        })
+    except ImportError:
+        return jsonify({'error': 'Rate limit module not available'}), 503
 
 
 # Note: Akash functions (get_akt_price_usd, get_escrow_balance, get_actual_lease_price, 
@@ -595,6 +781,7 @@ def generate():
     # Check if server is at capacity
     if metrics.active_requests >= MAX_QUEUE_SIZE:
         logger.warning(f"Server at capacity: {metrics.active_requests}/{MAX_QUEUE_SIZE}")
+        track_error('CapacityError', '/generate')
         return jsonify({
             'error': 'Server at capacity',
             'queue_size': metrics.active_requests,
@@ -604,6 +791,9 @@ def generate():
     
     metrics.start_request()
     start_time = time.time()
+    
+    # Get deployment tier for metrics
+    tier = str(DEPLOYMENT_TIER) if DEPLOYMENT_TIER else 'unknown'
     
     try:
         # Parse request
@@ -685,23 +875,27 @@ def generate():
             ollama_options["seed"] = int(seed)
             logger.info(f"🎲 Using deterministic seed: {seed}")
         
-        response = http_session.post(
-            f"{OLLAMA_HOST}/api/generate",
-            json={
-                "model": MODEL_NAME,
-                "prompt": full_prompt,
-                "stream": False,
-                "options": ollama_options
-            },
-            timeout=600  # 10 minutes for large models like Qwen 32B/72B
-        )
-        
-        if response.status_code != 200:
-            raise Exception(f"Ollama returned status {response.status_code}")
-        
-        result = response.json()
-        generated_text = result.get('response', '')
-        tokens_generated = len(generated_text.split())  # Rough approximation
+        # Track inference with Prometheus metrics
+        with track_inference(MODEL_NAME, tier=tier) as inference_tracker:
+            response = http_session.post(
+                f"{OLLAMA_HOST}/api/generate",
+                json={
+                    "model": MODEL_NAME,
+                    "prompt": full_prompt,
+                    "stream": False,
+                    "options": ollama_options
+                },
+                timeout=600  # 10 minutes for large models like Qwen 32B/72B
+            )
+            
+            if response.status_code != 200:
+                inference_tracker.set_status('error')
+                raise Exception(f"Ollama returned status {response.status_code}")
+            
+            result = response.json()
+            generated_text = result.get('response', '')
+            tokens_generated = len(generated_text.split())  # Rough approximation
+            inference_tracker.set_tokens(tokens_generated)
         
         # Parse reasoning output if reasoning mode was enabled
         reasoning_result = None
@@ -752,16 +946,19 @@ def generate():
         
     except ValueError as e:
         metrics.record_request(False, 0, 0)
+        track_error('ValidationError', '/generate')
         logger.warning(f"Validation error: {e}")
         return jsonify({'error': str(e), 'provider_id': PROVIDER_ID}), 400
         
     except requests.Timeout:
         metrics.record_request(False, 0, 0)
+        track_error('TimeoutError', '/generate')
         logger.error("Ollama request timed out")
         return jsonify({'error': 'Request timeout', 'provider_id': PROVIDER_ID}), 504
         
     except Exception as e:
         metrics.record_request(False, 0, 0)
+        track_error('InferenceError', '/generate')
         logger.error(f"Generation error: {e}", exc_info=True)
         return jsonify({
             'error': f'Generation failed: {str(e)}',
@@ -1171,6 +1368,302 @@ def generate_agent():
 
 
 # ============================================================================
+# LANGGRAPH MULTI-AGENT GENERATION (V5.0)
+# ============================================================================
+
+@app.route('/generate/langgraph', methods=['POST'])
+@rate_limit
+def generate_langgraph():
+    """
+    LangGraph multi-agent generation with complexity routing and A/B experiments.
+    
+    V5.0 Features:
+    - StateGraph with specialized agents (Research, Reasoning, Coding)
+    - Supervisor agent for query routing
+    - Synthesis agent for combining outputs
+    - Observability integration for metrics
+    - A/B experiment integration (Phase 4)
+    - Parallel execution mode for comparison
+    
+    Mode routing:
+    - auto (default): Uses complexity analysis to decide
+        - Simple/Medium queries → Legacy agent pipeline
+        - Complex queries → LangGraph multi-agent
+    - langgraph: Force LangGraph pipeline
+    - legacy: Force legacy agent pipeline
+    - parallel: Run both pipelines and vote on best result
+    
+    Request JSON:
+        - prompt: user question (required)
+        - contextMemory: list of previous messages (optional)
+        - principal: user principal ID for memory lookup (optional)
+        - mode: "auto", "langgraph", "legacy", or "parallel" (default: "auto")
+    
+    Response JSON:
+        - response: final synthesized answer
+        - mode_used: which pipeline was actually used
+        - complexity: detected complexity level
+        - agents_invoked: list of agents that participated
+        - iterations: number of graph iterations
+        - model: which model was used
+        - provider_id: which provider generated this
+        - latency_ms: how long it took
+        - _experiments: (if experiments active) experiment assignments
+    """
+    from services.complexity import classify_complexity
+    from flask import g
+    
+    # Apply experiment assignments
+    try:
+        from middleware.ab_test import get_session_id, get_experiment_config, record_exposure
+        from services.experiments import assign_variant
+        
+        session_id = get_session_id()
+        
+        # Initialize experiments on request context
+        if not hasattr(g, 'experiments'):
+            g.experiments = {}
+        
+        # Assign experiments
+        for exp_name in ['agent_mode', 'complexity_threshold', 'reasoning_depth']:
+            variant = assign_variant(exp_name, session_id)
+            if variant:
+                g.experiments[exp_name] = {
+                    'variant': variant.name,
+                    'config': variant.config
+                }
+        
+        EXPERIMENTS_ENABLED = True
+    except ImportError:
+        EXPERIMENTS_ENABLED = False
+    
+    # Check if LangGraph is available
+    if not LANGGRAPH_AVAILABLE:
+        return jsonify({
+            'error': 'LangGraph not available',
+            'fallback': '/generate/agent is available'
+        }), 503
+    
+    # Check capacity
+    if metrics.active_requests >= MAX_QUEUE_SIZE:
+        return jsonify({'error': 'Server at capacity'}), 503
+    
+    metrics.start_request()
+    start_time = time.time()
+    tier = str(DEPLOYMENT_TIER) if DEPLOYMENT_TIER else 'unknown'
+    
+    try:
+        data = request.json
+        if not data:
+            raise ValueError("No JSON data provided")
+        
+        user_prompt = data.get('prompt', '')
+        context_memory = data.get('contextMemory', [])
+        principal = data.get('principal')
+        mode = data.get('mode', 'auto')  # auto, langgraph, legacy, parallel
+        
+        if not user_prompt:
+            return jsonify({'error': 'No prompt provided'}), 400
+        
+        # Analyze complexity
+        complexity = classify_complexity(user_prompt)
+        
+        # Check experiment overrides for mode
+        if EXPERIMENTS_ENABLED and mode == 'auto':
+            exp_mode = get_experiment_config('agent_mode', 'mode')
+            if exp_mode:
+                mode = exp_mode
+                logger.info(f"🧪 Experiment override: mode={mode}")
+        
+        # Handle parallel mode
+        if mode == 'parallel':
+            try:
+                from services.parallel import get_parallel_pipeline
+                
+                parallel_pipeline = get_parallel_pipeline(OLLAMA_HOST, MODEL_NAME)
+                
+                # Load user memory
+                user_memory = None
+                if principal:
+                    try:
+                        user_memory = load_user_memory(principal)
+                    except Exception:
+                        pass
+                
+                result = parallel_pipeline.process(
+                    question=user_prompt,
+                    context_messages=context_memory,
+                    user_memory=user_memory,
+                    complexity=complexity
+                )
+                
+                latency_ms = (time.time() - start_time) * 1000
+                metrics.record_request(True, 0, latency_ms)
+                
+                response_data = {
+                    'response': result.final_response,
+                    'mode_used': 'parallel',
+                    'winner': result.winner,
+                    'confidence': result.confidence,
+                    'voting_reason': result.voting_reason,
+                    'complexity': complexity,
+                    'agents_invoked': ['parallel_legacy', 'parallel_langgraph'],
+                    'iterations': 1,
+                    'model': MODEL_NAME,
+                    'provider_id': PROVIDER_ID,
+                    'latency_ms': latency_ms,
+                    'parallel_details': {
+                        'legacy_duration_ms': result.legacy_result.duration_seconds * 1000,
+                        'langgraph_duration_ms': result.langgraph_result.duration_seconds * 1000,
+                        'legacy_success': result.legacy_result.success,
+                        'langgraph_success': result.langgraph_result.success
+                    }
+                }
+                
+                # Add experiment info if available
+                if EXPERIMENTS_ENABLED and hasattr(g, 'experiments') and g.experiments:
+                    response_data['_experiments'] = {
+                        name: {'variant': data['variant']}
+                        for name, data in g.experiments.items()
+                    }
+                
+                return jsonify(response_data)
+                
+            except Exception as e:
+                logger.error(f"Parallel execution failed: {e}, falling back to auto")
+                mode = 'auto'  # Fallback to auto mode
+        
+        # Determine which pipeline to use
+        # should_use_langgraph(complexity, mode) -> bool
+        use_langgraph = should_use_langgraph(complexity, mode)
+        
+        mode_used = 'langgraph' if use_langgraph else 'legacy'
+        logger.info(f"🔀 LangGraph routing: complexity={complexity}, mode={mode}, use_langgraph={use_langgraph}")
+        
+        # If not using LangGraph, redirect to legacy agent
+        if not use_langgraph:
+            # Use existing agent pipeline
+            from services.agent import AgentPipeline
+            
+            # Load user memory if available
+            user_memory = None
+            if principal:
+                try:
+                    user_memory = load_user_memory(principal)
+                except Exception:
+                    pass
+            
+            pipeline = AgentPipeline(OLLAMA_HOST, MODEL_NAME)
+            result = pipeline.process(
+                question=user_prompt,
+                context_messages=context_memory,
+                user_memory=user_memory
+            )
+            
+            latency_ms = (time.time() - start_time) * 1000
+            metrics.record_request(True, 0, latency_ms)
+            
+            response_data = {
+                'response': result.final_answer,
+                'mode_used': 'legacy',
+                'complexity': complexity,
+                'agents_invoked': ['legacy_agent'],
+                'iterations': result.passes_used,
+                'model': MODEL_NAME,
+                'provider_id': PROVIDER_ID,
+                'latency_ms': latency_ms
+            }
+            
+            # Add experiment info if available
+            if EXPERIMENTS_ENABLED and hasattr(g, 'experiments') and g.experiments:
+                response_data['_experiments'] = {
+                    name: {'variant': data['variant']}
+                    for name, data in g.experiments.items()
+                }
+            
+            return jsonify(response_data)
+        
+        # Use LangGraph multi-agent pipeline
+        with track_inference(MODEL_NAME, tier=tier) as inference_tracker:
+            # Build context string from previous messages
+            context_str = ""
+            if context_memory:
+                recent_exchanges = context_memory[-6:]  # Last 6 messages
+                for ctx_msg in recent_exchanges:
+                    role = ctx_msg.get('role', 'user')
+                    content = ctx_msg.get('content', '')
+                    context_str += f"{role}: {content}\n"
+            
+            # Execute graph with user message and context
+            final_state = execute_graph(
+                user_message=user_prompt,
+                complexity=complexity,
+                max_iterations=5,
+                context={'prior_context': context_str} if context_str else None
+            )
+            
+            # Extract results
+            final_answer = final_state.get('final_answer', '')
+            iterations = final_state.get('iteration', 0)
+            tokens_generated = len(final_answer.split())
+            inference_tracker.set_tokens(tokens_generated)
+        
+        latency_ms = (time.time() - start_time) * 1000
+        metrics.record_request(True, tokens_generated, latency_ms)
+        
+        # Determine which agents were invoked from final state
+        agents_invoked = ['router']  # Always starts with router
+        if final_state.get('research_context'):
+            agents_invoked.append('research')
+        if final_state.get('reasoning_output'):
+            agents_invoked.append('reasoning')
+        if final_state.get('code_output'):
+            agents_invoked.append('coding')
+        agents_invoked.append('synthesis')  # Always ends with synthesis
+        
+        logger.info(f"✅ LangGraph complete: {tokens_generated} tokens, {iterations} iterations, {latency_ms:.0f}ms")
+        
+        response_data = {
+            'response': final_answer,
+            'mode_used': 'langgraph',
+            'complexity': complexity,
+            'agents_invoked': agents_invoked,
+            'iterations': iterations,
+            'model': MODEL_NAME,
+            'provider_id': PROVIDER_ID,
+            'latency_ms': latency_ms
+        }
+        
+        # Add experiment info if available
+        if EXPERIMENTS_ENABLED and hasattr(g, 'experiments') and g.experiments:
+            response_data['_experiments'] = {
+                name: {'variant': data['variant']}
+                for name, data in g.experiments.items()
+            }
+        
+        return jsonify(response_data)
+        
+    except ValueError as e:
+        metrics.record_request(False, 0, 0)
+        track_error('ValidationError', '/generate/langgraph')
+        logger.warning(f"Validation error: {e}")
+        return jsonify({'error': str(e), 'provider_id': PROVIDER_ID}), 400
+        
+    except Exception as e:
+        metrics.record_request(False, 0, 0)
+        track_error('LangGraphError', '/generate/langgraph')
+        logger.error(f"LangGraph generation error: {e}", exc_info=True)
+        return jsonify({
+            'error': f'LangGraph generation failed: {str(e)}',
+            'provider_id': PROVIDER_ID,
+            'fallback': '/generate/agent available'
+        }), 500
+        
+    finally:
+        metrics.end_request()
+
+
+# ============================================================================
 # WEB SEARCH & BROWSE TOOLS
 # ============================================================================
 
@@ -1473,112 +1966,114 @@ def search_and_summarize():
 @storage_rate_limit
 def autosave_chat():
     """Save chat - encrypts and uploads directly to IPFS via Lighthouse"""
-    try:
-        # Principal is set by @require_auth decorator
-        principal = request.principal
-        data = request.json
-        
-        # Privacy: Only log request metadata, not content
-        logger.debug(f'📥 Autosave request from {principal[:16]}...')
-        
-        chat_id = data.get('chatId')
-        messages = data.get('messages', [])
-        metadata = data.get('metadata', {})
-        
-        # Validate inputs
-        if not chat_id:
-            logger.error('❌ Missing chatId in autosave request')
-            return jsonify({'error': 'Missing chatId'}), 400
-        
-        if not validate_chat_id(chat_id):
-            logger.warning(f'⚠️ Invalid chatId format: {chat_id[:20]}...')
-            return jsonify({'error': 'Invalid chatId format'}), 400
-        
-        if not validate_principal_id(principal):
-            logger.warning(f'⚠️ Invalid principal format: {principal[:20]}...')
-            return jsonify({'error': 'Invalid principal format'}), 400
-        
-        # Privacy: Don't log metadata (may contain user-generated titles)
-        logger.debug(f'   chatId: {chat_id}, messages: {len(messages)}')
-        
-        # Prepare chat data for encryption
-        chat_data = {
-            'chatId': chat_id,
-            'messages': messages,
-            'metadata': metadata,
-            'principal': principal,  # Include for verification on restore
-            'savedAt': int(time.time() * 1000)
-        }
-        
-        # Encrypt content
-        encrypted = EncryptionUtils.encrypt_chat(chat_data, principal)
-        encrypted_json = json.dumps(encrypted)
-        
-        # ==========================================
-        # UPLOAD TO IPFS (Primary Storage)
-        # IPFS is the source of truth - no local disk cache
-        # ==========================================
-        lighthouse_filename = f"{principal[:16]}_{chat_id}.json"
-        cid = upload_to_ipfs(
-            encrypted_json.encode('utf-8'),
-            lighthouse_filename,
-            principal_id=principal
-        )
-        
-        if not cid:
-            logger.error(f'❌ IPFS upload failed for chat {chat_id[:8]}')
-            return jsonify({'success': False, 'error': 'IPFS upload failed'}), 500
-        
-        logger.info(f'☁️  Saved to IPFS: {cid[:16]}...')
-        
-        # Update metadata with CID for later retrieval
-        user_metadata = load_metadata(principal)
-        
-        # Find or create chat entry in metadata
-        chat_entry = next((c for c in user_metadata['chats'] if c['chatId'] == chat_id), None)
-        if not chat_entry:
-            chat_entry = {
-                'chatId': chat_id,
-                'title': metadata.get('title', 'Untitled'),
-                'createdAt': int(time.time() * 1000),
-                'isArchived': False
-            }
-            user_metadata['chats'].append(chat_entry)
-        
-        chat_entry['lastUpdated'] = metadata.get('updatedAt', int(time.time() * 1000))
-        chat_entry['messageCount'] = len(messages)
-        if cid:
-            chat_entry['cid'] = cid  # Store CID for retrieval after redeploy
-        
-        save_metadata(principal, user_metadata)
-        
-        # Also sync metadata to IPFS (so we can restore chat list)
+    with track_storage('autosave_chat'):
         try:
-            metadata_filename = f"{principal[:16]}_metadata.json"
-            metadata_encrypted = EncryptionUtils.encrypt_chat(user_metadata, principal)
-            upload_to_ipfs(
-                json.dumps(metadata_encrypted).encode('utf-8'),
-                metadata_filename,
-                principal_id=principal,
-                is_master_bundle=True
+            # Principal is set by @require_auth decorator
+            principal = request.principal
+            data = request.json
+            
+            # Privacy: Only log request metadata, not content
+            logger.debug(f'📥 Autosave request from {principal[:16]}...')
+            
+            chat_id = data.get('chatId')
+            messages = data.get('messages', [])
+            metadata = data.get('metadata', {})
+            
+            # Validate inputs
+            if not chat_id:
+                logger.error('❌ Missing chatId in autosave request')
+                return jsonify({'error': 'Missing chatId'}), 400
+            
+            if not validate_chat_id(chat_id):
+                logger.warning(f'⚠️ Invalid chatId format: {chat_id[:20]}...')
+                return jsonify({'error': 'Invalid chatId format'}), 400
+            
+            if not validate_principal_id(principal):
+                logger.warning(f'⚠️ Invalid principal format: {principal[:20]}...')
+                return jsonify({'error': 'Invalid principal format'}), 400
+            
+            # Privacy: Don't log metadata (may contain user-generated titles)
+            logger.debug(f'   chatId: {chat_id}, messages: {len(messages)}')
+            
+            # Prepare chat data for encryption
+            chat_data = {
+                'chatId': chat_id,
+                'messages': messages,
+                'metadata': metadata,
+                'principal': principal,  # Include for verification on restore
+                'savedAt': int(time.time() * 1000)
+            }
+            
+            # Encrypt content
+            encrypted = EncryptionUtils.encrypt_chat(chat_data, principal)
+            encrypted_json = json.dumps(encrypted)
+            
+            # ==========================================
+            # UPLOAD TO IPFS (Primary Storage)
+            # IPFS is the source of truth - no local disk cache
+            # ==========================================
+            lighthouse_filename = f"{principal[:16]}_{chat_id}.json"
+            cid = upload_to_ipfs(
+                encrypted_json.encode('utf-8'),
+                lighthouse_filename,
+                principal_id=principal
             )
-        except Exception as meta_sync_error:
-            logger.warning(f'⚠️  Metadata sync failed: {meta_sync_error}')
+            
+            if not cid:
+                logger.error(f'❌ IPFS upload failed for chat {chat_id[:8]}')
+                return jsonify({'success': False, 'error': 'IPFS upload failed'}), 500
+            
+            logger.info(f'☁️  Saved to IPFS: {cid[:16]}...')
+            
+            # Update metadata with CID for later retrieval
+            user_metadata = load_metadata(principal)
+            
+            # Find or create chat entry in metadata
+            chat_entry = next((c for c in user_metadata['chats'] if c['chatId'] == chat_id), None)
+            if not chat_entry:
+                chat_entry = {
+                    'chatId': chat_id,
+                    'title': metadata.get('title', 'Untitled'),
+                    'createdAt': int(time.time() * 1000),
+                    'isArchived': False
+                }
+                user_metadata['chats'].append(chat_entry)
+            
+            chat_entry['lastUpdated'] = metadata.get('updatedAt', int(time.time() * 1000))
+            chat_entry['messageCount'] = len(messages)
+            if cid:
+                chat_entry['cid'] = cid  # Store CID for retrieval after redeploy
+            
+            save_metadata(principal, user_metadata)
+            
+            # Also sync metadata to IPFS (so we can restore chat list)
+            try:
+                metadata_filename = f"{principal[:16]}_metadata.json"
+                metadata_encrypted = EncryptionUtils.encrypt_chat(user_metadata, principal)
+                upload_to_ipfs(
+                    json.dumps(metadata_encrypted).encode('utf-8'),
+                    metadata_filename,
+                    principal_id=principal,
+                    is_master_bundle=True
+                )
+            except Exception as meta_sync_error:
+                logger.warning(f'⚠️  Metadata sync failed: {meta_sync_error}')
+            
+            # Privacy: Single minimal log line for successful autosave
+            logger.info(f'💾 Autosaved chat {chat_id[:8]}... ({len(messages)} msgs)')
+            
+            return jsonify({
+                'success': True,
+                'chatId': chat_id,
+                'savedAt': int(time.time() * 1000),
+                'cid': cid,  # Return CID to frontend
+                'nextAutoDeleteAt': int(time.time() * 1000) + (7 * 24 * 60 * 60 * 1000)
+            })
         
-        # Privacy: Single minimal log line for successful autosave
-        logger.info(f'💾 Autosaved chat {chat_id[:8]}... ({len(messages)} msgs)')
-        
-        return jsonify({
-            'success': True,
-            'chatId': chat_id,
-            'savedAt': int(time.time() * 1000),
-            'cid': cid,  # Return CID to frontend
-            'nextAutoDeleteAt': int(time.time() * 1000) + (7 * 24 * 60 * 60 * 1000)
-        })
-    
-    except Exception as e:
-        logger.error(f'❌ Autosave error: {e}', exc_info=True)
-        return jsonify({'success': False, 'error': str(e)}), 500
+        except Exception as e:
+            track_error('StorageError', '/chat/autosave')
+            logger.error(f'❌ Autosave error: {e}', exc_info=True)
+            return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/chat/list', methods=['GET'])
 @require_auth
