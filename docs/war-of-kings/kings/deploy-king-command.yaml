@@ -1,0 +1,82 @@
+version: "2.0"
+
+# ============================================================================
+# WAR OF THE KINGS: Command Commander (command-r-plus:104b)
+# ============================================================================
+# 
+# Cohere's enterprise RAG & agentic specialist
+# Strongest at: Tool use, RAG, multi-step agentic tasks, citation
+# Architecture: 104B parameters, optimized for grounded generation
+# Requires: A100 80GB or H100
+# Cost: ~$1.50-2.00/hour
+#
+# ============================================================================
+
+services:
+  trinity:
+    image: gdubx/trinity-inference:v4-intelligence
+    env:
+      - PROVIDER_ID=king-command
+      - MODEL_NAME=command-r-plus:104b
+      - MODEL_BACKEND=ollama
+      - GPU_TYPE=A100-80GB
+      - MAX_QUEUE_SIZE=5
+      - OLLAMA_HOST=http://localhost:11434
+      # Disable multi-model for pure benchmark
+      - MULTI_MODEL_ENABLED=false
+      - FAST_MODEL=command-r-plus:104b
+      - SMART_MODEL=command-r-plus:104b
+      - REASONING_MODEL=command-r-plus:104b
+      # RAG & Semantic Memory
+      - EMBEDDING_MODEL=BAAI/bge-small-en-v1.5
+      - RAG_TOP_K=5
+      - CODE_EXECUTION_ENABLED=true
+      - CODE_EXECUTION_TIMEOUT=5
+      - VOTING_ENABLED=false
+      # API Keys
+      - LIGHTHOUSE_API_KEY=${LIGHTHOUSE_API_KEY}
+      - BRAVE_SEARCH_API_KEY=${BRAVE_SEARCH_API_KEY}
+      # King identification
+      - DEPLOYMENT_TIER=KING
+      - DEPLOYMENT_TIER_NAME=Command-Commander
+      - HOURLY_COST_AKT=1.75
+    expose:
+      - port: 8000
+        as: 80
+        to:
+          - global: true
+        http_options:
+          read_timeout: 120000
+          send_timeout: 120000
+          max_body_size: 52428800
+
+profiles:
+  compute:
+    trinity:
+      resources:
+        cpu:
+          units: 8
+        memory:
+          size: 96Gi
+        storage:
+          size: 150Gi
+        gpu:
+          units: 1
+          attributes:
+            vendor:
+              nvidia:
+                - model: a100
+                  ram: 80Gi
+
+  placement:
+    akash:
+      pricing:
+        trinity:
+          denom: uakt
+          amount: 150000
+
+deployment:
+  trinity:
+    akash:
+      profile: trinity
+      count: 1

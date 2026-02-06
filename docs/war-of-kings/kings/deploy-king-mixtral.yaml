@@ -1,0 +1,82 @@
+version: "2.0"
+
+# ============================================================================
+# WAR OF THE KINGS: Mixtral Maven (mixtral:8x22b)
+# ============================================================================
+# 
+# Mistral AI's MoE efficiency champion
+# Strongest at: Speed/quality balance, multilingual, general tasks
+# Architecture: 8 experts × 22B = 141B total, ~39B active
+# Requires: A100 80GB or H100
+# Cost: ~$1.50-2.00/hour
+#
+# ============================================================================
+
+services:
+  trinity:
+    image: gdubx/trinity-inference:v4-intelligence
+    env:
+      - PROVIDER_ID=king-mixtral
+      - MODEL_NAME=mixtral:8x22b
+      - MODEL_BACKEND=ollama
+      - GPU_TYPE=A100-80GB
+      - MAX_QUEUE_SIZE=5
+      - OLLAMA_HOST=http://localhost:11434
+      # Disable multi-model for pure benchmark
+      - MULTI_MODEL_ENABLED=false
+      - FAST_MODEL=mixtral:8x22b
+      - SMART_MODEL=mixtral:8x22b
+      - REASONING_MODEL=mixtral:8x22b
+      # RAG & Semantic Memory
+      - EMBEDDING_MODEL=BAAI/bge-small-en-v1.5
+      - RAG_TOP_K=5
+      - CODE_EXECUTION_ENABLED=true
+      - CODE_EXECUTION_TIMEOUT=5
+      - VOTING_ENABLED=false
+      # API Keys
+      - LIGHTHOUSE_API_KEY=${LIGHTHOUSE_API_KEY}
+      - BRAVE_SEARCH_API_KEY=${BRAVE_SEARCH_API_KEY}
+      # King identification
+      - DEPLOYMENT_TIER=KING
+      - DEPLOYMENT_TIER_NAME=Mixtral-Maven
+      - HOURLY_COST_AKT=1.75
+    expose:
+      - port: 8000
+        as: 80
+        to:
+          - global: true
+        http_options:
+          read_timeout: 120000
+          send_timeout: 120000
+          max_body_size: 52428800
+
+profiles:
+  compute:
+    trinity:
+      resources:
+        cpu:
+          units: 8
+        memory:
+          size: 96Gi
+        storage:
+          size: 150Gi
+        gpu:
+          units: 1
+          attributes:
+            vendor:
+              nvidia:
+                - model: a100
+                  ram: 80Gi
+
+  placement:
+    akash:
+      pricing:
+        trinity:
+          denom: uakt
+          amount: 150000
+
+deployment:
+  trinity:
+    akash:
+      profile: trinity
+      count: 1
