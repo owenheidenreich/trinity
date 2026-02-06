@@ -19,7 +19,8 @@
 #
 # ═══════════════════════════════════════════════════════════════════════════════
 
-set -e
+# NOTE: Do NOT use 'set -e' - we want to continue even when requests fail!
+# Every failure is captured in JSON for later analysis.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RESULTS_BASE="$SCRIPT_DIR/../results/overnight"
