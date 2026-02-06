@@ -164,19 +164,27 @@ All three kings run on **A100-80GB GPUs** via Akash Network:
 - [x] All battle spec files ready
 - [x] All prompt files with curl commands
 - [x] FINAL-RANKINGS.md template ready
+- [x] Claude judge prompt template ready
 
 ### Infrastructure Ready
 - [x] All 3 kings deployed on Akash
 - [x] A100-80GB GPUs allocated
 - [x] Endpoints accessible via HTTPS/HTTP
-- [ ] Models fully downloaded and loaded
+- [ ] Models fully downloaded and loaded (~4-5 hours from deploy)
 - [ ] Health endpoints returning 200
 
-### Execution Environment Ready
-- [x] Terminal sessions available
-- [x] curl installed and working
-- [x] Network connectivity verified
-- [ ] Results recording system ready
+### Execution Scripts Ready
+- [x] `execute/run-war.sh` - Master commander (status/warmup/full)
+- [x] `execute/battle1-iq-test.sh` - 25 IQ questions with JSON output
+- [x] `execute/battle2-general-spam.sh` - Throughput stress test
+- [x] `execute/battle3-complex-spam.sh` - Complex reasoning stress
+- [x] `prompts/claude-judge-prompt.md` - Analysis template for Claude
+
+### Output Structure Ready
+- [x] `results/raw/qwen/battle1-iq/` - Qwen IQ responses
+- [x] `results/raw/qwen/battle2-general/` - Qwen throughput data
+- [x] `results/raw/qwen/battle3-complex/` - Qwen stress responses
+- [x] Same structure for llama/ and mixtral/
 
 ---
 
@@ -201,32 +209,45 @@ All three kings run on **A100-80GB GPUs** via Akash Network:
 
 ---
 
-## 🎯 QUICK REFERENCE COMMANDS
+## 🎯 QUICK EXECUTION COMMANDS
 
-### Health Check All Kings
+### ONE COMMAND TO RULE THEM ALL
 ```bash
-# Qwen Emperor
-curl -s "https://sptj5nup2lc939i2h4bhq532gs.ingress.quanglong.org/health"
+# Check status
+./docs/war-of-kings/execute/run-war.sh status
 
-# Llama Lord  
-curl -s "http://56oqg7o6n9fu53ijan3udmmb5o.ingress.h4i-dedicated.eu-sw-2.digitalfrontier.so/health"
+# Run full tournament (all 3 battles)
+./docs/war-of-kings/execute/run-war.sh full
 
-# Mixtral Maven
-curl -s "https://bnivii01v9bcbchrqtej5pmd0k.ingress.4090.akashgpu.com/health"
+# Export results for Claude analysis
+./docs/war-of-kings/execute/run-war.sh export
 ```
 
-### Warmup Test (Simple)
+### Individual Battle Commands
 ```bash
-curl -X POST "ENDPOINT/generate" \
-  -H "Content-Type: application/json" \
-  -d '{"model": "MODEL_NAME", "prompt": "Say hello!", "stream": false}'
+# Battle 1: IQ Test (25 questions)
+./docs/war-of-kings/execute/battle1-iq-test.sh all
+
+# Battle 2: General Spam (throughput)
+./docs/war-of-kings/execute/battle2-general-spam.sh all
+
+# Battle 3: Complex Spam (stress)
+./docs/war-of-kings/execute/battle3-complex-spam.sh all
 ```
 
-### IQ Test (Example)
+### Test Single King
 ```bash
-curl -X POST "ENDPOINT/generate" \
-  -H "Content-Type: application/json" \
-  -d '{"model": "MODEL_NAME", "prompt": "What is 15% of 240?", "stream": false}'
+./docs/war-of-kings/execute/battle1-iq-test.sh qwen
+./docs/war-of-kings/execute/battle2-general-spam.sh llama 25
+./docs/war-of-kings/execute/battle3-complex-spam.sh mixtral 50
+```
+
+### Manual Health Check
+```bash
+# Quick status
+curl -s "https://sptj5nup2lc939i2h4bhq532gs.ingress.quanglong.org/health"  # Qwen
+curl -s "http://56oqg7o6n9fu53ijan3udmmb5o.ingress.h4i-dedicated.eu-sw-2.digitalfrontier.so/health"  # Llama
+curl -s "https://bnivii01v9bcbchrqtej5pmd0k.ingress.4090.akashgpu.com/health"  # Mixtral
 ```
 
 ---
