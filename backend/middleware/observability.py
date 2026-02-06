@@ -22,9 +22,10 @@ Usage:
 
 import functools
 import logging
+import threading
 import time
 from contextlib import contextmanager
-from typing import Callable
+from typing import Callable, Dict
 
 logger = logging.getLogger(__name__)
 
@@ -762,6 +763,117 @@ def set_uptime(seconds: float):
     UPTIME_SECONDS.set(seconds)
 
 
+# Global tracking for legacy metrics compatibility
+_start_time = time.time()
+_total_requests = 0
+_successful_requests = 0
+_failed_requests = 0
+_total_tokens_generated = 0
+_total_latency_ms = 0
+_active_requests = 0
+_metrics_lock = threading.Lock()
+
+
+def start_request():
+    """Increment active request counter (legacy compatibility)"""
+    global _active_requests
+    with _metrics_lock:
+        _active_requests += 1
+
+
+def end_request():
+    """Decrement active request counter (legacy compatibility)"""
+    global _active_requests
+    with _metrics_lock:
+        _active_requests = max(0, _active_requests - 1)
+
+
+def record_request(success: bool, tokens: int = 0, latency_ms: float = 0):
+    """Record metrics for a completed request (legacy compatibility)"""
+    global _total_requests, _successful_requests, _failed_requests
+    global _total_tokens_generated, _total_latency_ms
+
+    with _metrics_lock:
+        _total_requests += 1
+        if success:
+            _successful_requests += 1
+            _total_tokens_generated += tokens
+            _total_latency_ms += latency_ms
+        else:
+            _failed_requests += 1
+
+
+def get_active_requests() -> int:
+    """Get current active request count"""
+    with _metrics_lock:
+        return _active_requests
+
+
+def get_prometheus_summary() -> Dict:
+    """
+    Generate summary metrics for /health endpoint.
+    Replaces services.metrics.get_stats() with Prometheus-compatible data.
+
+    Returns dict compatible with legacy metrics.get_stats():
+        - total_requests
+        - successful_requests
+        - failed_requests
+        - success_rate
+        - total_tokens_generated
+        - avg_latency_ms
+        - active_requests
+        - uptime_seconds
+    """
+    global _total_requests, _successful_requests, _failed_requests
+    global _total_tokens_generated, _total_latency_ms, _active_requests, _start_time
+
+    with _metrics_lock:
+        uptime = time.time() - _start_time
+        avg_latency = (
+            _total_latency_ms / _successful_requests if _successful_requests > 0 else 0
+        )
+
+        return {
+            "total_requests": _total_requests,
+            "successful_requests": _successful_requests,
+            "failed_requests": _failed_requests,
+            "success_rate": (
+                _successful_requests / _total_requests * 100
+                if _total_requests > 0
+                else 100
+            ),
+            "total_tokens_generated": _total_tokens_generated,
+            "avg_latency_ms": avg_latency,
+            "active_requests": _active_requests,
+            "uptime_seconds": uptime,
+        }
+
+
+def get_system_info() -> Dict:
+    """
+    Get system resource information (CPU, memory).
+    Moved from services.metrics for consolidation.
+    """
+    try:
+        import psutil
+
+        cpu_percent = psutil.cpu_percent(interval=0.1)
+        memory = psutil.virtual_memory()
+
+        return {
+            "cpu_percent": cpu_percent,
+            "memory_percent": memory.percent,
+            "memory_available_mb": memory.available / (1024 * 1024),
+        }
+    except ImportError:
+        logger.warning("psutil not installed - system metrics unavailable")
+        return {
+            "cpu_percent": 0,
+            "memory_percent": 0,
+            "memory_available_mb": 0,
+        }
+
+
 def get_metrics_response():
     """
     Generate Prometheus metrics response for /metrics endpoint.
@@ -836,6 +948,13 @@ __all__ = [
     "record_complexity",
     "record_routing",
     "record_voting",
+    # Legacy metrics compatibility (Phase 5.5A migration)
+    "start_request",
+    "end_request",
+    "record_request",
+    "get_active_requests",
+    "get_prometheus_summary",
+    "get_system_info",
     # Fallback class (for testing)
     "NoOpMetric",
 ]

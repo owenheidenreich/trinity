@@ -51,9 +51,15 @@ from lighthouse import download_from_ipfs, get_lighthouse_uploads, upload_to_ipf
 
 # Import new modular middleware and services
 from middleware import (
+    end_request,
+    get_active_requests,
     get_metrics_response,
+    get_prometheus_summary,
+    get_system_info,
     icp_idempotent,
     rate_limit,
+    record_request,
+    start_request,
     storage_rate_limit,
     track_error,
     track_inference,
@@ -71,7 +77,6 @@ from services import (  # Akash services
     SESSION_ID,
     SESSION_TYPE,
     TRINITY_SYSTEM_PROMPT,
-    MetricsCollector,
     build_prompt_with_context,
     build_reasoning_prompt,
     check_ollama_connection,
@@ -79,9 +84,7 @@ from services import (  # Akash services
     get_akash_deployment_info,
     get_akt_price_usd,
     get_escrow_balance,
-    get_system_info,
     is_small_model,
-    metrics,
     parse_reasoning_response,
     warmup_model,
 )
@@ -257,7 +260,7 @@ def cleanup_document_store():
 
 
 # Note: Validation functions now in validation.py
-# Note: MetricsCollector, metrics, get_system_info now imported from services.metrics
+# Note: Metrics now consolidated in middleware.observability (Phase 5.5A migration)
 # Note: ICPIdempotencyCache, icp_cache, icp_idempotent now imported from middleware.icp_cache
 # Note: check_ollama_connection, warmup_model now imported from services.ollama
 # Note: Akash functions now in services.akash
@@ -282,12 +285,13 @@ def health():
     """
     ollama_healthy = check_ollama_connection()
     system_info = get_system_info()
-    stats = metrics.get_stats()
+    stats = get_prometheus_summary()
+    active_reqs = get_active_requests()
 
     # Determine overall health
     is_healthy = (
         ollama_healthy
-        and metrics.active_requests < MAX_QUEUE_SIZE
+        and active_reqs < MAX_QUEUE_SIZE
         and system_info["memory_percent"] < 95
     )
 
@@ -302,7 +306,7 @@ def health():
             "build_timestamp": BUILD_TIMESTAMP,
             "system": system_info,
             "metrics": stats,
-            "queue_size": metrics.active_requests,
+            "queue_size": active_reqs,
             "max_queue_size": MAX_QUEUE_SIZE,
             "features": {
                 "v4_intelligence": V4_FEATURES_AVAILABLE,
@@ -851,14 +855,15 @@ def generate():
     """
 
     # Check if server is at capacity
-    if metrics.active_requests >= MAX_QUEUE_SIZE:
-        logger.warning(f"Server at capacity: {metrics.active_requests}/{MAX_QUEUE_SIZE}")
+    active_reqs = get_active_requests()
+    if active_reqs >= MAX_QUEUE_SIZE:
+        logger.warning(f"Server at capacity: {active_reqs}/{MAX_QUEUE_SIZE}")
         track_error("CapacityError", "/generate")
         return (
             jsonify(
                 {
                     "error": "Server at capacity",
-                    "queue_size": metrics.active_requests,
+                    "queue_size": active_reqs,
                     "max_queue_size": MAX_QUEUE_SIZE,
                     "provider_id": PROVIDER_ID,
                 }
@@ -866,7 +871,7 @@ def generate():
             503,
         )
 
-    metrics.start_request()
+    start_request()
     start_time = time.time()
 
     # Get deployment tier for metrics
@@ -1001,7 +1006,7 @@ def generate():
         tokens_generated = len(generated_text.split())  # Rough approximation
 
         # Record success
-        metrics.record_request(True, tokens_generated, latency_ms)
+        record_request(True, tokens_generated, latency_ms)
 
         logger.info(f"[{PROVIDER_ID}] Generated {tokens_generated} tokens in {latency_ms:.0f}ms")
 
@@ -1034,25 +1039,25 @@ def generate():
         return jsonify(response_data)
 
     except ValueError as e:
-        metrics.record_request(False, 0, 0)
+        record_request(False, 0, 0)
         track_error("ValidationError", "/generate")
         logger.warning(f"Validation error: {e}")
         return jsonify({"error": str(e), "provider_id": PROVIDER_ID}), 400
 
     except requests.Timeout:
-        metrics.record_request(False, 0, 0)
+        record_request(False, 0, 0)
         track_error("TimeoutError", "/generate")
         logger.error("Ollama request timed out")
         return jsonify({"error": "Request timeout", "provider_id": PROVIDER_ID}), 504
 
     except Exception as e:
-        metrics.record_request(False, 0, 0)
+        record_request(False, 0, 0)
         track_error("InferenceError", "/generate")
         logger.error(f"Generation error: {e}", exc_info=True)
         return jsonify({"error": f"Generation failed: {str(e)}", "provider_id": PROVIDER_ID}), 500
 
     finally:
-        metrics.end_request()
+        end_request()
 
 
 # ============================================================================
@@ -1203,10 +1208,10 @@ def generate_stream():
     from flask import Response, stream_with_context
 
     # Check capacity
-    if metrics.active_requests >= MAX_QUEUE_SIZE:
+    if get_active_requests() >= MAX_QUEUE_SIZE:
         return jsonify({"error": "Server at capacity"}), 503
 
-    metrics.start_request()
+    start_request()
 
     try:
         data = request.json
@@ -1288,13 +1293,13 @@ def generate_stream():
                         except json.JSONDecodeError:
                             continue
 
-                metrics.record_request(True, len(full_response.split()), 0)
+                record_request(True, len(full_response.split()), 0)
 
             except Exception as e:
                 logger.error(f"Streaming error: {e}")
                 yield f"data: {json.dumps({'error': str(e)})}\n\n"
             finally:
-                metrics.end_request()
+                end_request()
 
         return Response(
             stream_with_context(generate_sse()),
@@ -1307,7 +1312,7 @@ def generate_stream():
         )
 
     except Exception as e:
-        metrics.end_request()
+        end_request()
         logger.error(f"Stream setup error: {e}")
         return jsonify({"error": str(e)}), 500
 
@@ -1351,10 +1356,10 @@ def generate_agent():
     from services.agent import AgentPipeline
 
     # Check capacity
-    if metrics.active_requests >= MAX_QUEUE_SIZE:
+    if get_active_requests() >= MAX_QUEUE_SIZE:
         return jsonify({"error": "Server at capacity"}), 503
 
-    metrics.start_request()
+    start_request()
 
     try:
         data = request.json
@@ -1424,7 +1429,7 @@ def generate_agent():
                 ):
                     yield f"data: {json.dumps(event)}\n\n"
 
-                metrics.record_request(True, 0, 0)
+                record_request(True, 0, 0)
 
                 # V4.0: Index the interaction for future retrieval
                 if V4_FEATURES_AVAILABLE and principal:
@@ -1440,7 +1445,7 @@ def generate_agent():
                 logger.error(f"Agent streaming error: {e}")
                 yield f"data: {json.dumps({'error': str(e)})}\n\n"
             finally:
-                metrics.end_request()
+                end_request()
 
         return Response(
             stream_with_context(generate_sse()),
@@ -1453,7 +1458,7 @@ def generate_agent():
         )
 
     except Exception as e:
-        metrics.end_request()
+        end_request()
         logger.error(f"Agent setup error: {e}")
         return jsonify({"error": str(e)}), 500
 
@@ -1536,10 +1541,10 @@ def generate_langgraph():
         )
 
     # Check capacity
-    if metrics.active_requests >= MAX_QUEUE_SIZE:
+    if get_active_requests() >= MAX_QUEUE_SIZE:
         return jsonify({"error": "Server at capacity"}), 503
 
-    metrics.start_request()
+    start_request()
     start_time = time.time()
     tier = str(DEPLOYMENT_TIER) if DEPLOYMENT_TIER else "unknown"
 
@@ -1589,7 +1594,7 @@ def generate_langgraph():
                 )
 
                 latency_ms = (time.time() - start_time) * 1000
-                metrics.record_request(True, 0, latency_ms)
+                record_request(True, 0, latency_ms)
 
                 response_data = {
                     "response": result.final_response,
@@ -1651,7 +1656,7 @@ def generate_langgraph():
             )
 
             latency_ms = (time.time() - start_time) * 1000
-            metrics.record_request(True, 0, latency_ms)
+            record_request(True, 0, latency_ms)
 
             response_data = {
                 "response": result.final_answer,
@@ -1698,7 +1703,7 @@ def generate_langgraph():
             inference_tracker.set_tokens(tokens_generated)
 
         latency_ms = (time.time() - start_time) * 1000
-        metrics.record_request(True, tokens_generated, latency_ms)
+        record_request(True, tokens_generated, latency_ms)
 
         # Determine which agents were invoked from final state
         agents_invoked = ["router"]  # Always starts with router
@@ -1734,13 +1739,13 @@ def generate_langgraph():
         return jsonify(response_data)
 
     except ValueError as e:
-        metrics.record_request(False, 0, 0)
+        record_request(False, 0, 0)
         track_error("ValidationError", "/generate/langgraph")
         logger.warning(f"Validation error: {e}")
         return jsonify({"error": str(e), "provider_id": PROVIDER_ID}), 400
 
     except Exception as e:
-        metrics.record_request(False, 0, 0)
+        record_request(False, 0, 0)
         track_error("LangGraphError", "/generate/langgraph")
         logger.error(f"LangGraph generation error: {e}", exc_info=True)
         return (
@@ -1755,7 +1760,7 @@ def generate_langgraph():
         )
 
     finally:
-        metrics.end_request()
+        end_request()
 
 
 # ============================================================================
@@ -3301,7 +3306,7 @@ def stats():
             "provider_id": PROVIDER_ID,
             "model": MODEL_NAME,
             "gpu_type": GPU_TYPE,
-            "metrics": metrics.get_stats(),
+            "metrics": get_prometheus_summary(),
             "system": get_system_info(),
             "config": {
                 "ollama_host": OLLAMA_HOST,

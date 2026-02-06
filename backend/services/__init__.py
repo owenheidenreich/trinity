@@ -64,7 +64,6 @@ from .experiments import (
 )
 from .loading_messages import format_phase_update, get_loading_message, get_loading_sequence
 from .memory import SemanticMemory, build_enhanced_context, get_semantic_memory
-from .metrics import MetricsCollector, get_system_info, metrics
 from .ollama import call_ollama, check_ollama_connection, warmup_model
 from .parallel import (
     ParallelAgentPipeline,
@@ -95,9 +94,6 @@ from .vector_store import VectorStore, get_user_vector_store, get_vector_store
 from .voting import VotingResult, run_voting_pipeline, should_use_voting
 
 __all__ = [
-    "MetricsCollector",
-    "metrics",
-    "get_system_info",
     "TRINITY_SYSTEM_PROMPT",
     "REASONING_SYSTEM_PROMPT",
     "build_prompt_with_context",
