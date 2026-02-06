@@ -165,12 +165,18 @@ setup_directories() {
     mkdir -p "$RESULTS_DIR/mixtral/complex"
     mkdir -p "$RESULTS_DIR/stats"
     mkdir -p "$RESULTS_DIR/errors"
+    mkdir -p "$RESULTS_DIR/raw"  # Raw response backup
+    
+    # Initialize master event log
+    MASTER_LOG="$RESULTS_DIR/master_event_log.jsonl"
+    touch "$MASTER_LOG"
     
     log "Created results directory structure: $RESULTS_DIR"
+    log "Master event log: $MASTER_LOG"
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# CORE REQUEST FUNCTION - Captures EVERYTHING
+# CORE REQUEST FUNCTION - Captures EVERYTHING (Moon Landing Edition)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 send_request() {
@@ -185,33 +191,42 @@ send_request() {
     
     local timestamp=$(date +%Y%m%d_%H%M%S_%N)
     local output_file="$output_dir/${request_num}_${timestamp}.json"
+    local raw_file="$RESULTS_DIR/raw/${king}_${phase}_${request_num}_${timestamp}.raw"
     local error_file="$RESULTS_DIR/errors/${king}_${phase}_${request_num}_${timestamp}.err"
     
     local start_time=$(date +%s.%N)
+    local start_iso=$(date -Iseconds)
     
-    # Escape prompt for JSON
-    local escaped_prompt=$(printf '%s' "$prompt" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))' 2>/dev/null || echo "\"$prompt\"")
+    # Escape prompt for JSON (bulletproof method)
+    local escaped_prompt=$(printf '%s' "$prompt" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))' 2>/dev/null || echo "\"${prompt//\"/\\\"}\"")
+    
+    # Build the request payload and save it
+    local request_payload="{
+        \"model\": \"$model\",
+        \"prompt\": $escaped_prompt,
+        \"stream\": false,
+        \"options\": {
+            \"num_predict\": 2000,
+            \"temperature\": 0.3
+        }
+    }"
     
     # Make request capturing ALL data including errors
     local response
-    local curl_exit_code
+    local curl_exit_code=0
     
     response=$(curl -s -w '\n___CURL_STATS___\n{"http_code":"%{http_code}","time_total":%{time_total},"time_connect":%{time_connect},"time_starttransfer":%{time_starttransfer},"size_download":%{size_download},"speed_download":%{speed_download}}' \
         --max-time "$timeout" \
         -X POST "$url/generate" \
         -H "Content-Type: application/json" \
-        -d "{
-            \"model\": \"$model\",
-            \"prompt\": $escaped_prompt,
-            \"stream\": false,
-            \"options\": {
-                \"num_predict\": 2000,
-                \"temperature\": 0.3
-            }
-        }" 2>"$error_file") || curl_exit_code=$?
+        -d "$request_payload" 2>"$error_file") || curl_exit_code=$?
     
     local end_time=$(date +%s.%N)
+    local end_iso=$(date -Iseconds)
     local elapsed=$(echo "$end_time - $start_time" | bc 2>/dev/null || echo "0")
+    
+    # ALWAYS save raw response first (before any parsing)
+    echo "$response" > "$raw_file"
     
     # Parse response - split by our marker
     local curl_stats=""
@@ -230,10 +245,17 @@ send_request() {
         body='{"error":"empty_response"}'
     fi
     
+    # Validate body is JSON, if not wrap it safely
+    if ! echo "$body" | python3 -c "import json,sys; json.load(sys.stdin)" 2>/dev/null; then
+        # Body is not valid JSON - escape it as a string
+        local escaped_body=$(printf '%s' "$body" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))' 2>/dev/null || echo '"parse_error"')
+        body="{\"raw_text\": $escaped_body, \"parse_error\": true}"
+    fi
+    
     # Check for curl errors
     local stderr_content=""
     if [ -s "$error_file" ]; then
-        stderr_content=$(cat "$error_file" | tr '\n' ' ' | tr '"' "'")
+        stderr_content=$(cat "$error_file" | tr '\n' ' ' | tr '"' "'" | tr -d '\r')
     else
         rm -f "$error_file" 2>/dev/null
     fi
@@ -250,9 +272,17 @@ send_request() {
         "phase": "$phase",
         "request_num": $request_num,
         "timestamp": "$timestamp",
+        "start_time": "$start_iso",
+        "end_time": "$end_iso",
         "elapsed_seconds": $elapsed,
         "timeout_setting": $timeout,
-        "curl_exit_code": ${curl_exit_code:-0}
+        "curl_exit_code": ${curl_exit_code:-0},
+        "http_code": "$http_code",
+        "raw_file": "$raw_file"
+    },
+    "request": {
+        "url": "$url/generate",
+        "payload": $request_payload
     },
     "prompt": $escaped_prompt,
     "ollama_response": $body,
@@ -260,6 +290,11 @@ send_request() {
     "stderr": "$stderr_content"
 }
 JSONEOF
+
+    # Append to master event log (JSONL format - one event per line)
+    local status="success"
+    [ "$http_code" != "200" ] && status="failed"
+    echo "{\"ts\":\"$start_iso\",\"king\":\"$king\",\"phase\":\"$phase\",\"req\":$request_num,\"http\":\"$http_code\",\"elapsed\":$elapsed,\"status\":\"$status\"}" >> "$MASTER_LOG"
 
     # Progress indicator
     if [ "$http_code" = "200" ]; then
