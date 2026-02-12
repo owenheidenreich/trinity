@@ -76,9 +76,9 @@ PASS_TIMEOUTS = {
 PASS_TOKEN_LIMITS = {
     "understand": 2000,  # Detailed understanding
     "plan": 2000,  # Comprehensive plans
-    "execute": 16000,  # Long, detailed responses (code, essays, complete files)
+    "execute": 24000,  # Long, detailed responses (code, essays, complete files)
     "critique": 2000,  # Thorough critique
-    "refine": 16000,  # Complete improved response
+    "refine": 24000,  # Complete improved response
 }
 
 # Critique threshold - if score >= this, skip refinement
@@ -233,7 +233,7 @@ class OllamaClient:
                     "model": model,
                     "prompt": prompt,
                     "stream": False,
-                    "options": {"num_predict": max_tokens, "temperature": temperature},
+                    "options": {"num_predict": max_tokens, "temperature": temperature, "num_ctx": 32768},
                 },
                 timeout=timeout,
             )
@@ -271,7 +271,7 @@ class OllamaClient:
                     "model": model,
                     "prompt": prompt,
                     "stream": True,
-                    "options": {"num_predict": max_tokens, "temperature": temperature},
+                    "options": {"num_predict": max_tokens, "temperature": temperature, "num_ctx": 32768},
                 },
                 stream=True,
                 timeout=timeout,
@@ -289,6 +289,7 @@ class OllamaClient:
                         if token:
                             yield token
                         if chunk.get("done"):
+                            yield {"__done_reason": chunk.get("done_reason", "stop")}
                             break
                     except json.JSONDecodeError:
                         continue
@@ -489,6 +490,7 @@ class AgentPipeline:
         full_response = ""
         search_context = ""
         search_performed = False
+        last_done_reason = "stop"  # Track truncation from final streaming pass
 
         # === WEB SEARCH (if needed) ===
         if analysis.needs_search and is_search_available():
@@ -515,6 +517,9 @@ class AgentPipeline:
                 for token in self.client.generate_stream(
                     prompt, PASS_TOKEN_LIMITS["execute"], timeout=PASS_TIMEOUTS["execute"]
                 ):
+                    if isinstance(token, dict) and "__done_reason" in token:
+                        last_done_reason = token["__done_reason"]
+                        continue
                     full_response += token
                     yield {"token": token}
 
@@ -530,6 +535,9 @@ class AgentPipeline:
                 for token in self.client.generate_stream(
                     prompt, PASS_TOKEN_LIMITS["execute"], timeout=PASS_TIMEOUTS["execute"]
                 ):
+                    if isinstance(token, dict) and "__done_reason" in token:
+                        last_done_reason = token["__done_reason"]
+                        continue
                     full_response += token
                     yield {"token": token}
 
@@ -547,6 +555,9 @@ class AgentPipeline:
                     for token in self.client.generate_stream(
                         prompt, PASS_TOKEN_LIMITS["refine"], timeout=PASS_TIMEOUTS["refine"]
                     ):
+                        if isinstance(token, dict) and "__done_reason" in token:
+                            last_done_reason = token["__done_reason"]
+                            continue
                         full_response += token
                         yield {"token": token}
 
@@ -568,6 +579,9 @@ class AgentPipeline:
                 for token in self.client.generate_stream(
                     prompt, PASS_TOKEN_LIMITS["execute"], timeout=PASS_TIMEOUTS["execute"]
                 ):
+                    if isinstance(token, dict) and "__done_reason" in token:
+                        last_done_reason = token["__done_reason"]
+                        continue
                     full_response += token
                     yield {"token": token}
 
@@ -592,6 +606,9 @@ class AgentPipeline:
                     for token in self.client.generate_stream(
                         prompt, PASS_TOKEN_LIMITS["refine"], timeout=PASS_TIMEOUTS["refine"]
                     ):
+                        if isinstance(token, dict) and "__done_reason" in token:
+                            last_done_reason = token["__done_reason"]
+                            continue
                         full_response += token
                         yield {"token": token}
 
@@ -619,7 +636,7 @@ class AgentPipeline:
             total_time_seconds=round(total_time, 2),
         )
 
-        yield {"done": True, "response": response.to_dict()}
+        yield {"done": True, "response": response.to_dict(), "done_reason": last_done_reason}
 
     # ========================================================================
     # INDIVIDUAL PASSES

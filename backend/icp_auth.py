@@ -5,11 +5,19 @@ Verifies Ed25519 signatures from ICP Principal IDs
 
 import logging
 import time
+from functools import wraps
 from typing import Optional, Tuple
 
-from flask import jsonify, request
+from cachetools import TTLCache
+from flask import g, jsonify, request
+
+from config import ADMIN_PRINCIPALS
 
 logger = logging.getLogger(__name__)
+
+# Track used nonces for 65 seconds (slightly longer than auth window)
+# This prevents replay attacks even within the valid timestamp window
+used_nonces = TTLCache(maxsize=10000, ttl=65)
 
 # Will need to install: pip install cryptography
 try:
@@ -49,6 +57,7 @@ def verify_icp_signature(
     timestamp: str,
     endpoint: str,
     public_key_hex: Optional[str] = None,
+    nonce: Optional[str] = None,
 ) -> Tuple[bool, Optional[str]]:
     """
     Verify Ed25519 signature from ICP identity
@@ -59,6 +68,7 @@ def verify_icp_signature(
         timestamp: Unix timestamp in milliseconds (as string)
         endpoint: Request endpoint (e.g., "/chat/autosave")
         public_key_hex: Optional hex-encoded public key (32 bytes)
+        nonce: Random unique identifier to prevent replay attacks
 
     Returns:
         (success: bool, error_message: Optional[str])
@@ -82,13 +92,25 @@ def verify_icp_signature(
     except ValueError:
         return False, "Invalid timestamp format"
 
-    # 2. Reconstruct the signed message
-    message = f"{principal}:{timestamp}:{endpoint}"
+    # 2. Check nonce hasn't been used (prevents replay within valid timestamp window)
+    if nonce:
+        nonce_key = f"{principal}:{nonce}"
+        if nonce_key in used_nonces:
+            logger.warning(f"⚠️ Nonce already used: {nonce[:16]}... (replay attack detected)")
+            return False, "Nonce already used (replay attack detected)"
+
+    # 3. Reconstruct the signed message
+    # If nonce is provided, it's included in the message
+    if nonce:
+        message = f"{principal}:{timestamp}:{endpoint}:{nonce}"
+    else:
+        # Legacy format without nonce (for backward compatibility during migration)
+        message = f"{principal}:{timestamp}:{endpoint}"
     message_bytes = message.encode("utf-8")
 
     logger.info(f"🔍 Verifying signature for message: {message[:80]}...")
 
-    # 3. Get public key
+    # 4. Get public key
     if not public_key_hex:
         # Try to extract from Principal (not yet implemented)
         try:
@@ -103,7 +125,7 @@ def verify_icp_signature(
         except ValueError:
             return False, "Invalid public key hex format"
 
-    # 4. Convert signature from hex to bytes
+    # 5. Convert signature from hex to bytes
     try:
         signature_bytes = bytes.fromhex(signature_hex)
         if len(signature_bytes) != 64:
@@ -111,12 +133,16 @@ def verify_icp_signature(
     except ValueError:
         return False, "Invalid signature hex format"
 
-    # 5. Verify signature
+    # 6. Verify signature
     # NOTE: Ed25519PublicKey.verify() uses constant-time comparison internally
     # to prevent timing attacks. The cryptography library handles this correctly.
     try:
         public_key = ed25519.Ed25519PublicKey.from_public_bytes(public_key_bytes)
         public_key.verify(signature_bytes, message_bytes)
+
+        # Mark nonce as used AFTER successful verification
+        if nonce:
+            used_nonces[nonce_key] = True
 
         logger.info(f"✅ Signature verified for principal: {principal[:20]}...")
         return True, None
@@ -140,7 +166,8 @@ def verify_request_auth() -> Tuple[bool, Optional[str], Optional[str]]:
     principal = request.headers.get("ICP-Principal")
     signature = request.headers.get("ICP-Signature")
     timestamp = request.headers.get("ICP-Timestamp")
-    public_key = request.headers.get("ICP-PublicKey")  # Optional, for Phase 2 testing
+    public_key = request.headers.get("ICP-PublicKey")
+    nonce = request.headers.get("ICP-Nonce")  # Replay protection
 
     # Check required headers
     if not principal:
@@ -150,13 +177,14 @@ def verify_request_auth() -> Tuple[bool, Optional[str], Optional[str]]:
     if not timestamp:
         return False, None, "Missing ICP-Timestamp header"
 
-    # Verify signature
+    # Verify signature (nonce is optional for backward compatibility)
     success, error = verify_icp_signature(
         principal=principal,
         signature_hex=signature,
         timestamp=timestamp,
         endpoint=request.path,
         public_key_hex=public_key,
+        nonce=nonce,
     )
 
     if success:
@@ -176,7 +204,6 @@ def require_auth(f):
             principal = request.principal  # Available after verification
             ...
     """
-    from functools import wraps
 
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -192,6 +219,51 @@ def require_auth(f):
         # Attach principal to request object
         request.principal = principal
         logger.info(f"✅ Authenticated request from: {principal[:20]}...")
+
+        return f(*args, **kwargs)
+
+    return decorated_function
+
+
+def require_admin(f):
+    """
+    Decorator to require admin-level ICP authentication.
+    The request must be signed by a principal listed in ADMIN_PRINCIPALS env var.
+
+    Usage:
+        @app.route('/admin/cache/clear', methods=['POST'])
+        @require_admin
+        def clear_cache():
+            ...
+    """
+
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        success, principal, error = verify_request_auth()
+
+        if not success:
+            logger.warning(f"❌ Admin auth failed: {error}")
+            return (
+                jsonify({"success": False, "error": "Authentication required", "details": error}),
+                401,
+            )
+
+        if not ADMIN_PRINCIPALS:
+            logger.error("❌ No ADMIN_PRINCIPALS configured")
+            return (
+                jsonify({"success": False, "error": "Admin access not configured"}),
+                403,
+            )
+
+        if principal not in ADMIN_PRINCIPALS:
+            logger.warning(f"❌ Non-admin principal attempted admin access: {principal[:20]}...")
+            return (
+                jsonify({"success": False, "error": "Admin access required"}),
+                403,
+            )
+
+        request.principal = principal
+        logger.info(f"✅ Admin request from: {principal[:20]}...")
 
         return f(*args, **kwargs)
 

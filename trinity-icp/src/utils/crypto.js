@@ -17,7 +17,7 @@ const STORAGE_SALT = new Uint8Array([
 async function deriveStorageKey() {
     // Combine multiple factors for key derivation
     const factors = [
-        window.location.origin,
+        'https://dubya.ai',  // Fixed origin - never changes on redeployment
         navigator.userAgent,
         (await navigator.userAgentData?.getHighEntropyValues?.(['platform']))?.platform || '',
         screen.width.toString(),
@@ -119,6 +119,8 @@ export function isEncrypted(data) {
     // Encrypted data has IV (12 bytes) + ciphertext, base64 encoded
     // Minimum length for smallest encrypted content
     if (data.length < 24) return false;
+    // Raw hex private keys (64 or 128 hex chars) are NOT encrypted
+    if (/^[0-9a-f]+$/i.test(data)) return false;
     // Check if valid base64
     try {
         atob(data);

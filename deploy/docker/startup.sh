@@ -26,6 +26,20 @@
 set -e
 
 # ============================================================================
+# STEP 0: Fix PersistentVolume Permissions
+# ============================================================================
+# When Akash mounts a PersistentVolume at /home/trinity/.ollama, it's
+# root-owned. Fix ownership so Ollama (and the trinity user) can write
+# models to it. This is a no-op if no PV is mounted.
+if [ -d "/home/trinity/.ollama" ]; then
+    chown -R trinity:trinity /home/trinity/.ollama 2>/dev/null || true
+    echo "✓ Fixed model directory permissions"
+fi
+if [ -d "/data/chats" ]; then
+    chown -R trinity:trinity /data/chats 2>/dev/null || true
+fi
+
+# ============================================================================
 # STARTUP BANNER
 # ============================================================================
 # Display configuration information for debugging

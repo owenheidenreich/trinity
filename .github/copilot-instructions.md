@@ -51,6 +51,7 @@ See `docs/ai-context/CLAUDE.md#workflow-checklists-critical` for complete checkl
 - **MEMORY**: Any context or user memory change
 - **STORAGE**: Any autosave or encryption change
 - **MODEL**: Any prompt or model config change
+- **KNOWLEDGE BASE**: Any major refactor, phase completion, or production push with structural changes
 
 **Example: Changing backend code**
 1. ☐ Python syntax valid
@@ -152,6 +153,22 @@ Reference: `trinity-icp/src/storage/autosave.js`
 - Backend: `backend/` with modular structure (services/, middleware/, routes/)
 - Deploy configs: `deploy/` with docker/, akash/, local/ subfolders
 - Docs: `docs/` with organized structure (ai-context/, architecture/, security/, getting-started/, reference/, lore/, archive/)
+
+## Knowledge Base Maintenance
+
+**CRITICAL:** After completing any major phase, refactor, or production push, the codebase knowledge base MUST be updated.
+
+`docs/ai-context/CODEBASE-MAP.md` is the living reference that every AI session reads first. Stale data here causes cascading errors — wrong file paths, wrong route counts, wrong test numbers — across all future development.
+
+**After major changes, always:**
+1. ☐ Verify `CODEBASE-MAP.md` project structure matches actual files
+2. ☐ Update route count, test count, and coverage numbers
+3. ☐ Grep all `docs/` for stale values that changed
+4. ☐ Ensure `CLAUDE.md` cross-references are consistent
+
+See `docs/ai-context/CLAUDE.md` → 📚 KNOWLEDGE BASE Workflow Checklist for the full procedure.
+
+Reference: `docs/ai-context/CODEBASE-MAP.md`, `docs/ai-context/CLAUDE.md`
 
 ## Common Pitfalls
 

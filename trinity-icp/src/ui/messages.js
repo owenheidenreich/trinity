@@ -3,14 +3,61 @@
 
 import CONFIG from '../config.js';
 import { renderMath, protectMath, restoreMath } from '../utils/math.js';
+import { copyToClipboard, downloadCode, getFileIcon, LANG_EXTENSIONS } from '../utils/codeUtils.js';
+import { extractCodeBlocks } from '../utils/codeBlockParser.js';
+
+/**
+ * Convert <tool_call> XML blocks to renderable markdown.
+ * - code_display → fenced code block
+ * - all others → stripped entirely
+ */
+function preprocessToolCalls(text) {
+    if (!text || !text.includes('<tool_call')) return text;
+
+    // code_display with execute=true — code is already shown above, just strip it
+    text = text.replace(
+        /<tool_call\s+name="code_display"[^>]*>\s*<language>[^<]*<\/language>\s*<code>[\s\S]*?<\/code>\s*<execute>true<\/execute>\s*<\/tool_call>/gi,
+        ''
+    );
+
+    // code_display without execute=true → fenced code block
+    text = text.replace(
+        /<tool_call\s+name="code_display"[^>]*>\s*<language>([^<]*)<\/language>\s*<code>([\s\S]*?)<\/code>(?:\s*<execute>[^<]*<\/execute>)?\s*<\/tool_call>/gi,
+        (_, lang, code) => '\n```' + (lang || 'text') + '\n' + code.trim() + '\n```\n'
+    );
+
+    // In-progress code_display (no closing </tool_call> yet)
+    // Check if we can see <execute>true — if so, strip; otherwise convert to fence
+    text = text.replace(
+        /<tool_call\s+name="code_display"[^>]*>\s*<language>([^<]*)<\/language>\s*<code>([\s\S]*)$/gi,
+        (match, lang, rest) => {
+            // If execute>true is visible in the partial, strip entirely
+            if (/<execute>true/i.test(rest)) return '';
+            // Otherwise it may be display-only code still streaming
+            const code = rest.replace(/<\/code>[\s\S]*$/, '');
+            return '\n```' + (lang || 'text') + '\n' + code.trim() + '\n';
+        }
+    );
+
+    // Strip other complete tool_call blocks
+    text = text.replace(/<tool_call[^>]*>[\s\S]*?<\/tool_call>/gi, '');
+
+    // Strip orphaned opening tags for non-code tools
+    text = text.replace(/<tool_call\s+name="(?!code_display)[^"]*"[^>]*>[\s\S]*$/gi, '');
+
+    return text;
+}
 
 /**
  * Parse markdown content with math protection
  * Protects math expressions from being mangled by markdown parser
  */
 function parseMarkdownWithMath(content) {
+    // Convert <tool_call> XML to markdown before parsing
+    let cleaned = preprocessToolCalls(content);
+
     // Protect math expressions from markdown parsing
-    const { processed, mathBlocks } = protectMath(content);
+    const { processed, mathBlocks } = protectMath(cleaned);
     
     // Parse markdown
     let html = marked.parse(processed);
@@ -22,93 +69,60 @@ function parseMarkdownWithMath(content) {
 }
 
 /**
- * Enhance code blocks with copy button, language label, and syntax highlighting
- * @param {HTMLElement} container - The container to search for code blocks
+ * Enhance code blocks — wrap inline code blocks in collapsible details sections
+ * (Claude-style: collapsed by default, click to expand and see code).
+ * @param {HTMLElement} container - The message container
+ * @param {Array} codeBlocks - Parsed code blocks from extractCodeBlocks()
+ * @param {Object} options - { highlight: true } - whether to run hljs
  */
-function enhanceCodeBlocks(container) {
-    const codeBlocks = container.querySelectorAll('pre code');
-    
-    codeBlocks.forEach(codeElement => {
+function enhanceCodeBlocks(container, codeBlocks = [], { highlight = true } = {}) {
+    const codeElements = container.querySelectorAll('pre code');
+
+    codeElements.forEach((codeElement, i) => {
         const pre = codeElement.parentElement;
-        
+
         // Skip if already enhanced
         if (pre.classList.contains('enhanced')) return;
         pre.classList.add('enhanced');
-        
-        // IMPORTANT: Store code text BEFORE any DOM manipulation
-        const codeText = codeElement.textContent;
-        
-        // Apply syntax highlighting with highlight.js
-        if (typeof hljs !== 'undefined') {
-            // Remove any existing hljs classes to allow re-highlighting
-            codeElement.classList.remove('hljs');
+
+        // Match to parsed block for filename, or fall back
+        const block = codeBlocks[i];
+        const langClass = Array.from(codeElement.classList).find(c => c.startsWith('language-'));
+        const language = block?.language || (langClass ? langClass.replace('language-', '') : 'code');
+        const displayName = block?.displayName || `Code ${i + 1}`;
+        const ext = LANG_EXTENSIONS[(language || '').toLowerCase()] || 'txt';
+
+        // Build a summary description
+        const lineCount = (block?.code || codeElement.textContent || '').split('\n').filter(l => l.trim()).length;
+        const summaryText = `${displayName} · ${lineCount} lines`;
+
+        // Create collapsible details wrapper (Claude-style)
+        const details = document.createElement('details');
+        details.className = 'code-details';
+
+        const summary = document.createElement('summary');
+        summary.className = 'code-details-summary';
+        summary.innerHTML = `
+            <span class="code-details-icon">${getFileIcon(language)}</span>
+            <span class="code-details-text">${DOMPurify.sanitize(summaryText)}</span>
+            <span class="code-details-tag">${DOMPurify.sanitize(ext.toUpperCase())}</span>
+        `;
+
+        details.appendChild(summary);
+
+        // Syntax highlight the code inside the pre
+        if (highlight && typeof hljs !== 'undefined' && !codeElement.classList.contains('hljs')) {
             hljs.highlightElement(codeElement);
         }
-        
-        // Detect language from class (e.g., "language-python" or "hljs language-python")
-        const langClass = Array.from(codeElement.classList).find(c => c.startsWith('language-'));
-        const language = langClass ? langClass.replace('language-', '') : 'code';
-        
-        // Create header with language label and copy button
-        const header = document.createElement('div');
-        header.className = 'code-block-header';
-        header.innerHTML = `
-            <span class="code-language">${language}</span>
-            <button class="code-copy-btn" title="Copy code">Copy</button>
-        `;
-        
-        // Insert header before the pre element
-        pre.parentNode.insertBefore(header, pre);
-        
-        // Wrap header and pre in a container
-        const wrapper = document.createElement('div');
-        wrapper.className = 'code-block-wrapper';
-        header.parentNode.insertBefore(wrapper, header);
-        wrapper.appendChild(header);
-        wrapper.appendChild(pre);
-        
-        // Add copy functionality using stored codeText (not live DOM reference)
-        const copyBtn = header.querySelector('.code-copy-btn');
-        copyBtn.addEventListener('click', () => {
-            try {
-                // Use textarea selection method (Clipboard API blocked by ICP permissions policy)
-                const textArea = document.createElement('textarea');
-                textArea.value = codeText;
-                textArea.style.position = 'fixed';
-                textArea.style.top = '0';
-                textArea.style.left = '0';
-                textArea.style.width = '2em';
-                textArea.style.height = '2em';
-                textArea.style.padding = '0';
-                textArea.style.border = 'none';
-                textArea.style.outline = 'none';
-                textArea.style.boxShadow = 'none';
-                textArea.style.background = 'transparent';
-                document.body.appendChild(textArea);
-                textArea.focus();
-                textArea.select();
 
-                const successful = document.execCommand('copy');
-                document.body.removeChild(textArea);
+        // IMPORTANT: Save parent reference BEFORE moving pre into details,
+        // because appendChild changes pre.parentNode to details.
+        const originalParent = pre.parentNode;
+        const originalNextSibling = pre.nextSibling;
 
-                if (!successful) {
-                    throw new Error('execCommand copy failed');
-                }
-
-                copyBtn.textContent = 'Copied!';
-                copyBtn.classList.add('copied');
-                setTimeout(() => {
-                    copyBtn.textContent = 'Copy';
-                    copyBtn.classList.remove('copied');
-                }, 2000);
-            } catch (err) {
-                console.error('Failed to copy:', err);
-                copyBtn.textContent = 'Failed';
-                setTimeout(() => {
-                    copyBtn.textContent = 'Copy';
-                }, 2000);
-            }
-        });
+        // Place details where pre was, then nest pre inside details
+        originalParent.insertBefore(details, originalNextSibling);
+        details.appendChild(pre);
     });
 }
 
@@ -164,8 +178,17 @@ const Messages = {
             messageDiv.innerHTML = DOMPurify.sanitize(parseMarkdownWithMath(content));
             // Render math expressions after DOM insertion
             renderMath(messageDiv);
-            // Enhance code blocks with copy button
-            enhanceCodeBlocks(messageDiv);
+            // Extract code blocks from raw markdown
+            const codeBlocks = extractCodeBlocks(content);
+            // Replace inline code with collapsible sections
+            try { enhanceCodeBlocks(messageDiv, codeBlocks); } catch (e) { console.error('Code enhancement failed:', e); }
+            // Store raw text
+            messageDiv.dataset.rawText = content;
+            // Add download section if code blocks exist
+            if (codeBlocks.length > 0) {
+                addDownloadSection(messageDiv, codeBlocks);
+            }
+            addCopyAllButton(messageDiv);
         } else if (content.includes('loading-dots')) {
             // Loading indicator - safe static HTML
             messageDiv.innerHTML = DOMPurify.sanitize(content, { ADD_TAGS: ['span'], ADD_ATTR: ['class'] });
@@ -173,7 +196,6 @@ const Messages = {
             // User messages - sanitize but allow markdown/math rendering
             messageDiv.innerHTML = DOMPurify.sanitize(parseMarkdownWithMath(content));
             renderMath(messageDiv);
-            enhanceCodeBlocks(messageDiv);
         }
 
         messagesContainer.appendChild(messageDiv);
@@ -205,8 +227,12 @@ const Messages = {
         messageDiv.innerHTML = DOMPurify.sanitize(parseMarkdownWithMath(text));
         // Render math after final content is set
         renderMath(messageDiv);
-        // Enhance code blocks with copy button
-        enhanceCodeBlocks(messageDiv);
+        // Enhance code blocks with collapsible sections
+        const codeBlocks = extractCodeBlocks(text);
+        try { enhanceCodeBlocks(messageDiv, codeBlocks); } catch (e) { console.error('Code enhancement failed:', e); }
+        if (codeBlocks.length > 0) {
+            addDownloadSection(messageDiv, codeBlocks);
+        }
         chatArea.scrollTop = chatArea.scrollHeight;
         return messageDiv.id;
     },
@@ -481,5 +507,98 @@ const Messages = {
     }
 };
 
-export { enhanceCodeBlocks };
+/**
+ * Add a download section at the bottom of an AI message.
+ * Displays Claude-style file cards with icon, display name, file type, and Download button.
+ * @param {HTMLElement} messageDiv
+ * @param {Array<{code: string, language: string, filename: string, displayName: string}>} codeBlocks
+ */
+function addDownloadSection(messageDiv, codeBlocks) {
+    if (messageDiv.querySelector('.message-downloads')) return;
+    if (!codeBlocks || codeBlocks.length === 0) return;
+
+    const section = document.createElement('div');
+    section.className = 'message-downloads';
+
+    codeBlocks.forEach((block) => {
+        const ext = LANG_EXTENSIONS[(block.language || '').toLowerCase()] || 'TXT';
+        const displayName = block.displayName || block.filename.replace(/\.\w+$/, '');
+
+        const card = document.createElement('div');
+        card.className = 'file-card';
+
+        const cardIcon = document.createElement('div');
+        cardIcon.className = 'file-card-icon';
+        cardIcon.innerHTML = `<span class="file-card-icon-glyph">📄</span>`;
+
+        const cardInfo = document.createElement('div');
+        cardInfo.className = 'file-card-info';
+        cardInfo.innerHTML = `
+            <span class="file-card-name">${DOMPurify.sanitize(displayName)}</span>
+            <span class="file-card-type">${DOMPurify.sanitize(ext.toUpperCase())}</span>
+        `;
+
+        const dlBtn = document.createElement('button');
+        dlBtn.className = 'file-card-download-btn';
+        dlBtn.textContent = 'Download';
+        dlBtn.addEventListener('click', () => {
+            downloadCode(block.code, block.language, block.filename);
+            dlBtn.textContent = 'Downloaded!';
+            setTimeout(() => { dlBtn.textContent = 'Download'; }, 2000);
+        });
+
+        card.appendChild(cardIcon);
+        card.appendChild(cardInfo);
+        card.appendChild(dlBtn);
+        section.appendChild(card);
+    });
+
+    messageDiv.appendChild(section);
+}
+
+/**
+ * Add a "Copy All" button at the bottom of an AI message.
+ * Copies the raw markdown/text of the entire response to clipboard.
+ */
+function addCopyAllButton(messageDiv) {
+    if (messageDiv.querySelector('.copy-all-btn')) return;
+    
+    const btn = document.createElement('button');
+    btn.className = 'copy-all-btn';
+    btn.textContent = 'Copy All';
+    btn.title = 'Copy full response text to clipboard';
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const rawText = messageDiv.dataset.rawText || messageDiv.textContent;
+        copyToClipboard(rawText, btn, 'Copy All');
+    });
+    
+    messageDiv.appendChild(btn);
+}
+
+/**
+ * Add a "Continue" button when Trinity's response was truncated.
+ * Shown only when done_reason === 'length' (auto-detected from Ollama).
+ * @param {HTMLElement} messageDiv - The AI message container
+ * @param {Function} onContinue - Callback when user clicks Continue
+ */
+function addContinueButton(messageDiv, onContinue) {
+    if (messageDiv.querySelector('.continue-btn')) return;
+    
+    const btn = document.createElement('button');
+    btn.className = 'continue-btn';
+    btn.textContent = "Trinity's reply was cut short \u2014 Continue";
+    btn.title = 'Continue generating the response from where it left off';
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        btn.disabled = true;
+        btn.textContent = 'Continuing...';
+        btn.classList.add('continuing');
+        onContinue();
+    });
+    
+    messageDiv.appendChild(btn);
+}
+
+export { enhanceCodeBlocks, addCopyAllButton, addContinueButton, addDownloadSection };
 export default Messages;

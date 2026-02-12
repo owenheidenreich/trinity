@@ -15,7 +15,7 @@ version: "2.0"
 
 services:
   trinity:
-    image: gdubx/trinity-inference:v4-intelligence
+    image: gdubx/trinity-inference:v2-20260212-041706
     env:
       - PROVIDER_ID=trinity-tier1-test
       - MODEL_NAME=tinyllama:1.1b
@@ -34,7 +34,7 @@ services:
       - SEMANTIC_MEMORY_SIZE=5
       - RECENCY_WEIGHT=0.3
       # Tool Use & Code Execution (v4.0)
-      - CODE_EXECUTION_ENABLED=true
+      - CODE_EXECUTION_ENABLED=false
       - CODE_EXECUTION_TIMEOUT=5
       # Voting DISABLED for Tier 1 (too slow with small model)
       - VOTING_ENABLED=false
@@ -47,6 +47,11 @@ services:
       - HOURLY_COST_AKT=0.15
       - DAILY_COST_AKT=3.6
       - SESSION_TYPE=community
+    params:
+      storage:
+        models:
+          mount: /home/trinity/.ollama
+          readMode: false
     expose:
       - port: 8000
         as: 80
@@ -66,7 +71,12 @@ profiles:
         memory:
           size: 16Gi
         storage:
-          size: 50Gi
+          - size: 10Gi
+          - name: models
+            size: 20Gi
+            attributes:
+              persistent: true
+              class: beta3
         gpu:
           units: 1
           attributes:

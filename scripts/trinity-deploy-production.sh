@@ -306,18 +306,24 @@ validate_local() {
     }
     log_success "Docker build OK: $DOCKER_IMAGE:$TAG"
     
+    # Store tag for later (MUST be before cleanup so grep excludes it)
+    DEPLOY_TAG="$TAG"
+    
     # Skip local container test (AMD64 image on ARM Mac is too slow)
     log_info "Skipping local container test (cross-platform)"
     
-    # Clean Docker build cache
+    # Clean Docker build cache and old images
     echo ""
-    echo "Cleaning Docker build cache..."
+    echo "Cleaning Docker build cache and old images..."
     docker builder prune -f &> /dev/null || true
+    # Remove old tagged images (keep only latest + current deploy tag)
+    docker images "$DOCKER_IMAGE" --format '{{.Tag}} {{.ID}}' | \
+        grep -v -E "^(latest|$DEPLOY_TAG) " | \
+        awk '{print $2}' | xargs -r docker rmi -f &> /dev/null || true
+    # Remove dangling images
+    docker image prune -f &> /dev/null || true
     
     log_success "Local validation passed - safe to deploy"
-    
-    # Store tag for later
-    DEPLOY_TAG="$TAG"
 }
 
 # =============================================================================
@@ -339,6 +345,30 @@ push_image() {
     }
     
     log_success "Image pushed: $DOCKER_IMAGE:$DEPLOY_TAG"
+}
+
+# =============================================================================
+# UPDATE AKASH YAML FILES (so they always reflect current deploy tag)
+# =============================================================================
+
+update_akash_yamls() {
+    log_step "Updating Akash YAML Files"
+    
+    cd "$DEPLOY_DIR/akash"
+    for yaml_file in deploy-*.yaml; do
+        if [ -f "$yaml_file" ]; then
+            if [[ "$OSTYPE" == "darwin"* ]]; then
+                sed -i '' "s|image: gdubx/trinity-inference:.*|image: gdubx/trinity-inference:$DEPLOY_TAG|g" "$yaml_file"
+            else
+                sed -i "s|image: gdubx/trinity-inference:.*|image: gdubx/trinity-inference:$DEPLOY_TAG|g" "$yaml_file"
+            fi
+            chflags nohidden "$yaml_file" 2>/dev/null || true
+            echo "  ✓ Updated: $yaml_file → $DEPLOY_TAG"
+        fi
+    done
+    cd "$PROJECT_ROOT"
+    
+    log_success "YAML files updated to $DEPLOY_TAG"
 }
 
 # =============================================================================
@@ -532,7 +562,7 @@ print_summary() {
         echo ""
         echo "  Depositing ${FUNDING_AKT_AMOUNT} AKT (${UAKT_AMOUNT} uakt) to deployment $DEPLOYED_DSEQ..."
         
-        DEPOSIT_RESULT=$(provider-services tx deployment deposit $UAKT_AMOUNT \
+        DEPOSIT_RESULT=$(provider-services tx deployment deposit ${UAKT_AMOUNT}uakt \
             --dseq $DEPLOYED_DSEQ \
             --from $WALLET_NAME \
             --keyring-backend os \
@@ -575,6 +605,7 @@ main() {
     select_tier
     validate_local
     push_image
+    update_akash_yamls
     deploy_to_akash
     update_cloudflare_worker
     update_icp_canisters

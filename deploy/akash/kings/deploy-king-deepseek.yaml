@@ -30,7 +30,7 @@ services:
       # RAG & Semantic Memory
       - EMBEDDING_MODEL=BAAI/bge-small-en-v1.5
       - RAG_TOP_K=5
-      - CODE_EXECUTION_ENABLED=true
+      - CODE_EXECUTION_ENABLED=false
       - CODE_EXECUTION_TIMEOUT=5
       - VOTING_ENABLED=false
       # API Keys

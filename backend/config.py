@@ -95,8 +95,46 @@ BRAVE_SEARCH_API_KEY = os.getenv("BRAVE_SEARCH_API_KEY", "")
 # ===== AUTHENTICATION =====
 AUTH_TIMESTAMP_WINDOW_MS = 5 * 60 * 1000  # 5 minutes
 
+# Admin principals (comma-separated list of principal IDs that can access /admin/* endpoints)
+# Set via environment variable: ADMIN_PRINCIPALS="principal1,principal2"
+ADMIN_PRINCIPALS = [p.strip() for p in os.getenv("ADMIN_PRINCIPALS", "").split(",") if p.strip()]
+
 # ===== PROMPT VALIDATION =====
 MAX_PROMPT_LENGTH = 50000  # 50KB max prompt to prevent DoS
+
+# ===== INFERENCE DEFAULTS =====
+NUM_CTX = 32768                        # Explicit Ollama context window (prompt + response)
+DEFAULT_MAX_TOKENS = 8000             # Default max_length for /generate
+DEFAULT_MAX_TOKENS_STREAM = 4000      # Default max_length for /generate/stream
+SIMPLE_MAX_TOKENS = 150            # Default for /generate/simple
+SIMPLE_MAX_TOKENS_CAP = 300        # Hard cap for /generate/simple
+REASONING_MIN_TOKENS = 8000        # Min tokens when reasoning mode active
+REASONING_MIN_TOKENS_STREAM = 4000 # Min tokens for streaming reasoning
+DEFAULT_TEMPERATURE = 0.7          # Default sampling temperature
+OLLAMA_TIMEOUT = 600               # Full generation timeout (seconds)
+OLLAMA_TIMEOUT_STREAM = 300        # Streaming timeout (seconds)
+OLLAMA_TIMEOUT_SIMPLE = 120        # Simple endpoint timeout (seconds)
+OLLAMA_TIMEOUT_TOOLS = 300         # Tools/summarize timeout (seconds)
+
+# ===== DOCUMENT / CONTEXT LIMITS =====
+MAX_DOCUMENT_CONTEXT_CHARS = 30000    # Chars of document context sent to LLM
+MAX_WEB_SCRAPE_CHARS = 30000          # Default max chars from browse endpoint
+MAX_WEB_SCRAPE_CHARS_CAP = 50000      # Hard cap for browse endpoint
+WEB_FETCH_TIMEOUT = 15                # Seconds for URL fetching
+WEB_SEARCH_TIMEOUT = 10               # Seconds for search API calls
+WEB_SEARCH_MAX_RESULTS = 10           # Hard cap on search results
+SEARCH_SUMMARIZE_MAX_SOURCES = 5      # Max sources for search-and-summarize
+SEARCH_SUMMARIZE_CHARS_PER_SOURCE = 3000 # Chars extracted per source
+
+# ===== CHAT / STORAGE LIMITS =====
+MAX_ARCHIVED_CHATS = 20              # Maximum archived chats per user
+IPFS_SCAN_LIMIT = 50                 # Max uploads to scan when listing chats
+CHAT_INACTIVE_DAYS = 7               # Days before auto-delete
+PRINCIPAL_DISPLAY_LENGTH = 16         # Chars of principal shown in logs/filenames
+
+# ===== SESSION LIMITS =====
+MIN_SESSION_HOURS = 1
+MAX_SESSION_HOURS = 24
 
 # ===== ENCRYPTION =====
 PBKDF2_ITERATIONS = 100000
@@ -133,7 +171,9 @@ RECENCY_WEIGHT = 0.3
 
 # ===== TOOL CONFIGURATION =====
 # Enable code execution (RestrictedPython sandbox)
-CODE_EXECUTION_ENABLED = True
+# SECURITY: Disabled by default in production due to sandbox escape risks
+# Set CODE_EXECUTION_ENABLED=true only for development/testing
+CODE_EXECUTION_ENABLED = os.getenv("CODE_EXECUTION_ENABLED", "false").lower() == "true"
 CODE_EXECUTION_TIMEOUT = 5  # seconds
 CODE_EXECUTION_MEMORY_LIMIT = 10 * 1024 * 1024  # 10MB
 

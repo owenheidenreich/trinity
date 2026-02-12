@@ -691,55 +691,185 @@ body {
     color: #ff6b9d;
 }
 
-/* ============ CODE BLOCK ENHANCEMENTS ============ */
-.code-block-wrapper {
-    margin: 10px 0;
-    border-radius: 8px;
-    overflow: hidden;
+/* ============ COLLAPSIBLE CODE BLOCKS (Claude-style <details>) ============ */
+.code-details {
+    margin: 8px 0;
     border: 1px solid #3d3d3d;
+    border-radius: 8px;
+    background: #1e1e1e;
+    overflow: hidden;
 }
 
-.code-block-header {
+.code-details[open] {
+    border-color: #555;
+}
+
+.code-details-summary {
     display: flex;
-    justify-content: space-between;
     align-items: center;
-    padding: 8px 12px;
-    background: #252525;
-    border-bottom: 1px solid #3d3d3d;
-}
-
-.code-language {
-    font-size: 12px;
-    color: #888;
-    text-transform: lowercase;
-    font-family: 'Monaco', 'Courier New', monospace;
-}
-
-.code-copy-btn {
-    background: #3d3d3d;
-    color: #ececec;
-    border: none;
-    padding: 4px 10px;
-    border-radius: 4px;
-    font-size: 12px;
+    gap: 8px;
+    padding: 10px 14px;
     cursor: pointer;
-    transition: background 0.2s, color 0.2s;
+    user-select: none;
+    list-style: none;
+    color: #b0b0b0;
+    transition: background 0.15s, color 0.15s;
 }
 
-.code-copy-btn:hover {
-    background: #4d4d4d;
+.code-details-summary::-webkit-details-marker {
+    display: none;
 }
 
-.code-copy-btn.copied {
-    background: #2ea043;
-    color: #fff;
+.code-details-summary::before {
+    content: '▶';
+    font-size: 10px;
+    color: #666;
+    transition: transform 0.15s;
+    flex-shrink: 0;
 }
 
-/* Remove margin/border from pre inside wrapper */
-.code-block-wrapper pre {
-    margin: 0 !important;
-    border-radius: 0 !important;
-    border: none !important;
+.code-details[open] > .code-details-summary::before {
+    transform: rotate(90deg);
+}
+
+.code-details-summary:hover {
+    background: #252525;
+    color: #e0e0e0;
+}
+
+.code-details-icon {
+    font-size: 16px;
+    flex-shrink: 0;
+}
+
+.code-details-text {
+    flex: 1;
+    font-size: 13px;
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.code-details-tag {
+    font-size: 10px;
+    color: #888;
+    background: #2a2a2a;
+    padding: 2px 6px;
+    border-radius: 3px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    flex-shrink: 0;
+}
+
+/* ============ STREAMING CODE INDICATOR ============ */
+.code-streaming-indicator {
+    opacity: 0.85;
+}
+
+.code-streaming-indicator .code-details-text {
+    color: #9ca3af;
+    font-style: italic;
+}
+
+/* Code inside details: clean style, no double border */
+.code-details pre {
+    margin: 0;
+    border: none;
+    border-top: 1px solid #3d3d3d;
+    border-radius: 0 0 8px 8px;
+    max-height: 400px;
+    overflow: auto;
+}
+
+/* ============ FILE CARDS (Claude-style download cards at bottom) ============ */
+.message-downloads {
+    margin-top: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.file-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: #1e1e1e;
+    border: 1px solid #3d3d3d;
+    border-radius: 12px;
+    padding: 12px 16px;
+    transition: border-color 0.2s, background 0.2s;
+}
+
+.file-card:hover {
+    border-color: #555;
+    background: #252525;
+}
+
+.file-card-icon {
+    width: 40px;
+    height: 40px;
+    background: #2a2a2a;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.file-card-icon-glyph {
+    font-size: 20px;
+    opacity: 0.7;
+}
+
+.file-card-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.file-card-name {
+    font-size: 14px;
+    font-weight: 500;
+    color: #e0e0e0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.file-card-type {
+    font-size: 11px;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.file-card-download-btn {
+    background: #2d2d2d;
+    color: #e0e0e0;
+    border: 1px solid #4d4d4d;
+    padding: 8px 18px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background 0.2s, border-color 0.2s;
+}
+
+.file-card-download-btn:hover {
+    background: #3d3d3d;
+    border-color: #666;
+}
+
+/* Inline code in AI messages */
+.message.ai :not(pre) > code {
+    background: #3d3d3d;
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: #ff6b9d;
 }
 
 /* KaTeX Math Styling */
@@ -1009,11 +1139,70 @@ body {
     51%, 100% { opacity: 0; }
 }
 
+
+
+/* ============ COPY ALL BUTTON ============ */
+.copy-all-btn {
+    display: block;
+    margin: 10px 0 0 0;
+    background: #1e1e1e;
+    color: #9ca3af;
+    border: 1px solid #4b5563;
+    padding: 5px 14px;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: color 0.2s, border-color 0.2s, background 0.2s;
+}
+
+.copy-all-btn:hover {
+    color: #60a5fa;
+    border-color: #60a5fa;
+    background: #252535;
+}
+
+.copy-all-btn.copied {
+    color: #4ade80;
+    border-color: #4ade80;
+}
+
+/* ============ CONTINUE BUTTON (truncation) ============ */
+.continue-btn {
+    display: block;
+    margin: 10px 0 0 0;
+    background: linear-gradient(135deg, #1e1e2e, #252535);
+    color: #c4b5fd;
+    border: 1px solid #7c3aed;
+    padding: 8px 18px;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: color 0.2s, border-color 0.2s, background 0.2s, box-shadow 0.2s;
+}
+
+.continue-btn:hover {
+    color: #e0d4ff;
+    border-color: #a78bfa;
+    background: linear-gradient(135deg, #252540, #2d2d50);
+    box-shadow: 0 0 12px rgba(124, 58, 237, 0.3);
+}
+
+.continue-btn:disabled,
+.continue-btn.continuing {
+    color: #9ca3af;
+    border-color: #4b5563;
+    background: #1e1e1e;
+    cursor: default;
+    box-shadow: none;
+}
+
 /* ============================================
 MOBILE RESPONSIVE STYLES
 ============================================ */
 
 @media screen and (max-width: 768px) {
+
+    /* Code panel goes full width on mobile */
 
         .input-container.keyboard-open {
         position: fixed;

@@ -1,10 +1,12 @@
 # Trinity Codebase Reference
 
 > **Purpose:** Comprehensive documentation for AI assistants to quickly understand the Trinity project
-> **Last Updated:** February 6, 2026
-> **Last Verified:** February 6, 2026
+> **Last Updated:** February 10, 2026
+> **Last Verified:** February 10, 2026
 > **Status:** Production - V4.0 Intelligence Upgrade
 > **Version:** v4.0.1 (Qwen 14B on P40, ~$65/mo)
+>
+> **See also:** [CODEBASE-MAP.md](CODEBASE-MAP.md) — Quick-reference map of all files, routes, and constants
 
 ---
 
@@ -12,7 +14,8 @@
 
 | Issue | Status | Details |
 |-------|--------|---------|
-| **Timestamp Auth** | ⚠️ 30s→60s | Backend needs Docker rebuild for 60s window |
+| **Timestamp Auth** | ⚠️ Mismatch | `icp_auth.py` enforces 60s; `config.py` defines 5min (`AUTH_TIMESTAMP_WINDOW_MS`) but constant is **unused** |
+| **database.py** | 🔵 Orphaned | 298-line ORM exists but not imported by any production code, not in Dockerfile |
 
 ### ✅ Recently Fixed (Feb 5, 2026)
 - **Stop Button** - `resetInput()` was disabling button immediately after `setGenerating()` enabled it
@@ -22,6 +25,44 @@
 - **Chat Loading Double-Click** - Added `isLoadingChat` state guard + Zustand proxies
 - **Export Double-Click** - Added `_isExporting` flag guard on export button
 - **Model Badge Hover** - Added CSS with purple border animation
+
+### ✅ Recently Fixed (Feb 6, 2026)
+- **DEPLOYMENT_TIER=KING crash** - `int()` failed on non-numeric tier; added try/except in `akash.py`
+
+---
+
+## 🚨 Deployment Workflow Rules
+
+**CRITICAL: Changes require Docker rebuild to take effect on Akash**
+
+### The Deployment Chain
+```
+Local Code Change → Docker Build → Docker Push → Akash Redeploy → Live
+```
+
+### ❌ Common Mistakes
+| Mistake | Consequence | Prevention |
+|---------|-------------|------------|
+| Edit Python, don't rebuild Docker | Akash runs OLD code | Always rebuild after Python changes |
+| Edit YAML env vars, don't test locally | Crash on deploy (wastes GPU hours) | Test with `docker run` first |
+| Create new YAML without testing | `ValueError`, `ImportError`, etc. | Validate env vars match code expectations |
+| Multiple Akash deploys simultaneously | Resource waste during model downloads | Deploy ONE, verify, then next |
+
+### ✅ Safe Deployment Workflow
+1. **Make code change** (Python, config, etc.)
+2. **Test locally**: `python -c "from services.akash import *"` 
+3. **Docker build**: `cd deploy/docker && ./build.sh`
+4. **Docker push**: `docker push gdubx/trinity-inference:TAG`
+5. **Deploy ONE instance** to Akash
+6. **Verify logs** show server started successfully
+7. **Test endpoint**: `curl $URL/health`
+8. **Then** deploy additional instances if needed
+9. **Update knowledge base**: If structural changes were made, run the 📚 KNOWLEDGE BASE Workflow Checklist
+
+### YAML Environment Variable Rules
+- **DEPLOYMENT_TIER**: Must be numeric (1, 2, 3) OR code must handle strings
+- **All env vars**: Must have defaults in Python OR be guaranteed in YAML
+- **Test new YAMLs**: Run `docker run -e VAR=VALUE ...` locally first
 
 ---
 
@@ -131,16 +172,31 @@ Trinity/
 │   │       ├── nodes.py          # Graph node implementations
 │   │       ├── edges.py          # Conditional routing logic
 │   │       └── graph.py          # StateGraph assembly
+│   ├── routes/                  # 🆕 Route blueprints (49 routes across 7 blueprints)
+│   │   ├── __init__.py          # ALL_BLUEPRINTS list
+│   │   ├── shared.py            # Shared route helpers
+│   │   ├── health.py            # /health, /metrics, /stats (4 routes)
+│   │   ├── admin.py             # /admin/* experiments & cache (8 routes)
+│   │   ├── generate.py          # /generate, /generate/stream, /generate/agent (6 routes)
+│   │   ├── chat.py              # /chat/*, /user/* CRUD + memory (14 routes)
+│   │   ├── tools.py             # /tools/* search, browse, documents (7 routes)
+│   │   ├── v4.py                # /v4/* vector store, tool execution (6 routes)
+│   │   └── session.py           # /session/*, /funding/* (4 routes)
+│   ├── database.py              # SQLAlchemy ORM (NOT integrated — future feature)
 │   ├── eval/                    # Benchmarking tools
 │   │   ├── benchmark_legacy_vs_langgraph.py  # Pipeline comparison
 │   │   └── BENCHMARK_GUIDE.md   # Benchmark documentation
-│   ├── tests/                   # Test suite (461 tests)
+│   ├── tests/                   # Test suite (607+ tests, 91.30% coverage)
 │   │   ├── conftest.py          # Shared fixtures
 │   │   ├── fixtures/
 │   │   │   └── auth_fixtures.py # Ed25519 test keypairs
 │   │   ├── e2e/
 │   │   │   └── test_full_pipeline.py
-│   │   └── unit/                # 10 unit test files
+│   │   ├── integration/
+│   │   │   └── test_inference.py # Integration tests
+│   │   └── unit/                # 14 unit test files
+│   │       ├── test_phase1_security.py, test_phase2_stability.py
+│   │       ├── test_phase3_architecture.py, test_phase4_quality.py
 │   │       ├── test_caching.py, test_complexity.py, test_encryption.py
 │   │       ├── test_experiments.py, test_icp_auth.py, test_langgraph.py
 │   │       ├── test_langgraph_endpoint.py, test_observability.py
@@ -172,18 +228,27 @@ Trinity/
 │   ├── package.json             # npm dependencies
 │   ├── vite.config.js           # Vite bundler config
 │   └── src/                     # Source code
-│       ├── app.js               # Main application
+│       ├── app.js               # Application orchestrator (266 lines)
 │       ├── config.js            # Environment config
 │       ├── index.html           # HTML template
 │       ├── styles.css           # CSS styling
 │       ├── tools.js             # Tools dropdown
+│       ├── core/                # 🆕 Infrastructure modules
+│       │   ├── api.js           # HTTP client, signed requests, streaming
+│       │   ├── environment.js   # Endpoint detection, version check
+│       │   └── logger.js        # Structured logging utility
+│       ├── features/            # 🆕 Feature modules (extracted from app.js)
+│       │   ├── auth.js          # Login/logout UI flow
+│       │   ├── generate.js      # Message send, streaming, stop button
+│       │   ├── chatManagement.js # Load/delete/new chat, sidebar
+│       │   └── memory.js        # User memory CRUD modal
 │       ├── api/
-│       │   └── canister-client.js  # ICP backend client (DISABLED - 20s timeout)
+│       │   └── canister-client.js  # ICP backend client
 │       ├── auth/
 │       │   ├── authManager.js   # Ed25519 keypair management
 │       │   ├── keyExportModal.js # Key display modal
 │       │   ├── auth-entry.js    # Auth entry point
-│       │   └── icp-auth.js      # ICP auth library
+│       │   └── icp-auth.js      # ICP auth library (bundled, don't edit)
 │       ├── state/
 │       │   ├── store.js         # Zustand state management
 │       │   └── contextMemory.js # Conversation compression
@@ -198,8 +263,9 @@ Trinity/
 │       │   ├── sidebar.js       # Chat list
 │       │   ├── modals.js        # Dialog boxes
 │       │   ├── notifications.js # Toast notifications
+│       │   ├── editMessage.js   # 🆕 Inline message editing
 │       │   ├── rainbowBorder.js # Rainbow effects
-│       │   └── loadingMessages.js # 🆕 Whimsical loading phrases
+│       │   └── loadingMessages.js # Whimsical loading phrases
 │       ├── utils/
 │       │   ├── validation.js    # Input validation
 │       │   ├── crypto.js        # AES-GCM encryption
@@ -210,22 +276,34 @@ Trinity/
 │           └── trinity_backend.did  # Candid interface
 │
 └── docs/                        # 📚 DOCUMENTATION
-    ├── CLAUDE.md                # This file (AI reference)
-    ├── FEATURE_CATALOG.md       # Complete feature inventory
-    ├── decisions/               # Architecture Decision Records
-    │   ├── 001-complexity-routing.md
-    │   ├── 002-tiered-test-coverage.md
-    │   ├── 003-prometheus-over-saas.md
-    │   ├── 004-hash-based-experiments.md
-    │   └── 005-in-memory-caching.md
-    ├── onboarding/              # Developer guides
+    ├── README.md                # Documentation index
+    ├── ai-context/              # AI/LLM reference
+    │   ├── CLAUDE.md            # This file (comprehensive AI reference)
+    │   ├── CODEBASE-MAP.md      # 🆕 Quick-reference map (all files, routes, constants)
+    │   └── FEATURE_CATALOG.md   # Complete feature inventory
+    ├── backend/                 # Backend documentation
+    │   ├── API.md               # All 49 API endpoints
+    │   └── SERVICES.md          # Backend services docs
+    ├── frontend/
+    │   └── MODULES.md           # Frontend module documentation
+    ├── deployment/
+    │   └── WORKFLOW.md          # Deployment procedures
+    ├── architecture/
+    │   ├── trinity-storage-architecture.md
+    │   └── decisions/           # 5 Architecture Decision Records
+    ├── getting-started/         # Developer guides
     │   ├── developer-setup.md
-    │   ├── architecture-walkthrough.md
-    │   └── common-tasks.md
+    │   ├── common-tasks.md
+    │   └── setup.md
+    ├── security/                # Security documentation
+    │   ├── SECURITY-AUDITOR-OVERVIEW.md
+    │   └── security-audit.md
+    ├── reference/
+    │   └── AKASH_CLI_REFERENCE.md
     └── plans/                   # Implementation plans
-        ├── trinity-production-upgrade-master-plan.md
-        ├── PHASE-5.5A-CRITICAL-METRICS-MIGRATION.md
-        └── gdubx-next-steps.md
+        ├── CRITICAL-FIXES-ROADMAP.md
+        ├── TRINITY-MONETIZATION-PLAN.md  # Definitive product plan (renamed)
+        └── cost-analysis-research.md
 ```
 
 ---
@@ -441,15 +519,22 @@ Trinity maintains comprehensive test coverage using pytest.
 ### Test Summary
 | Category | Tests | Coverage |
 |----------|-------|----------|
-| **Security & Auth** | 67 | 90%+ |
-| **LangGraph** | 53 | 85%+ |
-| **Observability** | 69 | 80%+ |
-| **Experiments** | 44 | 95%+ |
-| **Caching** | 37 | 90%+ |
+| **Phase 1: Security** | 19 | 90%+ |
+| **Phase 2: Stability** | 27 | 90%+ |
+| **Phase 3: Architecture** | 34 | 85%+ |
+| **Phase 4: Quality** | 43 | 90%+ |
+| **Security & Auth** | 57 | 90%+ |
+| **LangGraph** | 38 | 85%+ |
+| **Observability** | 20+ | 80%+ |
+| **Experiments** | 20+ | 95%+ |
+| **Caching** | 38 | 90%+ |
 | **Encryption** | 35 | 95%+ |
-| **Validation** | 70 | 95%+ |
-| **E2E Pipeline** | 25 | N/A |
-| **Total** | **461** | **75%+** |
+| **Validation** | 20+ | 95%+ |
+| **Complexity** | 46 | 90%+ |
+| **Storage** | 22 | 85%+ |
+| **E2E Pipeline** | 23 | N/A |
+| **Integration** | 11 | N/A |
+| **Total** | **607+** | **91.30%** |
 
 ### Running Tests
 ```bash
@@ -471,7 +556,13 @@ pytest tests/e2e/ -v
 backend/tests/
 ├── e2e/
 │   └── test_full_pipeline.py    # End-to-end HTTP tests
+├── integration/
+│   └── test_inference.py        # Integration tests
 ├── unit/
+│   ├── test_phase1_security.py  # Phase 1 security tests
+│   ├── test_phase2_stability.py # Phase 2 stability tests
+│   ├── test_phase3_architecture.py # Phase 3 architecture tests
+│   ├── test_phase4_quality.py   # Phase 4 quality tests
 │   ├── test_caching.py          # Cache layer tests
 │   ├── test_complexity.py       # Complexity classifier
 │   ├── test_encryption.py       # AES-GCM encryption
@@ -492,7 +583,7 @@ backend/tests/
 | **Critical** | 90%+ | Auth, Encryption, Validation |
 | **High** | 80%+ | Storage, Caching, Complexity |
 | **Medium** | 60%+ | LangGraph, Experiments |
-| **Overall** | 75%+ | All modules |
+| **Overall** | 91.30% | All modules |
 
 See `docs/decisions/002-tiered-test-coverage.md` for rationale.
 
@@ -516,7 +607,7 @@ Production-readiness overhaul across three sub-phases.
 - Applied `isort` for consistent import ordering (stdlib → third-party → local)
 - Applied `autoflake` to remove unused imports
 - No functional changes — formatting only
-- All 461 tests passing after cleanup
+- All 607+ tests passing after cleanup
 
 ### Phase 5.5C: Legacy vs LangGraph Benchmark Suite
 - Created `backend/eval/benchmark_legacy_vs_langgraph.py`
@@ -1591,30 +1682,41 @@ COPY deploy/docker/startup.sh .
 **Backend Module Structure:**
 ```
 backend/
-├── inference_server.py   # Main routes, Flask app (~3400 lines)
+├── inference_server.py   # App factory (349 lines) — blueprint registration, startup
 ├── icp_auth.py           # Auth decorators, signature verification
-├── config.py             # Environment config
+├── config.py             # Environment config (all constants and defaults)
 ├── encryption.py         # AES-256-GCM encryption
 ├── storage.py            # File storage operations
 ├── lighthouse.py         # IPFS/Filecoin uploads
 ├── validation.py         # Input validation functions
-├── middleware/           # Rate limiting, observability, A/B testing
+├── database.py           # SQLAlchemy ORM (not integrated — future feature)
+├── routes/               # 🆕 7 blueprints, 49 routes (extracted from inference_server.py)
+│   ├── health.py         # /health, /metrics, /stats
+│   ├── admin.py          # /admin/* experiments & cache
+│   ├── generate.py       # /generate, /generate/stream, /generate/agent
+│   ├── chat.py           # /chat/*, /user/* CRUD + memory
+│   ├── tools.py          # /tools/* search, browse, documents
+│   ├── v4.py             # /v4/* vector store, tool execution
+│   └── session.py        # /session/*, /funding/*
+├── middleware/            # Rate limiting, observability, A/B testing
 │   ├── __init__.py
-│   ├── rate_limit.py     # Per-IP rate limiting
-│   ├── icp_cache.py      # ICP idempotency cache
+│   ├── rate_limit.py     # Per-principal rate limiting
+│   ├── icp_cache.py      # ICP verification cache
 │   ├── observability.py  # Prometheus metrics (single source of truth)
 │   └── ab_test.py        # A/B testing middleware
-├── services/             # Business logic
+├── services/             # Business logic (21 modules + graph/)
 │   ├── __init__.py
 │   ├── prompts.py        # System prompts
 │   ├── akash.py          # Akash blockchain API
-│   ├── agent.py          # Legacy agentic pipeline
+│   ├── agent.py          # Multi-step agent orchestration
 │   ├── complexity.py     # Complexity classifier (0-10)
+│   ├── model_router.py   # Multi-model routing by complexity
 │   ├── experiments.py    # A/B testing framework
 │   ├── caching.py        # Embedding + semantic caching
+│   ├── tracing.py        # Distributed tracing
 │   └── graph/            # LangGraph multi-agent (7 files)
 ├── eval/                 # Benchmarking tools
-└── tests/                # 461 tests (unit + e2e)
+└── tests/                # 607+ tests (unit + integration + e2e)
 ```
 
 ---
@@ -1779,6 +1881,41 @@ trinity-icp/src/
 | 4 | ☐ Reasoning prompt forces thinking | `/think` command works |
 | 5 | ☐ Prompt doesn't confuse small models | No role markers for TinyLlama |
 | 6 | ☐ Test actual responses | Chat in production |
+
+---
+
+### 📚 KNOWLEDGE BASE Workflow Checklist
+
+**When to use:** After ANY major production push, phase completion, or significant refactor.
+
+> **Why this matters:** `docs/ai-context/CODEBASE-MAP.md` is the running knowledge base — the single source of truth that any LLM reads to understand the entire codebase without searching. If it drifts from reality, every future AI session starts with wrong assumptions, leading to broken code, wasted time, and compounding errors. Keeping it current is not optional.
+
+| Step | Check | Details |
+|------|-------|---------|
+| 1 | ☐ CODEBASE-MAP.md project structure updated | Verify file tree matches reality: new files added, deleted files removed, line counts re-verified |
+| 2 | ☐ API route count verified | Run `grep -r "@.*\.route" backend/routes/ \| wc -l` — update the route count if changed |
+| 3 | ☐ Route table updated | New endpoints added to the correct auth-level table (No Auth / Auth Required / Admin Only) |
+| 4 | ☐ Config constants table updated | Any new constants in `config.py` added with value and description |
+| 5 | ☐ Test count updated | Run `pytest tests/unit/ -q` — update test count and coverage percentage |
+| 6 | ☐ Known Issues table updated | New issues added, resolved issues removed or marked fixed |
+| 7 | ☐ CLAUDE.md cross-references correct | Test counts, file descriptions, and project structure in CLAUDE.md match CODEBASE-MAP.md |
+| 8 | ☐ No stale references in docs/ | Run `grep -r "old_value" docs/` for any values that changed (line counts, test counts, endpoint counts) |
+
+**Trigger points (MANDATORY update):**
+- Completion of any numbered phase (Phase 1, 2, 3, etc.)
+- Any backend refactor that changes file structure (new files, moved files, deleted files)
+- Any frontend refactor that adds/removes modules
+- Adding or removing API routes
+- After every production deployment that includes structural changes
+- After test suite expansion (new test files or significant test count increase)
+
+**Quick verification commands:**
+```bash
+# Verify current state vs docs
+find backend/routes -name "*.py" -exec grep -l "@.*\.route" {} \;  # List route files
+grep -c "def test_" backend/tests/unit/*.py | awk -F: '{s+=$2} END {print s}'  # Count tests
+wc -l backend/inference_server.py  # Verify line count
+```
 
 ---
 
@@ -2102,4 +2239,68 @@ echo "http://YOUR_AKASH_URI" | wrangler secret put AKASH_URL
 
 ---
 
-*This document is maintained for AI assistants to quickly understand Trinity without re-exploring files. Last updated February 6, 2026 (Phase 5.5 documentation overhaul: fixed project structure, added Phase 5.5 section, removed deleted metrics.py references).*
+## ⚔️ War of Kings - Model Benchmarking
+
+### Overview
+A structured benchmark system for comparing LLM models on Akash deployments. Located in `docs/war-of-kings/`.
+
+### Quick Battle (Recommended)
+**Duration:** ~30 minutes | **Cost:** ~$10 | **Data Points:** ~150/king
+
+```bash
+cd docs/war-of-kings/execute
+./quick-battle.sh
+```
+
+| Phase | Duration | What It Tests |
+|-------|----------|---------------|
+| Health Check | 2 min | Verify kings are online, warm-up |
+| IQ Battle | 10 min | 25 scored questions (math, logic, coding) |
+| Speed Trial | 8 min | Throughput: requests/second, latency |
+| Reasoning Gauntlet | 10 min | 10 hard problems (code, proofs) |
+
+### Overnight Endurance (Optional)
+**Duration:** 5 hours | **Cost:** ~$150 | **Data Points:** ~1,100/king
+
+```bash
+nohup ./overnight-stress.sh > overnight.log 2>&1 &
+```
+
+### Key Metrics Collected
+- **IQ Score:** X/25 correct answers
+- **Avg Latency:** Seconds per response
+- **Throughput:** Requests per second
+- **Gauntlet Completion:** X/10 hard problems solved
+
+### Output Structure
+```
+results/battles/battle_YYYYMMDD_HHMMSS/
+├── BATTLE_REPORT.md      # Human-readable summary
+├── health/               # Warm-up results
+├── iq/{king}/            # Scored question results
+├── speed/{king}/         # Throughput metrics
+└── gauntlet/{king}/      # Complex problem results
+```
+
+### King Registry (Update endpoints when redeploying)
+Edit `docs/war-of-kings/execute/quick-battle.sh`:
+```bash
+declare -A KINGS=(
+    ["qwen"]="https://AKASH_URL|qwen2.5:72b|👑"
+    ["llama"]="http://AKASH_URL|llama3.3:70b|🦙"
+    ["mixtral"]="https://AKASH_URL|mixtral:8x22b|🔮"
+)
+```
+
+### Analysis
+```bash
+# View report after battle
+cat results/battles/battle_*/BATTLE_REPORT.md
+
+# Feed to Claude for deep analysis
+# Upload results folder + docs/war-of-kings/prompts/claude-judge-prompt.md
+```
+
+---
+
+*This document is maintained for AI assistants to quickly understand Trinity without re-exploring files. Last updated February 6, 2026 (Added War of Kings benchmarking system).*

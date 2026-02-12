@@ -1,0 +1,53 @@
+# === Git & IDE ===
+.git
+.gitignore
+.vscode
+.idea
+*.swp
+*.swo
+
+# === Frontend build artifacts (not needed in backend image) ===
+trinity-icp/node_modules/
+trinity-icp/target/
+trinity-icp/.dfx/
+trinity-icp/dist/
+dist/
+
+# === Python artifacts ===
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+htmlcov/
+.coverage
+backend/htmlcov/
+backend/.pytest_cache/
+backend/__pycache__/
+backend/eval/
+
+# === Documentation (not needed in image) ===
+docs/
+README.md
+
+# === Virtual environments ===
+.venv/
+venv/
+
+# === Scripts (not needed in image) ===
+scripts/
+
+# === Test coverage reports ===
+htmlcov/
+
+# === Deployment configs (except docker) ===
+deploy/akash/
+deploy/cloudflare-worker/
+deploy/grafana/
+deploy/prometheus/
+deploy/docker-compose.monitoring.yml
+icp-deploy
+
+# === Misc ===
+*.md
+*.log
+.DS_Store

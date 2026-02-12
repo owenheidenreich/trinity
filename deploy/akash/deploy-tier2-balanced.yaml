@@ -2,7 +2,7 @@ version: "2.0"
 
 services:
   trinity:
-    image: gdubx/trinity-inference:v4-intelligence
+    image: gdubx/trinity-inference:v2-20260212-041706
     env:
       - PROVIDER_ID=trinity-tier2-qwen14b
       - MODEL_NAME=qwen2.5:14b
@@ -25,7 +25,7 @@ services:
       - SEMANTIC_MEMORY_SIZE=5
       - RECENCY_WEIGHT=0.3
       # Tool Use & Code Execution (v4.0)
-      - CODE_EXECUTION_ENABLED=true
+      - CODE_EXECUTION_ENABLED=false
       - CODE_EXECUTION_TIMEOUT=5
       # Voting (v4.0)
       - VOTING_ENABLED=true
@@ -40,6 +40,11 @@ services:
       - HOURLY_COST_AKT=0.25
       - DAILY_COST_AKT=6
       - SESSION_TYPE=community
+    params:
+      storage:
+        models:
+          mount: /home/trinity/.ollama
+          readMode: false
     expose:
       - port: 8000
         as: 80
@@ -59,7 +64,12 @@ profiles:
         memory:
           size: 16Gi
         storage:
-          size: 50Gi
+          - size: 10Gi
+          - name: models
+            size: 40Gi
+            attributes:
+              persistent: true
+              class: beta3
         gpu:
           units: 1
           attributes:

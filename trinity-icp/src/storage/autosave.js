@@ -206,6 +206,15 @@ const AutosaveManager = {
     async handleAutosaveError(error, showIndicator, retryCallback) {
         this.retryCount++;
 
+        // Parse structured error message if available
+        let userMessage = error.message;
+        try {
+            const parsed = JSON.parse(error.message.replace(/^HTTP \d+: /, ''));
+            if (parsed?.error?.message) {
+                userMessage = parsed.error.message;
+            }
+        } catch { /* use original message */ }
+
         if (this.retryCount <= this.MAX_RETRIES) {
             const delay = Math.min(
                 this.RETRY_INTERVAL_MS * Math.pow(this.RETRY_BACKOFF_MULTIPLIER, this.retryCount - 1),
@@ -216,6 +225,14 @@ const AutosaveManager = {
             
             if (showIndicator) {
                 showIndicator('error');
+            }
+
+            // Show user-facing notification on first retry
+            if (this.retryCount === 1 && typeof window !== 'undefined') {
+                // Dispatch event for notifications module to catch
+                window.dispatchEvent(new CustomEvent('autosave-error', {
+                    detail: { message: userMessage, retryCount: this.retryCount, delay }
+                }));
             }
 
             // Schedule retry with callback
@@ -236,6 +253,16 @@ const AutosaveManager = {
             
             if (showIndicator) {
                 showIndicator('error');
+            }
+
+            // Notify user that save failed but data is preserved locally
+            if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('autosave-error', {
+                    detail: {
+                        message: 'Save failed after multiple retries. Your chat is saved locally and will sync when connection is restored.',
+                        final: true
+                    }
+                }));
             }
             
             // Queue for sync retry when back online

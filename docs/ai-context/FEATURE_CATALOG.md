@@ -194,10 +194,10 @@
 ## Testing & Benchmarking (Phase 5 + 5.5)
 
 ### Automated Test Suite
-- **What**: 461 tests across 11 test files
-- **Where**: `backend/tests/` (unit/ + e2e/ + fixtures/)
+- **What**: 607+ tests across 14 unit test files + integration + e2e
+- **Where**: `backend/tests/` (unit/ + integration/ + e2e/ + fixtures/)
 - **Run**: `cd backend && pytest tests/ --no-cov -q` (~7 seconds)
-- **Coverage tiers**: Critical 90%+ (auth, encryption), High 80%+ (caching, LangGraph), Overall 75%+
+- **Coverage tiers**: Critical 90%+ (auth, encryption), High 80%+ (caching, LangGraph), Overall 91.30%
 - **ADR**: `docs/decisions/002-tiered-test-coverage.md`
 - **Status**: All passing
 

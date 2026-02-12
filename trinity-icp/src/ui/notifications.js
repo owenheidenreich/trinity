@@ -95,6 +95,37 @@ const Notifications = {
             notif.classList.remove('show');
             setTimeout(() => notif.remove(), 300);
         }, duration);
+    },
+
+    /**
+     * Show a live countdown toast when rate-limited.
+     * Auto-removes when countdown finishes and shows "Ready" notification.
+     */
+    showRateLimitCountdown(seconds) {
+        // Remove any existing countdown
+        const existing = document.getElementById('rate-limit-countdown');
+        if (existing) existing.remove();
+
+        const toast = document.createElement('div');
+        toast.id = 'rate-limit-countdown';
+        toast.className = 'notification warning';
+        toast.style.cssText = 'position: fixed; top: 20px; right: 20px; z-index: 10001; min-width: 280px;';
+        document.body.appendChild(toast);
+
+        let remaining = seconds;
+        const update = () => {
+            if (remaining <= 0) {
+                toast.classList.remove('show');
+                setTimeout(() => toast.remove(), 300);
+                this.showSuccess('Ready to continue!');
+                return;
+            }
+            toast.textContent = `Too many requests. Try again in ${remaining}s`;
+            toast.classList.add('show');
+            remaining--;
+            setTimeout(update, 1000);
+        };
+        update();
     }
 };
 

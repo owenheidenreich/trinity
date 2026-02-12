@@ -111,6 +111,7 @@ def call_ollama(
                 "options": {
                     "num_predict": max_tokens,
                     "temperature": temperature,
+                    "num_ctx": 32768,
                 },
             },
             timeout=120,  # 2 minute timeout
@@ -172,6 +173,7 @@ def call_ollama_stream(
                 "options": {
                     "num_predict": max_tokens,
                     "temperature": temperature,
+                    "num_ctx": 32768,
                 },
             },
             stream=True,

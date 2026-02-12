@@ -10,6 +10,8 @@
 //   - Local development bypasses proxy for faster iteration
 // ============================================================================
 
+import Logger from './core/logger.js';
+
 // Current app version - increment to force cache clear on updates
 const APP_VERSION = '2.8.0';
 
@@ -110,7 +112,7 @@ const CONFIG = {
         // Save preference
         this.setPreferredEnvironment(this._currentEnvironment);
         
-        console.log(`⚙️ CONFIG: API_URL=${url}, env=${this._currentEnvironment}`);
+        Logger.log(`⚙️ CONFIG: API_URL=${url}, env=${this._currentEnvironment}`);
     },
     
     /**
@@ -121,7 +123,7 @@ const CONFIG = {
     switchEnvironment(env) {
         const url = this._availableEnvironments[env];
         if (!url) {
-            console.warn(`⚠️ Environment '${env}' not available`);
+            Logger.warn(`⚠️ Environment '${env}' not available`);
             return false;
         }
         
@@ -141,7 +143,7 @@ const CONFIG = {
         const storedVersion = localStorage.getItem('trinity_app_version');
         
         if (storedVersion && storedVersion !== APP_VERSION) {
-            console.log(`🔄 Version changed: ${storedVersion} → ${APP_VERSION}`);
+            Logger.log(`🔄 Version changed: ${storedVersion} → ${APP_VERSION}`);
             
             // Clear relevant caches
             localStorage.removeItem('trinity_app_version');

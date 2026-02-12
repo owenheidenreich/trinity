@@ -61,6 +61,8 @@ from .rate_limit import (
     RATE_WINDOW,
     STORAGE_RATE_LIMIT,
     STORAGE_RATE_WINDOW,
+    add_rate_limit_headers,
+    get_rate_limit_info,
     rate_limit,
     request_counts,
     storage_rate_limit,
@@ -76,6 +78,8 @@ __all__ = [
     "storage_request_counts",
     "STORAGE_RATE_LIMIT",
     "STORAGE_RATE_WINDOW",
+    "add_rate_limit_headers",
+    "get_rate_limit_info",
     "icp_idempotent",
     "icp_cache",
     # Observability exports

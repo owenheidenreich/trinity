@@ -1,66 +1,37 @@
 # ============================================================================
-# Trinity Inference Server - Dockerfile (Phase 2)
+# Trinity Inference Server - Dockerfile
 # ============================================================================
-# 
-# WHAT IS A DOCKERFILE?
-# A Dockerfile is like a recipe that tells Docker how to build a "container"
-# Think of a container as a mini-computer that has everything needed to run
-# your app: operating system, Python, libraries, and your code.
 #
-# WHY USE DOCKER?
-# - Your app works the same on Mac, Linux, Windows, and Akash
-# - All dependencies are included (no "works on my machine" problems)
-# - Easy to deploy: just run one command
-# - Isolated: doesn't interfere with other apps on the same machine
+# LAYER ORDERING STRATEGY (critical for fast deploys):
+# Heavy, rarely-changing layers FIRST → cached across code deploys
+# Lightweight, frequently-changing code LAST → only ~2MB rebuilt per deploy
 #
-# WHAT THIS DOCKERFILE DOES:
-# 1. Starts with Ubuntu + NVIDIA CUDA (for GPU support later)
-# 2. Installs Python, pip, curl
-# 3. Installs Ollama (the AI model runtime)
-# 4. Copies your inference_server.py into the container
-# 5. Installs Python dependencies (Flask, etc.)
-# 6. Sets up the startup script
-# 7. Exposes port 8000 (so we can access the server)
-# 8. Defines what command runs when container starts
+# Layer cache flow:
+#   1. CUDA base image        (~4GB, never changes)
+#   2. System packages         (~200MB, rarely changes)
+#   3. Ollama install          (~500MB, rarely changes)
+#   4. Python dependencies     (~1GB, changes with requirements.txt)
+#   5. User + dirs             (~1KB, rarely changes)
+#   6. Application code        (~2MB, changes every deploy) ← CACHEBUST here
+#
+# Models (~15GB) are NOT in the image — pulled at startup by startup.sh.
+# This keeps the image ~10GB, making pushes fast and reliable.
+# On Akash, persistent storage caches models across container restarts.
 # ============================================================================
 
-# ============================================================================
-# STEP 1: Choose the "base image" (starting point)
-# ============================================================================
-# This is like choosing which operating system to install first.
-# We use NVIDIA's CUDA image because:
-# - It's Ubuntu 22.04 (popular Linux distribution)
-# - It includes NVIDIA GPU drivers (needed for GPU inference on Akash)
-# - It's the "runtime" version (smaller than the full development version)
+# === STEP 1: Base image (CUDA + Ubuntu) ===
 FROM nvidia/cuda:12.2.0-runtime-ubuntu22.04
 
-# ============================================================================
-# STEP 2: Set environment variables
-# ============================================================================
-# Environment variables configure how the container behaves
-
-# Prevent interactive prompts during package installation
-# (normally Ubuntu asks questions during install, this skips them)
+# === STEP 2: Environment variables ===
 ENV DEBIAN_FRONTEND=noninteractive
-
-# Make Python output appear immediately in logs (not buffered)
-# Important for debugging - you see logs as they happen
 ENV PYTHONUNBUFFERED=1
-
-# Configure where Ollama runs (inside the container)
 ENV OLLAMA_HOST=http://localhost:11434
-
-# Default configuration (can be overridden when running the container)
 ENV MODEL_NAME=phi3
 ENV PROVIDER_ID=akash-provider-1
 ENV GPU_TYPE=NVIDIA-A100
 ENV MAX_QUEUE_SIZE=10
 
-# ============================================================================
-# STEP 3: Install system packages
-# ============================================================================
-# This installs the basic software needed to run everything
-
+# === STEP 3: System packages ===
 RUN apt-get update && apt-get install -y \
     python3.11 \
     python3-pip \
@@ -68,41 +39,36 @@ RUN apt-get update && apt-get install -y \
     zstd \
     && rm -rf /var/lib/apt/lists/*
 
-# ============================================================================
-# STEP 4: Install Ollama
-# ============================================================================
-# Ollama is the AI model runtime that runs Phi3, Llama, etc.
-# This downloads and installs it automatically
+# === STEP 4: Install Ollama ===
 RUN curl -fsSL https://ollama.ai/install.sh | sh
 
-# ============================================================================
-# STEP 5: Set up the working directory
-# ============================================================================
-# This is like "cd /app" - all future commands run from here
+# === STEP 5: Working directory ===
 WORKDIR /app
 
-# ============================================================================
-# STEP 6: Install Python dependencies
-# ============================================================================
-# Copy requirements.txt first (Docker optimization trick)
-# If requirements.txt doesn't change, Docker can cache this step
+# === STEP 6: Python dependencies (cached unless requirements.txt changes) ===
 COPY backend/requirements.txt .
-
-# Upgrade pip and setuptools first (required for fastembed)
 RUN pip3 install --upgrade pip setuptools wheel
-
-# Install Python packages
-# --no-cache-dir: Don't save downloaded files (makes image smaller)
 RUN pip3 install --no-cache-dir -r requirements.txt
 
-# ============================================================================
-# STEP 7: Copy application code
-# ============================================================================
-# Copy your inference server and startup script into the container
-# Build context is project root, so we access backend/ and deploy/ from there
+# === STEP 7: User, directories ===
+# Models are NOT baked into the image — they're pulled at container startup
+# by startup.sh. This keeps the image ~10GB instead of ~25GB, making pushes
+# fast and reliable. On Akash, persistent storage caches models across restarts.
 
-# CACHEBUST invalidates cache from this point forward on every build
-# This ensures code changes are always included, while base layers stay cached
+# Create non-root user for security
+RUN groupadd -r trinity && useradd -r -g trinity -d /app -s /sbin/nologin trinity
+
+# Ollama model directory (populated at runtime by startup.sh)
+RUN mkdir -p /home/trinity/.ollama && chown -R trinity:trinity /home/trinity/.ollama
+ENV OLLAMA_MODELS=/home/trinity/.ollama
+
+# Chat storage directory
+RUN mkdir -p /data/chats && chown -R trinity:trinity /data/chats
+VOLUME ["/data/chats"]
+
+# === STEP 8: Application code (changes every deploy — kept LAST) ===
+# CACHEBUST invalidates cache from this point forward on every build.
+# Everything above stays cached. Only ~2MB of code is rebuilt per deploy.
 ARG CACHEBUST=1
 
 COPY backend/inference_server.py .
@@ -114,87 +80,22 @@ COPY backend/lighthouse.py .
 COPY backend/validation.py .
 COPY backend/middleware/ ./middleware/
 COPY backend/services/ ./services/
+COPY backend/routes/ ./routes/
 COPY deploy/docker/startup.sh .
-
-# Make startup script executable (give it permission to run)
 RUN chmod +x startup.sh
 
-# ============================================================================
-# STEP 8: Create non-root user for security
-# ============================================================================
-# SECURITY: Running as root in containers is a security risk
-# Container escape vulnerabilities could lead to full host compromise
-# Creating a dedicated user limits potential damage from exploits
-RUN groupadd -r trinity && useradd -r -g trinity -d /app -s /sbin/nologin trinity
-
-# ============================================================================
-# STEP 8.5: Create directory for Ollama models
-# ============================================================================
-# Ollama stores downloaded models here
-# Note: Using /home/trinity/.ollama instead of /root/.ollama
-RUN mkdir -p /home/trinity/.ollama && chown -R trinity:trinity /home/trinity/.ollama
-ENV OLLAMA_MODELS=/home/trinity/.ollama
-
-# ============================================================================
-# STEP 8.6: Create directory for chat storage
-# ============================================================================
-# Create persistent storage directory for chat data
-RUN mkdir -p /data/chats && chown -R trinity:trinity /data/chats
-
-# Declare volumes for persistent storage
-VOLUME ["/data/chats"]
-
-# Set ownership of app directory
+# Fix ownership of app directory (after code copy)
 RUN chown -R trinity:trinity /app
 
-# ============================================================================
-# STEP 9: Expose the port
-# ============================================================================
-# This tells Docker that your app listens on port 8000
-# It's like saying "this container has a door at port 8000"
+# === STEP 9: Ports ===
 EXPOSE 8000
-
-# Also expose Ollama's port (used internally)
 EXPOSE 11434
 
-# ============================================================================
-# STEP 10: Health check
-# ============================================================================
-# Docker will periodically check if your app is healthy
-# --interval=30s: Check every 30 seconds
-# --timeout=10s: If check takes >10s, consider it failed
-# --start-period=1200s: Wait 20 minutes before first check (large models take time!)
-# --retries=3: After 3 failed checks, mark container as unhealthy
-# Note: Llama 70B download takes 10-20 minutes on first run
+# === STEP 10: Health check ===
 HEALTHCHECK --interval=30s --timeout=10s --start-period=1200s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# ============================================================================
-# STEP 11: Switch to non-root user
-# ============================================================================
-# SECURITY: Run as non-root user to limit container escape damage
-USER trinity
-
-# ============================================================================
-# STEP 12: Define the startup command
-# ============================================================================
-# When the container starts, run the startup.sh script
-# This script will:
-# 1. Start Ollama in the background
-# 2. Wait for it to be ready
-# 3. Pull the AI model
-# 4. Start the Flask inference server
+# === STEP 11: Start ===
+# Runs as root so startup.sh can fix PersistentVolume permissions.
+# PVs mount as root-owned; Ollama needs write access to model directory.
 CMD ["/app/startup.sh"]
-
-# ============================================================================
-# DOCKER IMAGE BUILT!
-# ============================================================================
-# After running "docker build", you'll have a container image that:
-# - Contains Ubuntu + CUDA + Python + Ollama + your code
-# - Can run on any machine with Docker installed
-# - Will automatically start both Ollama and your Flask server
-# - Exposes port 8000 for HTTP requests
-# - Includes health checks for monitoring
-#
-# Total image size: ~8-10GB (mostly CUDA drivers and AI model)
-# ============================================================================

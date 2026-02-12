@@ -1,137 +1,118 @@
-# 📚 Trinity Documentation
+# Trinity Documentation
 
-> Organized documentation for humans and AIs alike.
+> **Last Updated:** February 10, 2026  
+> Comprehensive documentation for Trinity - a decentralized AI chat application.
 
 ---
 
 ## Quick Navigation
 
-| Category | Description | For Who |
-|----------|-------------|---------|
-| [🤖 ai-context/](ai-context/) | Project knowledge base for AI assistants | **AI/LLMs** |
-| [🏗️ architecture/](architecture/) | System design & technical decisions | **Engineers** |
-| [🔒 security/](security/) | Audits, testing, threat models | **Security/Auditors** |
-| [🚀 getting-started/](getting-started/) | Setup guides & tutorials | **New Developers** |
-| [📖 reference/](reference/) | CLI commands & API docs | **All Developers** |
-| [📜 lore/](lore/) | Model battle reports & AI chronicles | **Blog/Marketing** |
-| [🗄️ archive/](archive/) | Completed plans & historical docs | **Context** |
+| Document | Audience | Description |
+|----------|----------|-------------|
+| [CLAUDE.md](ai-context/CLAUDE.md) | **AI/LLMs** | Primary AI context document (2000+ lines) |
+| [CODEBASE-MAP.md](ai-context/CODEBASE-MAP.md) | **AI/LLMs** | Quick-reference: all files, routes, constants |
+| [backend/API.md](backend/API.md) | **Developers** | All 49 API endpoints with examples |
+| [backend/SERVICES.md](backend/SERVICES.md) | **Developers** | Backend services documentation |
+| [frontend/MODULES.md](frontend/MODULES.md) | **Developers** | Frontend module documentation |
+| [deployment/WORKFLOW.md](deployment/WORKFLOW.md) | **DevOps** | Deployment procedures |
 
 ---
 
-## 🤖 For AI Assistants
+## For AI Assistants
 
 **Start here:** [ai-context/CLAUDE.md](ai-context/CLAUDE.md)
 
-This is the authoritative reference document for understanding Trinity. It contains:
+This 2000+ line document contains everything you need:
 - Architecture overview
-- State management patterns (Zustand)
-- Authentication flow (Ed25519)
-- Deployment workflows
-- Common pitfalls
+- State management (Zustand patterns)
+- Authentication (Ed25519 flow)
+- All deployment workflows
+- Common pitfalls and fixes
 
-**Also useful:** [ai-context/FEATURE_CATALOG.md](ai-context/FEATURE_CATALOG.md) — Complete inventory of every feature.
-
----
-
-## 🏗️ For Engineers
-
-### Understanding the System
-1. [architecture/trinity-storage-architecture.md](architecture/trinity-storage-architecture.md) — Data flow diagram
-2. [architecture/decisions/](architecture/decisions/) — ADRs explaining key design choices
-
-### Security Review
-1. [security/SECURITY-AUDITOR-OVERVIEW.md](security/SECURITY-AUDITOR-OVERVIEW.md) — Start here for audits
-2. [security/security-audit.md](security/security-audit.md) — Test coverage report
+**Also useful:**
+- [ai-context/CODEBASE-MAP.md](ai-context/CODEBASE-MAP.md) — Quick-reference map of all files, routes, and constants
+- [ai-context/FEATURE_CATALOG.md](ai-context/FEATURE_CATALOG.md) — Feature inventory
 
 ---
 
-## 🚀 For New Developers
+## For Developers
 
-### Setup (in order)
-1. [getting-started/quickstart.md](getting-started/quickstart.md) — 5-minute quick start
-2. [getting-started/developer-setup.md](getting-started/developer-setup.md) — Full local setup
-3. [getting-started/setup.md](getting-started/setup.md) — Production deployment setup
+### Getting Started
+1. [getting-started/developer-setup.md](getting-started/developer-setup.md) — Local development setup
+2. [getting-started/common-tasks.md](getting-started/common-tasks.md) — Day-to-day workflows
+3. [getting-started/setup.md](getting-started/setup.md) — Production environment setup
 
-### Orientation
-4. [getting-started/architecture-walkthrough.md](getting-started/architecture-walkthrough.md) — System tour
-5. [getting-started/common-tasks.md](getting-started/common-tasks.md) — Day-to-day workflows
+### Technical Reference
+- [backend/API.md](backend/API.md) — Complete API documentation (49 endpoints)
+- [backend/SERVICES.md](backend/SERVICES.md) — Backend services (20+ modules)
+- [frontend/MODULES.md](frontend/MODULES.md) — Frontend modules (32 files across 8 directories)
 
----
-
-## 📖 Reference
-
-| Document | Contents |
-|----------|----------|
-| [reference/AKASH_CLI_REFERENCE.md](reference/AKASH_CLI_REFERENCE.md) | Akash deployment commands |
+### Architecture
+- [architecture/trinity-storage-architecture.md](architecture/trinity-storage-architecture.md) — Storage layer design
+- [architecture/decisions/](architecture/decisions/) — Architecture Decision Records (5 ADRs)
 
 ---
 
-## 📜 The Trinity Lore
+## For Security Auditors
 
-Epic tales of AI battles and model comparisons:
-
-| Chronicle | Summary |
-|-----------|---------|
-| [lore/README.md](lore/README.md) | **The Chronicle of Trinity** — Full saga |
-| [lore/battle-of-qwen.md](lore/battle-of-qwen.md) | Qwen 14B vs 32B showdown |
-| [lore/war-of-three-kings.md](lore/war-of-three-kings.md) | Qwen vs Llama vs Mixtral |
+1. [security/SECURITY-AUDITOR-OVERVIEW.md](security/SECURITY-AUDITOR-OVERVIEW.md) — Start here
+2. [security/security-audit.md](security/security-audit.md) — Test coverage and findings
 
 ---
 
-## 🗄️ Archive
+## For DevOps
 
-Historical documents from completed work:
-
-| Document | Status |
-|----------|--------|
-| [archive/trinity-production-upgrade-master-plan.md](archive/trinity-production-upgrade-master-plan.md) | ✅ Complete |
-| [archive/PHASE-2B-COMPLETION-MEMO.md](archive/PHASE-2B-COMPLETION-MEMO.md) | ✅ Complete |
-| [archive/PHASE-3-COMPLETION-MEMO.md](archive/PHASE-3-COMPLETION-MEMO.md) | ✅ Complete |
-| [archive/PHASE-5.5A-CRITICAL-METRICS-MIGRATION.md](archive/PHASE-5.5A-CRITICAL-METRICS-MIGRATION.md) | ✅ Complete |
+1. [deployment/WORKFLOW.md](deployment/WORKFLOW.md) — Deployment procedures
+2. [reference/AKASH_CLI_REFERENCE.md](reference/AKASH_CLI_REFERENCE.md) — Akash CLI commands
 
 ---
 
-## Directory Structure
+## Project Structure
 
 ```
-docs/
-├── README.md                    ← You are here
-├── ai-context/                  ← 🤖 For AI assistants
-│   ├── CLAUDE.md               ← Primary AI reference
-│   └── FEATURE_CATALOG.md      ← Feature inventory
-├── architecture/                ← 🏗️ System design
-│   ├── trinity-storage-architecture.md
-│   └── decisions/              ← ADRs (Architecture Decision Records)
-│       ├── 001-complexity-routing.md
-│       ├── 002-tiered-test-coverage.md
-│       ├── 003-prometheus-over-saas.md
-│       ├── 004-hash-based-experiments.md
-│       └── 005-in-memory-caching.md
-├── security/                    ← 🔒 Security docs
-│   ├── SECURITY-AUDITOR-OVERVIEW.md
-│   └── security-audit.md
-├── getting-started/             ← 🚀 Setup guides
-│   ├── quickstart.md
-│   ├── developer-setup.md
-│   ├── setup.md
-│   ├── architecture-walkthrough.md
-│   └── common-tasks.md
-├── reference/                   ← 📖 CLI & API docs
-│   └── AKASH_CLI_REFERENCE.md
-├── lore/                        ← 📜 Battle reports
-│   ├── README.md
-│   ├── battle-of-qwen.md
-│   ├── war-of-three-kings.md
-│   ├── BATTLE_REPORT_TIER2_qwen14b.md
-│   └── BATTLE_REPORT_TIER3_qwen32b.md
-└── archive/                     ← 🗄️ Historical docs
-    ├── trinity-production-upgrade-master-plan.md
-    ├── PHASE-2B-COMPLETION-MEMO.md
-    ├── PHASE-3-COMPLETION-MEMO.md
-    ├── PHASE-5.5A-CRITICAL-METRICS-MIGRATION.md
-    └── gdubx-next-steps.md
+Trinity/
+├── backend/                    # Flask + Ollama backend
+│   ├── inference_server.py     # App factory (349 lines)
+│   ├── routes/                 # 7 route blueprints (49 endpoints)
+│   ├── middleware/             # Rate limiting, caching, observability
+│   └── services/               # 20+ service modules
+├── trinity-icp/src/            # ICP frontend
+│   ├── app.js                  # Application orchestrator (266 lines)
+│   ├── core/                   # Infrastructure (api.js, environment.js, logger.js)
+│   ├── features/               # Feature modules (auth, generate, chat, memory)
+│   ├── auth/                   # Ed25519 authentication
+│   ├── state/                  # Zustand state management
+│   ├── storage/                # Autosave, IPFS
+│   └── ui/                     # UI components
+├── deploy/                     # Deployment configs
+│   ├── akash/                  # Akash YAML manifests
+│   ├── docker/                 # Dockerfile
+│   └── cloudflare-worker/      # SSL proxy
+├── scripts/                    # Automation scripts
+└── docs/                       # This documentation
 ```
 
 ---
 
-*"Documentation is love letters to your future self."*
+## Key Links
+
+| Resource | URL |
+|----------|-----|
+| Production Frontend | https://dubya.ai |
+| API Endpoint | https://api.dubya.ai |
+| Health Check | https://api.dubya.ai/health |
+| Frontend Canister | zc67k-kiaaa-aaaal-qtmiq-cai |
+| Backend Canister | au5zq-2qaaa-aaaal-qtowa-cai |
+
+---
+
+## Document Versions
+
+| Document | Last Updated |
+|----------|--------------|
+| CLAUDE.md | February 10, 2026 |
+| CODEBASE-MAP.md | February 10, 2026 |
+| FEATURE_CATALOG.md | February 6, 2026 |
+| MODULES.md | February 10, 2026 |
+| B2B Pivot Strategy | February 10, 2026 |
+| This README | February 10, 2026 |

@@ -39,6 +39,16 @@ echo ""
 echo "✅ Successfully pushed: gdubx/trinity-inference:$VERSION"
 echo ""
 
+# Auto-cleanup: remove old images and build cache to prevent bloat
+echo "🧹 Cleaning up old Docker images and build cache..."
+docker builder prune -f &> /dev/null || true
+docker images "gdubx/trinity-inference" --format '{{.Tag}} {{.ID}}' | \
+    grep -v -E "^(latest|$VERSION) " | \
+    awk '{print $2}' | xargs -r docker rmi -f &> /dev/null || true
+docker image prune -f &> /dev/null || true
+echo "✅ Cleanup complete"
+echo ""
+
 # Update all YAML files in the akash directory
 echo "📝 Updating YAML deployment files..."
 cd "$SCRIPT_DIR/../akash"

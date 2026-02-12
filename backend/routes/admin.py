@@ -1,0 +1,130 @@
+"""
+Admin endpoints — experiments, caching, token & quota usage.
+Routes: /admin/*
+All require @require_admin decorator.
+"""
+
+from flask import Blueprint, jsonify
+
+from icp_auth import require_admin
+
+admin_bp = Blueprint("admin", __name__)
+
+
+@admin_bp.route("/admin/experiments")
+@require_admin
+def get_experiments_status():
+    """Get all experiment definitions and current status."""
+    try:
+        from services.experiments import EXPERIMENTS, list_experiments
+
+        all_experiments = list_experiments(enabled_only=False)
+        enabled_count = sum(1 for exp in EXPERIMENTS.values() if exp.enabled)
+
+        return jsonify({
+            "experiments": all_experiments,
+            "enabled_count": enabled_count,
+            "total_count": len(all_experiments),
+        })
+    except ImportError:
+        return jsonify({"error": "Experiments module not available", "experiments": {}}), 503
+
+
+@admin_bp.route("/admin/experiments/<experiment_name>/enable", methods=["POST"])
+@require_admin
+def enable_experiment_endpoint(experiment_name: str):
+    """Enable a specific experiment."""
+    try:
+        from services.experiments import enable_experiment
+
+        success = enable_experiment(experiment_name)
+        if success:
+            return jsonify({"status": "enabled", "experiment": experiment_name})
+        else:
+            return jsonify({"error": f"Experiment not found: {experiment_name}"}), 404
+    except ImportError:
+        return jsonify({"error": "Experiments module not available"}), 503
+
+
+@admin_bp.route("/admin/experiments/<experiment_name>/disable", methods=["POST"])
+@require_admin
+def disable_experiment_endpoint(experiment_name: str):
+    """Disable a specific experiment."""
+    try:
+        from services.experiments import disable_experiment
+
+        success = disable_experiment(experiment_name)
+        if success:
+            return jsonify({"status": "disabled", "experiment": experiment_name})
+        else:
+            return jsonify({"error": f"Experiment not found: {experiment_name}"}), 404
+    except ImportError:
+        return jsonify({"error": "Experiments module not available"}), 503
+
+
+@admin_bp.route("/admin/experiments/assignment/<session_id>")
+@require_admin
+def get_experiment_assignments(session_id: str):
+    """Get all experiment assignments for a specific session."""
+    try:
+        from services.experiments import get_all_assignments
+
+        assignments = get_all_assignments(session_id)
+        return jsonify({"session_id": session_id, "assignments": assignments})
+    except ImportError:
+        return jsonify({"error": "Experiments module not available"}), 503
+
+
+@admin_bp.route("/admin/cache/stats")
+@require_admin
+def get_cache_stats():
+    """Get statistics for all caches."""
+    try:
+        from services.caching import get_all_cache_stats
+
+        stats = get_all_cache_stats()
+        return jsonify(stats)
+    except ImportError:
+        return jsonify({"error": "Caching module not available"}), 503
+
+
+@admin_bp.route("/admin/cache/clear", methods=["POST"])
+@require_admin
+def clear_caches():
+    """Clear all caches (admin action)."""
+    try:
+        from services.caching import clear_all_caches
+
+        clear_all_caches()
+        return jsonify({"status": "cleared", "message": "All caches cleared"})
+    except ImportError:
+        return jsonify({"error": "Caching module not available"}), 503
+
+
+@admin_bp.route("/admin/tokens/usage")
+@require_admin
+def get_token_usage():
+    """Get token usage statistics."""
+    try:
+        from services.caching import get_token_tracker
+
+        tracker = get_token_tracker()
+        return jsonify({
+            "totals": tracker.get_totals(),
+            "top_users": tracker.get_top_users(limit=20),
+        })
+    except ImportError:
+        return jsonify({"error": "Caching module not available"}), 503
+
+
+@admin_bp.route("/admin/quota/usage")
+@require_admin
+def get_quota_usage():
+    """Get per-user token quota usage."""
+    try:
+        from middleware.rate_limit import get_all_user_usage
+
+        usage = get_all_user_usage()
+        return jsonify({"users": usage, "user_count": len(usage)})
+    except ImportError:
+        return jsonify({"error": "Rate limit module not available"}), 503

@@ -22,13 +22,21 @@ function getCorsHeaders(origin) {
   return {
     'Access-Control-Allow-Origin': allowedOrigin,
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Accept, ICP-Principal, ICP-Timestamp, ICP-Signature, ICP-PublicKey, X-Trinity-Session, X-Request-ID',
+    'Access-Control-Allow-Headers': 'Content-Type, Accept, ICP-Principal, ICP-Timestamp, ICP-Signature, ICP-PublicKey, ICP-Nonce, X-Trinity-Session, X-Request-ID',
     'Access-Control-Allow-Credentials': 'true',
     // Security headers
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
     'X-XSS-Protection': '1; mode=block',
     'Referrer-Policy': 'strict-origin-when-cross-origin',
+    'Content-Security-Policy':
+      "default-src 'self'; " +
+      "script-src 'self' https://cdn.jsdelivr.net; " +
+      "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; " +
+      "connect-src 'self' https://api.dubya.ai; " +
+      "img-src 'self' data: https:; " +
+      "font-src 'self' https://cdn.jsdelivr.net; " +
+      "frame-ancestors 'none';",
   };
 }
 

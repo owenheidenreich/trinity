@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Dict
 
 from config import CHATS_DIR
+from encryption import EncryptionUtils
 
 logger = logging.getLogger(__name__)
 
@@ -53,11 +54,32 @@ def get_user_memory_path(principal_id: str) -> Path:
 
 
 def load_user_memory(principal_id: str) -> Dict:
-    """Load user's persistent memory"""
+    """Load user's persistent memory (encrypted on disk)"""
     path = get_user_memory_path(principal_id)
     if path.exists():
         with open(path, "r") as f:
-            return json.load(f)
+            raw = f.read()
+
+        # Try to decrypt (new encrypted format)
+        try:
+            encrypted_data = json.loads(raw)
+            # Check if it's encrypted format (has 'encryption' key)
+            if isinstance(encrypted_data, dict) and "encryption" in encrypted_data:
+                return EncryptionUtils.decrypt_chat(encrypted_data, principal_id)
+            else:
+                # Legacy unencrypted JSON - return as-is, will be encrypted on next save
+                logger.warning(f"⚠️ Legacy unencrypted user memory found for {principal_id[:20]}...")
+                return encrypted_data
+        except (json.JSONDecodeError, ValueError, KeyError):
+            # If it's not valid JSON or can't decrypt, return default
+            logger.error(f"❌ Failed to load user memory for {principal_id[:20]}...")
+            return _default_user_memory(principal_id)
+
+    return _default_user_memory(principal_id)
+
+
+def _default_user_memory(principal_id: str) -> Dict:
+    """Return default user memory structure"""
     return {
         "principalId": principal_id,
         "version": "1.0",
@@ -69,10 +91,11 @@ def load_user_memory(principal_id: str) -> Dict:
 
 
 def save_user_memory(principal_id: str, memory: Dict):
-    """Save user's persistent memory"""
+    """Save user's persistent memory (encrypted with AES-256-GCM)"""
     memory["lastUpdated"] = int(time.time() * 1000)
+    encrypted = EncryptionUtils.encrypt_chat(memory, principal_id)
     with open(get_user_memory_path(principal_id), "w") as f:
-        json.dump(memory, f, indent=2)
+        json.dump(encrypted, f)
 
 
 def load_metadata(principal_id: str) -> Dict:

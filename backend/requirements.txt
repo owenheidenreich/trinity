@@ -10,6 +10,7 @@ APScheduler==3.10.4
 pycryptodome==3.20.0
 python-dotenv==1.0.1
 cryptography==42.0.5
+cachetools==5.3.3
 yfinance==0.2.37
 feedparser==6.0.11
 beautifulsoup4==4.12.3

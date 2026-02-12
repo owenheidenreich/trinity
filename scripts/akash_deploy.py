@@ -595,6 +595,7 @@ def main():
         
         print(f"  Waiting for container (up to {max_wait//60} min for Tier {selected_tier})...")
         uri = None
+        container_ready = False
         start_time = time.time()
         check_count = 0
         for i in range(max_wait // 10):  # Check every 10 seconds
@@ -608,18 +609,30 @@ def main():
             
             status = get_lease_status(dseq, provider)
             if status:
-                # Try to find URI in forwarded_ports
+                # Try to find URI and check container is actually ready
                 try:
                     services = status.get("services", {})
                     for svc_name, svc_info in services.items():
                         uris = svc_info.get("uris", [])
-                        if uris:
+                        available = svc_info.get("available_replicas", 0)
+                        ready = svc_info.get("ready_replicas", 0)
+                        
+                        if uris and not uri:
                             uri = uris[0]
+                            print(f"\n    URI assigned: {uri}")
+                            print(f"    Waiting for container to be ready (available={available}, ready={ready})...")
+                        
+                        # Only consider truly ready when replicas are available
+                        if uris and available >= 1:
+                            uri = uris[0]
+                            container_ready = True
                             break
+                    else:
+                        container_ready = False
                 except:
-                    pass
+                    container_ready = False
                 
-                if uri:
+                if container_ready:
                     break
             # Print progress every 30 seconds
             if check_count % 6 == 0:
@@ -627,7 +640,7 @@ def main():
             else:
                 print(".", end="", flush=True)
         
-        if uri:
+        if uri and container_ready:
             print(f" READY!")
             
             # Check SSL certificate validity
