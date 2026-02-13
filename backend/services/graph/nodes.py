@@ -3,10 +3,13 @@ Trinity LangGraph Node Implementations
 
 Each node is a function that takes AgentState and returns updated state.
 Nodes represent the actual work done by each agent in the graph.
+
+Tool integration: nodes use execute_tool() with principal_id context
+so all 8 tools (including memory) are available to LangGraph agents.
 """
 
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from langchain_core.messages import AIMessage
 
@@ -17,6 +20,49 @@ from .agents import CodingAgent, ReasoningAgent, ResearchAgent, SupervisorAgent,
 from .state import AgentState
 
 logger = logging.getLogger(__name__)
+
+
+def _get_tool_context(state: AgentState) -> Dict:
+    """Build tool execution context from graph state."""
+    ctx = {}
+    principal_id = state.get("principal_id")
+    if principal_id:
+        ctx["principal_id"] = principal_id
+    return ctx
+
+
+def _execute_tool_calls_from_text(text: str, state: AgentState) -> tuple:
+    """Parse and execute any tool calls found in agent output.
+
+    Uses the shared execute_tool() with principal_id context so all 8 tools
+    (including memory tools) are available.
+
+    Returns (enriched_text, tool_results_list).
+    """
+    try:
+        from services.code_executor import execute_tool
+        from services.tools import parse_tool_calls
+
+        tool_calls = parse_tool_calls(text)
+        if not tool_calls:
+            return text, []
+
+        context = _get_tool_context(state)
+        results = []
+        for call in tool_calls:
+            success, output = execute_tool(call.name, call.params, context=context)
+            status = "Result" if success else "Error"
+            results.append({
+                "tool": call.name,
+                "success": success,
+                "output": output[:500],
+            })
+            text += f"\n\n[Tool {status}: {call.name}]\n{output}"
+
+        return text, results
+    except Exception as e:
+        logger.warning(f"Tool execution helper failed: {e}")
+        return text, []
 
 
 def router_node(state: AgentState) -> Dict[str, Any]:
@@ -51,7 +97,8 @@ def research_node(state: AgentState) -> Dict[str, Any]:
     """
     Research node - handles web search and document analysis.
 
-    Integrates with Trinity's existing search capabilities.
+    Performs web search first, then invokes the research agent with context.
+    Any tool calls in the agent's output are executed with principal_id context.
     """
     with track_agent_pass("execute") as tracker:
         try:
@@ -73,12 +120,18 @@ def research_node(state: AgentState) -> Dict[str, Any]:
             else:
                 result = agent.invoke(state)
 
+            # Execute any tool calls in the agent's output
+            result, tool_results = _execute_tool_calls_from_text(result, state)
+
             logger.info(f"📚 Research agent completed, output length: {len(result)}")
 
-            return {
+            update = {
                 "research_context": result,
                 "messages": [AIMessage(content=f"[Research Agent]\n{result}")],
             }
+            if tool_results:
+                update["tool_results"] = tool_results
+            return update
         except Exception as e:
             logger.error(f"Research node error: {e}")
             tracker.set_status("error")
@@ -93,18 +146,25 @@ def reasoning_node(state: AgentState) -> Dict[str, Any]:
     Reasoning node - handles complex logic and analysis.
 
     Uses the most capable model for deep thinking tasks.
+    Any tool calls (calculator, memory) are executed with principal_id context.
     """
     with track_agent_pass("execute") as tracker:
         try:
             agent = ReasoningAgent()
             result = agent.invoke(state)
 
+            # Execute any tool calls in the agent's output
+            result, tool_results = _execute_tool_calls_from_text(result, state)
+
             logger.info(f"🧠 Reasoning agent completed, output length: {len(result)}")
 
-            return {
+            update = {
                 "reasoning_output": result,
                 "messages": [AIMessage(content=f"[Reasoning Agent]\n{result}")],
             }
+            if tool_results:
+                update["tool_results"] = tool_results
+            return update
         except Exception as e:
             logger.error(f"Reasoning node error: {e}")
             tracker.set_status("error")
@@ -118,22 +178,25 @@ def coding_node(state: AgentState) -> Dict[str, Any]:
     """
     Coding node - handles code generation and execution.
 
-    Integrates with Trinity's sandboxed code execution.
+    Tool calls (code_display, calculator) are executed with principal_id context.
     """
     with track_agent_pass("execute") as tracker:
         try:
             agent = CodingAgent()
             result = agent.invoke(state)
 
-            # Optionally execute code if requested
-            executed_result = _maybe_execute_code(result)
+            # Execute any tool calls in the agent's output
+            result, tool_results = _execute_tool_calls_from_text(result, state)
 
             logger.info(f"💻 Coding agent completed, output length: {len(result)}")
 
-            return {
-                "code_output": executed_result or result,
-                "messages": [AIMessage(content=f"[Coding Agent]\n{executed_result or result}")],
+            update = {
+                "code_output": result,
+                "messages": [AIMessage(content=f"[Coding Agent]\n{result}")],
             }
+            if tool_results:
+                update["tool_results"] = tool_results
+            return update
         except Exception as e:
             logger.error(f"Coding node error: {e}")
             tracker.set_status("error")
@@ -203,39 +266,3 @@ def _perform_web_search(query: str) -> str:
     except Exception as e:
         logger.warning(f"Web search failed: {e}")
         return ""
-
-
-def _maybe_execute_code(code_response: str) -> str:
-    """
-    Optionally execute code blocks from the response.
-
-    Only executes if code is wrapped in specific markers.
-    """
-    try:
-        from services.code_executor import execute_tool
-        from services.tools import parse_tool_calls
-
-        # Check for tool calls in the response
-        tool_calls = parse_tool_calls(code_response)
-
-        if not tool_calls:
-            return code_response
-
-        # Execute each tool call
-        results = []
-        for call in tool_calls:
-            if call.name in ["calculator", "code_display"]:
-                success, output = execute_tool(call.name, call.params)
-                if success:
-                    results.append(f"[Tool Result: {call.name}]\n{output}")
-                else:
-                    results.append(f"[Tool Error: {call.name}]\n{output}")
-
-        if results:
-            return code_response + "\n\n" + "\n\n".join(results)
-
-        return code_response
-
-    except Exception as e:
-        logger.warning(f"Code execution helper failed: {e}")
-        return code_response

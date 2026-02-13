@@ -14,6 +14,7 @@ v4.0 Enhancements:
 
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass
 from typing import Dict, Generator, List, Optional
@@ -43,15 +44,18 @@ from .complexity import (
 )
 from .loading_messages import format_phase_update
 from .search import format_search_context, is_search_available, search_web
+from .tools import detect_tools_needed
 
 # Import new v4.0 modules (with graceful fallback)
 try:
-    pass
+    from config import REACT_ENABLED
+    from .react_loop import ReactLoop
 
-    V4_FEATURES_AVAILABLE = True
+    REACT_AVAILABLE = True
 except ImportError as e:
-    logging.warning(f"v4.0 features not fully available: {e}")
-    V4_FEATURES_AVAILABLE = False
+    logging.warning(f"ReAct loop not available: {e}")
+    REACT_AVAILABLE = False
+    REACT_ENABLED = False
 
 logger = logging.getLogger(__name__)
 
@@ -87,12 +91,51 @@ CRITIQUE_THRESHOLD = 7
 # Max refinement attempts
 MAX_REFINE_ATTEMPTS = 2
 
+# Regex to strip <think>...</think> blocks from streaming tokens
+_THINK_OPEN = re.compile(r"<think>", re.IGNORECASE)
+_THINK_CLOSE = re.compile(r"</think>", re.IGNORECASE)
+
 # Multi-model configuration (Tier 2+ only)
 # These are set from config.py at runtime
 MULTI_MODEL_ENABLED = False
 FAST_MODEL = None
 SMART_MODEL = None
 REASONING_MODEL = None
+
+
+def _format_user_memory(user_memory: Dict) -> str:
+    """Format user memory dict into clean text for LLM consumption.
+
+    Avoids passing raw Python dict repr (e.g. {'facts': [...]}) which
+    confuses the model. Produces a clean bullet list instead.
+    """
+    if not user_memory:
+        return ""
+    facts = user_memory.get("facts", [])
+    if not facts:
+        return ""
+    return "\n".join(f"- {fact}" for fact in facts[:10])
+
+
+def _format_understanding(understanding) -> str:
+    """Format UnderstandingResult into clean text for LLM consumption.
+
+    Avoids passing raw dataclass repr which looks like Python source code.
+    """
+    if not understanding:
+        return ""
+    parts = []
+    if hasattr(understanding, "question_type"):
+        parts.append(f"Type: {understanding.question_type}")
+    if hasattr(understanding, "domains") and understanding.domains:
+        parts.append(f"Domains: {', '.join(understanding.domains)}")
+    if hasattr(understanding, "complexity"):
+        parts.append(f"Complexity: {understanding.complexity}/10")
+    if hasattr(understanding, "summary"):
+        parts.append(f"Summary: {understanding.summary}")
+    if hasattr(understanding, "key_challenges") and understanding.key_challenges:
+        parts.append(f"Challenges: {understanding.key_challenges}")
+    return "\n".join(parts)
 
 
 def init_multi_model_config():
@@ -299,6 +342,106 @@ class OllamaClient:
         except Exception as e:
             logger.error(f"Ollama stream error: {e}")
 
+    def chat(
+        self,
+        messages: List[Dict],
+        max_tokens: int = 1000,
+        temperature: float = 0.7,
+        timeout: int = 60,
+        pass_name: str = None,
+        complexity: int = 5,
+        tools: List[Dict] = None,
+        raw_message: bool = False,
+    ) -> str:
+        """Call Ollama /api/chat with messages array (non-streaming).
+
+        Args:
+            tools: Optional native tool definitions for Ollama function calling
+            raw_message: If True, return the full message dict (for native tool call extraction)
+        """
+        model = self._get_model_for_pass(pass_name, complexity) if pass_name else self.model
+
+        try:
+            payload = {
+                "model": model,
+                "messages": messages,
+                "stream": False,
+                "options": {"num_predict": max_tokens, "temperature": temperature, "num_ctx": 32768},
+            }
+            if tools:
+                payload["tools"] = tools
+
+            response = requests.post(
+                f"{self.host}/api/chat",
+                json=payload,
+                timeout=timeout,
+            )
+
+            if response.status_code != 200:
+                logger.error(f"Ollama chat error: {response.status_code}")
+                return {} if raw_message else ""
+
+            result = response.json()
+            message = result.get("message", {})
+
+            if raw_message:
+                return message
+            return message.get("content", "")
+
+        except requests.exceptions.Timeout:
+            logger.warning(f"Ollama chat timeout after {timeout}s")
+            return {} if raw_message else ""
+        except Exception as e:
+            logger.error(f"Ollama chat error: {e}")
+            return {} if raw_message else ""
+
+    def chat_stream(
+        self,
+        messages: List[Dict],
+        max_tokens: int = 1000,
+        temperature: float = 0.7,
+        timeout: int = 60,
+        pass_name: str = None,
+        complexity: int = 5,
+    ) -> Generator[str, None, None]:
+        """Call Ollama /api/chat with messages array (streaming)."""
+        model = self._get_model_for_pass(pass_name, complexity) if pass_name else self.model
+
+        try:
+            response = requests.post(
+                f"{self.host}/api/chat",
+                json={
+                    "model": model,
+                    "messages": messages,
+                    "stream": True,
+                    "options": {"num_predict": max_tokens, "temperature": temperature, "num_ctx": 32768},
+                },
+                stream=True,
+                timeout=timeout,
+            )
+
+            if response.status_code != 200:
+                logger.error(f"Ollama chat stream error: {response.status_code}")
+                return
+
+            for line in response.iter_lines():
+                if line:
+                    try:
+                        chunk = json.loads(line)
+                        token = chunk.get("message", {}).get("content", "")
+                        if token:
+                            yield token
+                        if chunk.get("done"):
+                            yield {"__done_reason": chunk.get("done_reason", "stop")}
+                            break
+                    except json.JSONDecodeError:
+                        continue
+
+        except requests.exceptions.Timeout:
+            logger.warning(f"Ollama chat stream timeout after {timeout}s")
+        except Exception as e:
+            logger.error(f"Ollama chat stream error: {e}")
+
 
 # ============================================================================
 # AGENT PIPELINE
@@ -317,6 +460,100 @@ class AgentPipeline:
 
     def __init__(self, ollama_host: str = "http://localhost:11434", model: str = "llama3.1:8b"):
         self.client = OllamaClient(ollama_host, model)
+
+    def _get_react_loop(self, principal_id: str = None) -> "ReactLoop":
+        """Create a ReactLoop with user context for this request."""
+        if not REACT_AVAILABLE:
+            return None
+        context = {}
+        if principal_id:
+            context["principal_id"] = principal_id
+        return ReactLoop(self.client, context=context)
+
+    def _should_use_react(self, question: str, understanding=None, analysis=None) -> bool:
+        """Check if this query should use the ReAct loop."""
+        if not REACT_AVAILABLE or not REACT_ENABLED:
+            return False
+        # Use pre-computed analysis from analyze_question() if available
+        if analysis and hasattr(analysis, "tools_needed") and analysis.tools_needed:
+            return True
+        # Check if understanding pass detected tools
+        if understanding and hasattr(understanding, "tools_needed") and understanding.tools_needed:
+            return True
+        # Fallback to heuristic detection
+        tools = detect_tools_needed(question)
+        return len(tools) > 0
+
+    def _filter_think_blocks(
+        self, token_stream: Generator, accumulator: list
+    ) -> Generator[str, None, None]:
+        """Filter <think>...</think> blocks from a streaming token generator.
+
+        Qwen3 (and some other models) emit <think>reasoning</think> before
+        the actual answer. These must be stripped so the frontend never sees
+        raw XML tags. Tokens inside think blocks are silently discarded.
+        Works for Qwen2.5 too (no-op if no think blocks present).
+
+        Args:
+            token_stream: Generator yielding str tokens or dict metadata
+            accumulator: Mutable list — we append the clean full_response text
+                         so the caller can read it after iteration.
+        Yields:
+            str tokens with think blocks removed.
+            dict metadata tokens (e.g. __done_reason) are yielded unchanged.
+        """
+        inside_think = False
+        buf = ""  # Buffer to handle partial tags across token boundaries
+
+        for token in token_stream:
+            # Pass through metadata dicts unchanged
+            if isinstance(token, dict):
+                yield token
+                continue
+
+            buf += token
+
+            # Process buffer looking for think tags
+            while buf:
+                if inside_think:
+                    # Look for closing </think>
+                    close_match = _THINK_CLOSE.search(buf)
+                    if close_match:
+                        # Discard everything up to and including </think>
+                        buf = buf[close_match.end():]
+                        inside_think = False
+                        continue
+                    else:
+                        # Still inside think block — discard entire buffer
+                        # but keep last 8 chars in case </think> spans tokens
+                        if len(buf) > 8:
+                            buf = buf[-8:]
+                        break
+                else:
+                    # Look for opening <think>
+                    open_match = _THINK_OPEN.search(buf)
+                    if open_match:
+                        # Yield text before <think>
+                        before = buf[:open_match.start()]
+                        if before:
+                            accumulator.append(before)
+                            yield before
+                        buf = buf[open_match.end():]
+                        inside_think = True
+                        continue
+                    else:
+                        # No think tag — yield text (keep last 7 chars for partial <think>)
+                        if len(buf) > 7:
+                            safe = buf[:-7]
+                            buf = buf[-7:]
+                            accumulator.append(safe)
+                            yield safe
+                        break
+
+        # Flush remaining buffer
+        if buf and not inside_think:
+            accumulator.append(buf)
+            yield buf
 
     def process(
         self,
@@ -349,7 +586,8 @@ class AgentPipeline:
         record_routing("langgraph" if complexity == "complex" else "legacy")
 
         logger.info(
-            f"🧠 Agent: {complexity} question, {passes_needed} passes, search={analysis.needs_search}"
+            f"🧠 Agent: {complexity} question, {passes_needed} passes, "
+            f"search={analysis.needs_search}, tools={analysis.tools_needed}"
         )
 
         context_messages = context_messages or []
@@ -380,7 +618,7 @@ class AgentPipeline:
 
             elif complexity == "medium":
                 # === MEDIUM: Understand → Execute → Critique ===
-                understanding = self._pass_understand(question)
+                understanding = self._pass_understand(question, context_messages)
                 answer = self._pass_execute(
                     question, understanding, None, context_messages, user_memory, search_context
                 )
@@ -392,7 +630,7 @@ class AgentPipeline:
 
             else:
                 # === COMPLEX: Full pipeline ===
-                understanding = self._pass_understand(question)
+                understanding = self._pass_understand(question, context_messages)
                 plan = self._pass_plan(question, understanding)
                 answer = self._pass_execute(
                     question, understanding, plan, context_messages, user_memory, search_context
@@ -478,7 +716,8 @@ class AgentPipeline:
         record_routing("langgraph" if complexity == "complex" else "legacy")
 
         logger.info(
-            f"🧠 Agent streaming: {complexity} question, {passes_needed} passes, search={analysis.needs_search}"
+            f"🧠 Agent streaming: {complexity} question, {passes_needed} passes, "
+            f"search={analysis.needs_search}, tools={analysis.tools_needed}"
         )
 
         context_messages = context_messages or []
@@ -511,35 +750,73 @@ class AgentPipeline:
                 # === SIMPLE: Direct streaming ===
                 yield format_phase_update("executing")  # "Brewing the answer..."
 
-                prompt = build_execute_prompt(
-                    question, None, None, context_messages, user_memory, search_context
-                )
-                for token in self.client.generate_stream(
-                    prompt, PASS_TOKEN_LIMITS["execute"], timeout=PASS_TIMEOUTS["execute"]
-                ):
-                    if isinstance(token, dict) and "__done_reason" in token:
-                        last_done_reason = token["__done_reason"]
-                        continue
-                    full_response += token
-                    yield {"token": token}
+                if self._should_use_react(question, analysis=analysis):
+                    # ReAct loop for tool-using queries
+                    for event in self._get_react_loop(principal_id).execute_streaming(
+                        question=question,
+                        context_messages=context_messages,
+                        user_memory=_format_user_memory(user_memory),
+                        search_context=search_context,
+                        max_tokens=PASS_TOKEN_LIMITS["execute"],
+                        timeout=PASS_TIMEOUTS["execute"],
+                    ):
+                        if "token" in event:
+                            full_response += event["token"]
+                        yield event
+                else:
+                    prompt = build_execute_prompt(
+                        question, None, None, context_messages, user_memory, search_context
+                    )
+                    filtered_parts = []
+                    for token in self._filter_think_blocks(
+                        self.client.generate_stream(
+                            prompt, PASS_TOKEN_LIMITS["execute"], timeout=PASS_TIMEOUTS["execute"]
+                        ),
+                        filtered_parts,
+                    ):
+                        if isinstance(token, dict) and "__done_reason" in token:
+                            last_done_reason = token["__done_reason"]
+                            continue
+                        yield {"token": token}
+                    full_response = "".join(filtered_parts)
 
             elif complexity == "medium":
-                # === MEDIUM ===
+                # === MEDIUM: Understand + Execute + Critique ===
                 yield format_phase_update("understanding")  # "Pondering the question..."
-                understanding = self._pass_understand(question)
+                understanding = self._pass_understand(question, context_messages)
 
                 yield format_phase_update("executing")  # "Crafting the response..."
-                prompt = build_execute_prompt(
-                    question, understanding, None, context_messages, user_memory, search_context
-                )
-                for token in self.client.generate_stream(
-                    prompt, PASS_TOKEN_LIMITS["execute"], timeout=PASS_TIMEOUTS["execute"]
-                ):
-                    if isinstance(token, dict) and "__done_reason" in token:
-                        last_done_reason = token["__done_reason"]
-                        continue
-                    full_response += token
-                    yield {"token": token}
+
+                if self._should_use_react(question, understanding, analysis=analysis):
+                    for event in self._get_react_loop(principal_id).execute_streaming(
+                        question=question,
+                        context_messages=context_messages,
+                        understanding=_format_understanding(understanding),
+                        user_memory=_format_user_memory(user_memory),
+                        search_context=search_context,
+                        max_tokens=PASS_TOKEN_LIMITS["execute"],
+                        timeout=PASS_TIMEOUTS["execute"],
+                        complexity=5,
+                    ):
+                        if "token" in event:
+                            full_response += event["token"]
+                        yield event
+                else:
+                    prompt = build_execute_prompt(
+                        question, understanding, None, context_messages, user_memory, search_context
+                    )
+                    filtered_parts = []
+                    for token in self._filter_think_blocks(
+                        self.client.generate_stream(
+                            prompt, PASS_TOKEN_LIMITS["execute"], timeout=PASS_TIMEOUTS["execute"]
+                        ),
+                        filtered_parts,
+                    ):
+                        if isinstance(token, dict) and "__done_reason" in token:
+                            last_done_reason = token["__done_reason"]
+                            continue
+                        yield {"token": token}
+                    full_response = "".join(filtered_parts)
 
                 yield format_phase_update("critiquing")  # "Polishing the prose..."
                 critique = self._pass_critique(question, full_response)
@@ -549,22 +826,26 @@ class AgentPipeline:
                         "phase": "refining",
                         "message": f"Enhancing quality (score: {critique.score}/10)...",
                     }
-                    original_response = full_response  # Save before clearing
+                    original_response = full_response
                     full_response = ""
                     prompt = build_refine_prompt(question, original_response, critique)
-                    for token in self.client.generate_stream(
-                        prompt, PASS_TOKEN_LIMITS["refine"], timeout=PASS_TIMEOUTS["refine"]
+                    filtered_parts = []
+                    for token in self._filter_think_blocks(
+                        self.client.generate_stream(
+                            prompt, PASS_TOKEN_LIMITS["refine"], timeout=PASS_TIMEOUTS["refine"]
+                        ),
+                        filtered_parts,
                     ):
                         if isinstance(token, dict) and "__done_reason" in token:
                             last_done_reason = token["__done_reason"]
                             continue
-                        full_response += token
                         yield {"token": token}
+                    full_response = "".join(filtered_parts)
 
             else:
                 # === COMPLEX: Full pipeline ===
                 yield format_phase_update("understanding")  # "Meditating on the problem..."
-                understanding = self._pass_understand(question)
+                understanding = self._pass_understand(question, context_messages)
 
                 yield format_phase_update("planning")  # "Charting the course..."
                 plan = self._pass_plan(question, understanding)
@@ -573,17 +854,39 @@ class AgentPipeline:
                     yield {"phase": "planning", "message": f"Mapped {len(plan.steps)} steps..."}
 
                 yield format_phase_update("executing")  # "Weaving the words..."
-                prompt = build_execute_prompt(
-                    question, understanding, plan, context_messages, user_memory, search_context
-                )
-                for token in self.client.generate_stream(
-                    prompt, PASS_TOKEN_LIMITS["execute"], timeout=PASS_TIMEOUTS["execute"]
-                ):
-                    if isinstance(token, dict) and "__done_reason" in token:
-                        last_done_reason = token["__done_reason"]
-                        continue
-                    full_response += token
-                    yield {"token": token}
+
+                if self._should_use_react(question, understanding, analysis=analysis):
+                    plan_str = "\n".join(f"{i+1}. {s}" for i, s in enumerate(plan.steps)) if plan and plan.steps else ""
+                    for event in self._get_react_loop(principal_id).execute_streaming(
+                        question=question,
+                        context_messages=context_messages,
+                        understanding=_format_understanding(understanding),
+                        plan=plan_str,
+                        user_memory=_format_user_memory(user_memory),
+                        search_context=search_context,
+                        max_tokens=PASS_TOKEN_LIMITS["execute"],
+                        timeout=PASS_TIMEOUTS["execute"],
+                        complexity=8,
+                    ):
+                        if "token" in event:
+                            full_response += event["token"]
+                        yield event
+                else:
+                    prompt = build_execute_prompt(
+                        question, understanding, plan, context_messages, user_memory, search_context
+                    )
+                    filtered_parts = []
+                    for token in self._filter_think_blocks(
+                        self.client.generate_stream(
+                            prompt, PASS_TOKEN_LIMITS["execute"], timeout=PASS_TIMEOUTS["execute"]
+                        ),
+                        filtered_parts,
+                    ):
+                        if isinstance(token, dict) and "__done_reason" in token:
+                            last_done_reason = token["__done_reason"]
+                            continue
+                        yield {"token": token}
+                    full_response = "".join(filtered_parts)
 
                 yield format_phase_update("critiquing")  # "Inspecting the work..."
                 critique = self._pass_critique(question, full_response)
@@ -603,14 +906,18 @@ class AgentPipeline:
                     full_response = ""
 
                     prompt = build_refine_prompt(question, original_response, critique)
-                    for token in self.client.generate_stream(
-                        prompt, PASS_TOKEN_LIMITS["refine"], timeout=PASS_TIMEOUTS["refine"]
+                    filtered_parts = []
+                    for token in self._filter_think_blocks(
+                        self.client.generate_stream(
+                            prompt, PASS_TOKEN_LIMITS["refine"], timeout=PASS_TIMEOUTS["refine"]
+                        ),
+                        filtered_parts,
                     ):
                         if isinstance(token, dict) and "__done_reason" in token:
                             last_done_reason = token["__done_reason"]
                             continue
-                        full_response += token
                         yield {"token": token}
+                    full_response = "".join(filtered_parts)
 
                     # Re-critique if needed
                     new_critique = self._pass_critique(question, full_response)
@@ -642,12 +949,12 @@ class AgentPipeline:
     # INDIVIDUAL PASSES
     # ========================================================================
 
-    def _pass_understand(self, question: str) -> Optional[UnderstandingResult]:
+    def _pass_understand(self, question: str, context_messages: List[Dict] = None) -> Optional[UnderstandingResult]:
         """Pass 1: Understand the question"""
         logger.info("🤔 Pass 1: Understanding...")
 
         with track_agent_pass("understand") as tracker:
-            prompt = build_understand_prompt(question)
+            prompt = build_understand_prompt(question, context_messages)
             response = self.client.generate(
                 prompt,
                 max_tokens=PASS_TOKEN_LIMITS["understand"],
@@ -692,6 +999,22 @@ class AgentPipeline:
         """Pass 3: Execute (non-streaming version)"""
         logger.info("✍️ Pass 3: Executing...")
 
+        # Use ReAct loop if tools are needed
+        if self._should_use_react(question, understanding):
+            logger.info("🔄 Using ReAct loop for tool-assisted execution")
+            plan_str = "\n".join(f"{i+1}. {s}" for i, s in enumerate(plan.steps)) if plan and plan.steps else ""
+            result = self._get_react_loop().execute(
+                question=question,
+                context_messages=context_messages,
+                understanding=_format_understanding(understanding),
+                plan=plan_str,
+                user_memory=_format_user_memory(user_memory),
+                search_context=search_context,
+                max_tokens=PASS_TOKEN_LIMITS["execute"],
+                timeout=PASS_TIMEOUTS["execute"],
+            )
+            return result.answer
+
         with track_agent_pass("execute") as tracker:
             prompt = build_execute_prompt(
                 question, understanding, plan, context_messages, user_memory, search_context
@@ -718,6 +1041,19 @@ class AgentPipeline:
     ) -> str:
         """Simple execute without understanding/plan"""
         logger.info("✍️ Simple execution...")
+
+        # Use ReAct loop if tools are needed
+        if self._should_use_react(question):
+            logger.info("🔄 Using ReAct loop for simple tool-assisted execution")
+            result = self._get_react_loop().execute(
+                question=question,
+                context_messages=context_messages,
+                user_memory=_format_user_memory(user_memory),
+                search_context=search_context,
+                max_tokens=PASS_TOKEN_LIMITS["execute"],
+                timeout=PASS_TIMEOUTS["execute"],
+            )
+            return result.answer
 
         prompt = build_execute_prompt(
             question, None, None, context_messages, user_memory, search_context

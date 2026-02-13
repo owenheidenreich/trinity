@@ -272,7 +272,7 @@ def format_code_display(language: str, code: str, execute: bool = False) -> Tupl
     return True, "\n".join(output_parts)
 
 
-def execute_tool(tool_name: str, params: Dict) -> Tuple[bool, str]:
+def execute_tool(tool_name: str, params: Dict, context: Dict = None) -> Tuple[bool, str]:
     """
     Execute a tool by name with given parameters.
 
@@ -281,11 +281,13 @@ def execute_tool(tool_name: str, params: Dict) -> Tuple[bool, str]:
     Args:
         tool_name: Name of the tool
         params: Tool parameters
+        context: Optional dict with principal_id, chat_id for context-aware tools
 
     Returns:
         Tuple of (success, result_or_error)
     """
     tool_name = tool_name.lower()
+    context = context or {}
 
     with track_tool_call(tool_name) as tracker:
         if tool_name == "calculator":
@@ -304,24 +306,153 @@ def execute_tool(tool_name: str, params: Dict) -> Tuple[bool, str]:
                 tracker.set_status("error")
             return success, result
 
-        elif tool_name == "document_search":
-            # This is handled by the agent pipeline (needs vector store access)
-            query = params.get("query", "")
-            return True, f"[Document search for: {query}]"
-
         elif tool_name == "web_search":
-            # This is handled by the agent pipeline (needs Brave API)
-            query = params.get("query", "")
-            return True, f"[Web search for: {query}]"
+            return _execute_web_search(params, tracker)
 
         elif tool_name == "fact_check":
-            # This triggers a web search with verification framing
-            claim = params.get("claim", "")
-            return True, f"[Fact checking: {claim}]"
+            return _execute_fact_check(params, tracker)
+
+        elif tool_name == "document_search":
+            return _execute_document_search(params, context, tracker)
+
+        elif tool_name in ("save_memory", "recall_memory", "search_memory"):
+            return _execute_memory_tool(tool_name, params, context, tracker)
 
         else:
+            # Fall through to MCP client for external tools
+            return _execute_mcp_tool(tool_name, params, tracker)
+
+
+def _execute_web_search(params: Dict, tracker) -> Tuple[bool, str]:
+    """Execute web search using Brave Search API."""
+    try:
+        from .search import format_search_context, search_web
+
+        query = params.get("query", "")
+        if not query.strip():
+            return False, "Empty search query"
+
+        result = search_web(query, count=5)
+        if result.error:
             tracker.set_status("error")
-            return False, f"Unknown tool: {tool_name}"
+            return False, f"Search error: {result.error}"
+
+        formatted = format_search_context(result)
+        if not formatted:
+            return True, f"No results found for: {query}"
+        return True, formatted
+    except Exception as e:
+        tracker.set_status("error")
+        return False, f"Web search failed: {e}"
+
+
+def _execute_fact_check(params: Dict, tracker) -> Tuple[bool, str]:
+    """Execute fact check using dual web searches."""
+    try:
+        from .fact_check import fact_check
+
+        claim = params.get("claim", "")
+        if not claim.strip():
+            return False, "No claim provided to verify"
+
+        result = fact_check(claim)
+        return True, result
+    except Exception as e:
+        tracker.set_status("error")
+        return False, f"Fact check failed: {e}"
+
+
+def _execute_document_search(params: Dict, context: Dict, tracker) -> Tuple[bool, str]:
+    """Execute document search using vector store."""
+    try:
+        from .embeddings import embed_text
+        from .vector_store import get_vector_store
+
+        query = params.get("query", "")
+        if not query.strip():
+            return False, "Empty search query"
+
+        principal_id = context.get("principal_id")
+        if not principal_id:
+            tracker.set_status("error")
+            return False, "Document search requires user context (principal_id)"
+
+        # Embed the query
+        query_embedding = embed_text(query)
+
+        # Search user's vector store
+        vs = get_vector_store(principal_id)
+
+        # Try document chunks first, fall back to message history
+        results = vs.search_documents(query_embedding, k=5)
+        source = "documents"
+        if not results:
+            results = vs.search_messages(query_embedding, k=5)
+            source = "conversation history"
+
+        if not results:
+            return True, f"No relevant {source} found for: {query}"
+
+        # Format results
+        lines = [f"Found {len(results)} results from {source}:"]
+        for i, r in enumerate(results, 1):
+            content = r.get("content", "")[:300]
+            score = r.get("score", 0)
+            filename = r.get("filename", "")
+            role = r.get("role", "")
+            label = filename if filename else f"{role} message" if role else "result"
+            lines.append(f"\n{i}. [{label}] (relevance: {score:.2f})")
+            lines.append(f"   {content}")
+
+        return True, "\n".join(lines)
+    except ImportError as e:
+        tracker.set_status("error")
+        return False, f"Document search unavailable: {e}"
+    except Exception as e:
+        tracker.set_status("error")
+        return False, f"Document search failed: {e}"
+
+
+def _execute_memory_tool(tool_name: str, params: Dict, context: Dict, tracker) -> Tuple[bool, str]:
+    """Execute memory tools (save/recall/search). Delegated to memory_tools module."""
+    try:
+        from .memory_tools import tool_recall_memory, tool_save_memory, tool_search_memory
+
+        principal_id = context.get("principal_id")
+        if not principal_id:
+            tracker.set_status("error")
+            return False, "Memory tools require user context (principal_id)"
+
+        if tool_name == "save_memory":
+            return tool_save_memory(params, principal_id)
+        elif tool_name == "recall_memory":
+            return tool_recall_memory(params, principal_id)
+        elif tool_name == "search_memory":
+            return tool_search_memory(params, principal_id)
+        else:
+            tracker.set_status("error")
+            return False, f"Unknown memory tool: {tool_name}"
+    except ImportError as e:
+        tracker.set_status("error")
+        return False, f"Memory tools unavailable: {e}"
+    except Exception as e:
+        tracker.set_status("error")
+        return False, f"Memory tool failed: {e}"
+
+
+def _execute_mcp_tool(tool_name: str, params: Dict, tracker) -> Tuple[bool, str]:
+    """Execute a tool via MCP client (external MCP servers)."""
+    try:
+        from .mcp_client import get_mcp_client
+
+        client = get_mcp_client()
+        if client.has_tool(tool_name):
+            return client.execute_tool(tool_name, params)
+    except Exception as e:
+        logger.debug(f"MCP tool lookup failed: {e}")
+
+    tracker.set_status("error")
+    return False, f"Unknown tool: {tool_name}"
 
 
 # Module availability flag for graceful degradation

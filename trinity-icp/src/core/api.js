@@ -75,12 +75,15 @@ const API = {
             if (!response.ok) {
                 // Handle rate limiting with countdown
                 if (response.status === 429) {
+                    let retryAfter = 60;
                     try {
                         const errorData = await response.json();
-                        const retryAfter = errorData?.error?.retry_after_seconds || parseInt(response.headers.get('Retry-After')) || 60;
+                        retryAfter = errorData?.error?.retry_after_seconds || parseInt(response.headers.get('Retry-After')) || 60;
+                    } catch { /* use default */ }
+                    try {
                         UI.showRateLimitCountdown(retryAfter);
-                    } catch {
-                        UI.showRateLimitCountdown(60);
+                    } catch (uiErr) {
+                        console.warn('⚠️ Could not show rate limit UI:', uiErr.message);
                     }
                     throw new Error('Rate limit exceeded');
                 }

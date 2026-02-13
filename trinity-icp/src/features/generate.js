@@ -13,7 +13,7 @@ import AutosaveManager from '../storage/autosave.js';
 import { enhanceCodeBlocks, addCopyAllButton, addContinueButton, addDownloadSection } from '../ui/messages.js';
 import { extractCodeBlocks, getCodeBlockStatus } from '../utils/codeBlockParser.js';
 import { getFileIcon, LANG_EXTENSIONS, generateSmartFilename } from '../utils/codeUtils.js';
-import { addEditButton, parseMarkdownWithMath } from '../ui/editMessage.js';
+import { addEditButton, parseMarkdownWithMath, preprocessToolCalls } from '../ui/editMessage.js';
 import { getAttachedContent, clearAttachment } from '../tools.js';
 import { healthCheckViaCanister, isCanisterConfigured } from '../api/canister-client.js';
 
@@ -179,13 +179,15 @@ export async function generate(executeAutosave) {
         const startTyping = () => {
             if (typingInterval) return;
 
-            // Create stable + stream + tail containers
+            // Create stable + tail + stream containers
+            // Order: stableDiv (completed blocks) → tailDiv (trailing prose) → streamDiv (in-progress code card)
+            // This keeps the streaming card below the prose that precedes it
             stableDiv = document.createElement('div');
-            streamDiv = document.createElement('div');
             tailDiv = document.createElement('div');
+            streamDiv = document.createElement('div');
             messageDiv.appendChild(stableDiv);
-            messageDiv.appendChild(streamDiv);
             messageDiv.appendChild(tailDiv);
+            messageDiv.appendChild(streamDiv);
 
             typingInterval = setInterval(() => {
                 if (displayedLength < tokenBuffer.length) {
@@ -216,6 +218,7 @@ export async function generate(executeAutosave) {
                         if (!streamDetailsEl) {
                             streamDetailsEl = document.createElement('details');
                             streamDetailsEl.className = 'code-details code-streaming-indicator';
+                            streamDetailsEl.open = false;  // Write collapsed — user can expand if curious
 
                             const summary = document.createElement('summary');
                             summary.className = 'code-details-summary';
@@ -287,7 +290,9 @@ export async function generate(executeAutosave) {
                         stableDiv.innerHTML = tempDiv.innerHTML;
 
                         stableDiv.querySelectorAll('details.code-details').forEach((d, i) => {
+                            // Keep completed blocks collapsed by default during streaming
                             if (prevOpen.has(i)) d.open = true;
+                            else d.open = false;
                         });
                     }
 
@@ -295,6 +300,9 @@ export async function generate(executeAutosave) {
                     const tailText = stableEnd > 0 ? textToRender.substring(stableEnd) : textToRender;
                     tailDiv.innerHTML = DOMPurify.sanitize(parseMarkdownWithMath(tailText)) +
                         '<span class="streaming-cursor">▊</span>';
+
+                    // Auto-scroll to keep new content visible
+                    chatArea.scrollTop = chatArea.scrollHeight;
                 }
             }, 15);
         };
@@ -364,6 +372,9 @@ export async function generate(executeAutosave) {
                         
                         // Add Copy All button at bottom
                         addCopyAllButton(messageDiv);
+
+                        // Final scroll to bottom
+                        chatArea.scrollTop = chatArea.scrollHeight;
 
                         // If response was truncated, show Continue button
                         if (agentResponse?.done_reason === 'length') {
@@ -499,7 +510,8 @@ export async function generate(executeAutosave) {
 
         if (generatedText) {
             console.log('💬 Adding to state...');
-            State.addMessage('assistant', generatedText);
+            const cleanText = preprocessToolCalls(generatedText);
+            State.addMessage('assistant', cleanText);
 
             // Check if summarization is needed
             if (State.chatHistory.length >= State.SUMMARY_INTERVAL &&

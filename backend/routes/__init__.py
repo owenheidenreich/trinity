@@ -11,6 +11,7 @@ Blueprints:
   - tools_bp:    /tools/*
   - v4_bp:       /v4/*
   - session_bp:  /session/*, /funding/*
+  - mcp_bp:      /mcp
 """
 
 from .health import health_bp
@@ -20,6 +21,7 @@ from .chat import chat_bp
 from .tools import tools_bp
 from .v4 import v4_bp
 from .session import session_bp
+from .mcp import mcp_bp
 
 ALL_BLUEPRINTS = [
     health_bp,
@@ -29,6 +31,7 @@ ALL_BLUEPRINTS = [
     tools_bp,
     v4_bp,
     session_bp,
+    mcp_bp,
 ]
 
 __all__ = [
@@ -39,5 +42,6 @@ __all__ = [
     "tools_bp",
     "v4_bp",
     "session_bp",
+    "mcp_bp",
     "ALL_BLUEPRINTS",
 ]

@@ -1,0 +1,250 @@
+data: {"phase": "classifying", "message": "Calibrating the response..."}
+
+data: {"phase": "searching", "message": "Diving into the archives..."}
+
+data: {"phase": "searching", "message": "Found 5 sources..."}
+
+data: {"phase": "understanding", "message": "Contemplating the puzzle..."}
+
+data: {"phase": "executing", "message": "Writing the story..."}
+
+data: {"token": "The "}
+
+data: {"token": "curr"}
+
+data: {"token": "ent "}
+
+data: {"token": "fede"}
+
+data: {"token": "ral "}
+
+data: {"token": "fund"}
+
+data: {"token": "s ra"}
+
+data: {"token": "te t"}
+
+data: {"token": "arge"}
+
+data: {"token": "t ra"}
+
+data: {"token": "nge "}
+
+data: {"token": "is 3"}
+
+data: {"token": ".5% "}
+
+data: {"token": "to 3"}
+
+data: {"token": ".75%"}
+
+data: {"token": ", as"}
+
+data: {"token": " of "}
+
+data: {"token": "the "}
+
+data: {"token": "Janu"}
+
+data: {"token": "ary "}
+
+data: {"token": "2026"}
+
+data: {"token": " Fed"}
+
+data: {"token": "eral"}
+
+data: {"token": " Ope"}
+
+data: {"token": "n Ma"}
+
+data: {"token": "rket"}
+
+data: {"token": " Com"}
+
+data: {"token": "mitt"}
+
+data: {"token": "ee ("}
+
+data: {"token": "FOMC"}
+
+data: {"token": ") me"}
+
+data: {"token": "etin"}
+
+data: {"token": "g. T"}
+
+data: {"token": "his "}
+
+data: {"token": "rate"}
+
+data: {"token": " inf"}
+
+data: {"token": "luen"}
+
+data: {"token": "ces "}
+
+data: {"token": "vari"}
+
+data: {"token": "ous "}
+
+data: {"token": "othe"}
+
+data: {"token": "r sh"}
+
+data: {"token": "ort-"}
+
+data: {"token": "term"}
+
+data: {"token": " int"}
+
+data: {"token": "eres"}
+
+data: {"token": "t ra"}
+
+data: {"token": "tes "}
+
+data: {"token": "in t"}
+
+data: {"token": "he e"}
+
+data: {"token": "cono"}
+
+data: {"token": "my.\n"}
+
+data: {"token": "\nThe"}
+
+data: {"token": "se r"}
+
+data: {"token": "ates"}
+
+data: {"token": " are"}
+
+data: {"token": " sig"}
+
+data: {"token": "nifi"}
+
+data: {"token": "cant"}
+
+data: {"token": " bec"}
+
+data: {"token": "ause"}
+
+data: {"token": " the"}
+
+data: {"token": "y af"}
+
+data: {"token": "fect"}
+
+data: {"token": " bor"}
+
+data: {"token": "rowi"}
+
+data: {"token": "ng c"}
+
+data: {"token": "osts"}
+
+data: {"token": " and"}
+
+data: {"token": " can"}
+
+data: {"token": " inf"}
+
+data: {"token": "luen"}
+
+data: {"token": "ce i"}
+
+data: {"token": "nfla"}
+
+data: {"token": "tion"}
+
+data: {"token": ", ec"}
+
+data: {"token": "onom"}
+
+data: {"token": "ic g"}
+
+data: {"token": "rowt"}
+
+data: {"token": "h, u"}
+
+data: {"token": "nemp"}
+
+data: {"token": "loym"}
+
+data: {"token": "ent "}
+
+data: {"token": "leve"}
+
+data: {"token": "ls, "}
+
+data: {"token": "and "}
+
+data: {"token": "over"}
+
+data: {"token": "all "}
+
+data: {"token": "fina"}
+
+data: {"token": "ncia"}
+
+data: {"token": "l st"}
+
+data: {"token": "abil"}
+
+data: {"token": "ity."}
+
+data: {"token": " By "}
+
+data: {"token": "adju"}
+
+data: {"token": "stin"}
+
+data: {"token": "g th"}
+
+data: {"token": "ese "}
+
+data: {"token": "rate"}
+
+data: {"token": "s, t"}
+
+data: {"token": "he F"}
+
+data: {"token": "eder"}
+
+data: {"token": "al R"}
+
+data: {"token": "eser"}
+
+data: {"token": "ve a"}
+
+data: {"token": "ims "}
+
+data: {"token": "to p"}
+
+data: {"token": "romo"}
+
+data: {"token": "te s"}
+
+data: {"token": "usta"}
+
+data: {"token": "inab"}
+
+data: {"token": "le e"}
+
+data: {"token": "cono"}
+
+data: {"token": "mic "}
+
+data: {"token": "cond"}
+
+data: {"token": "itio"}
+
+data: {"token": "ns."}
+
+data: {"react_done": true, "tools_used": [], "iterations": 1}
+
+data: {"phase": "critiquing", "message": "Evaluating the quality..."}
+
+data: {"done": true, "response": {"answer": "The current federal funds rate target range is 3.5% to 3.75%, as of the January 2026 Federal Open Market Committee (FOMC) meeting. This rate influences various other short-term interest rates in the economy.\n\nThese rates are significant because they affect borrowing costs and can influence inflation, economic growth, unemployment levels, and overall financial stability. By adjusting these rates, the Federal Reserve aims to promote sustainable economic conditions.", "complexity": "medium", "passes_used": 3, "total_time_seconds": 7.18, "search_performed": true, "search_query": "what are the current federal reserve interest rates and why do they matter", "understanding": {"type": "factual", "domains": ["economics", "finance", "policy"], "complexity": 2, "summary": "User is asking for the current federal reserve interest rates and their significance."}, "critique": {"score": 7, "verdict": "The response provides accurate information but includes an erroneous date and lacks current context."}}, "done_reason": "stop"}
+

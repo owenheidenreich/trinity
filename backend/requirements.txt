@@ -39,6 +39,11 @@ langgraph==0.2.62
 langchain-core==0.3.29
 langchain-community==0.3.14
 
+# ===== MCP (Model Context Protocol) =====
+# Added: February 12, 2026 - Expose Trinity tools via MCP, connect to external MCP servers
+# Optional: graceful degradation if not installed (stdio server requires it, HTTP route does not)
+mcp>=1.0.0
+
 # ===== TESTING INFRASTRUCTURE (Phase 1) =====
 # Added: February 5, 2026
 pytest==8.0.0

@@ -1,0 +1,1094 @@
+data: {"phase": "classifying", "message": "Calibrating the response..."}
+
+data: {"phase": "executing", "message": "Brewing the answer..."}
+
+data: {"token": "To"}
+
+data: {"token": " der"}
+
+data: {"token": "ive the qu"}
+
+data: {"token": "adratic "}
+
+data: {"token": "formu"}
+
+data: {"token": "la "}
+
+data: {"token": "fro"}
+
+data: {"token": "m"}
+
+data: {"token": " "}
+
+data: {"token": "\\("}
+
+data: {"token": " ax"}
+
+data: {"token": "^2"}
+
+data: {"token": " +"}
+
+data: {"token": " b"}
+
+data: {"token": "x"}
+
+data: {"token": " "}
+
+data: {"token": "+ "}
+
+data: {"token": "c "}
+
+data: {"token": "= 0 \\),"}
+
+data: {"token": " follo"}
+
+data: {"token": "w thes"}
+
+data: {"token": "e s"}
+
+data: {"token": "t"}
+
+data: {"token": "e"}
+
+data: {"token": "ps:\n\n1"}
+
+data: {"token": ". Sta"}
+
+data: {"token": "rt w"}
+
+data: {"token": "ith the s"}
+
+data: {"token": "tanda"}
+
+data: {"token": "rd "}
+
+data: {"token": "fo"}
+
+data: {"token": "rm of a qu"}
+
+data: {"token": "adratic e"}
+
+data: {"token": "qu"}
+
+data: {"token": "at"}
+
+data: {"token": "ion"}
+
+data: {"token": ":\n "}
+
+data: {"token": " "}
+
+data: {"token": " "}
+
+data: {"token": "$$"}
+
+data: {"token": " ax"}
+
+data: {"token": "^2"}
+
+data: {"token": " +"}
+
+data: {"token": " b"}
+
+data: {"token": "x"}
+
+data: {"token": " "}
+
+data: {"token": "+ c"}
+
+data: {"token": " ="}
+
+data: {"token": " "}
+
+data: {"token": "0"}
+
+data: {"token": " $$\n\n2."}
+
+data: {"token": " Divi"}
+
+data: {"token": "de bot"}
+
+data: {"token": "h s"}
+
+data: {"token": "ide"}
+
+data: {"token": "s"}
+
+data: {"token": " b"}
+
+data: {"token": "y "}
+
+data: {"token": "\\(a\\) (a"}
+
+data: {"token": "ssu"}
+
+data: {"token": "m"}
+
+data: {"token": "in"}
+
+data: {"token": "g "}
+
+data: {"token": "\\"}
+
+data: {"token": "("}
+
+data: {"token": "a"}
+
+data: {"token": " "}
+
+data: {"token": "\\neq"}
+
+data: {"token": " 0"}
+
+data: {"token": "\\))"}
+
+data: {"token": ":\n"}
+
+data: {"token": " "}
+
+data: {"token": " "}
+
+data: {"token": " $"}
+
+data: {"token": "$ "}
+
+data: {"token": "x^2 "}
+
+data: {"token": "+"}
+
+data: {"token": " "}
+
+data: {"token": "\\f"}
+
+data: {"token": "r"}
+
+data: {"token": "a"}
+
+data: {"token": "c"}
+
+data: {"token": "{b"}
+
+data: {"token": "}{"}
+
+data: {"token": "a}x "}
+
+data: {"token": "+"}
+
+data: {"token": " "}
+
+data: {"token": "\\f"}
+
+data: {"token": "r"}
+
+data: {"token": "a"}
+
+data: {"token": "c{"}
+
+data: {"token": "c"}
+
+data: {"token": "}"}
+
+data: {"token": "{a}"}
+
+data: {"token": " ="}
+
+data: {"token": " "}
+
+data: {"token": "0"}
+
+data: {"token": " $$\n\n3. S"}
+
+data: {"token": "ub"}
+
+data: {"token": "tr"}
+
+data: {"token": "act "}
+
+data: {"token": "\\"}
+
+data: {"token": "("}
+
+data: {"token": "\\f"}
+
+data: {"token": "r"}
+
+data: {"token": "ac"}
+
+data: {"token": "{"}
+
+data: {"token": "c}{a}"}
+
+data: {"token": "\\) fr"}
+
+data: {"token": "om bot"}
+
+data: {"token": "h "}
+
+data: {"token": "si"}
+
+data: {"token": "des"}
+
+data: {"token": ":\n"}
+
+data: {"token": " "}
+
+data: {"token": " "}
+
+data: {"token": " $"}
+
+data: {"token": "$ "}
+
+data: {"token": "x^2 "}
+
+data: {"token": "+"}
+
+data: {"token": " "}
+
+data: {"token": "\\f"}
+
+data: {"token": "r"}
+
+data: {"token": "a"}
+
+data: {"token": "c"}
+
+data: {"token": "{b"}
+
+data: {"token": "}{"}
+
+data: {"token": "a"}
+
+data: {"token": "}x ="}
+
+data: {"token": " "}
+
+data: {"token": "-"}
+
+data: {"token": "\\f"}
+
+data: {"token": "r"}
+
+data: {"token": "a"}
+
+data: {"token": "c{c"}
+
+data: {"token": "}{"}
+
+data: {"token": "a"}
+
+data: {"token": "}"}
+
+data: {"token": " $$\n\n4. C"}
+
+data: {"token": "ompl"}
+
+data: {"token": "ete the"}
+
+data: {"token": " sq"}
+
+data: {"token": "uare"}
+
+data: {"token": " on t"}
+
+data: {"token": "he le"}
+
+data: {"token": "ft "}
+
+data: {"token": "side by"}
+
+data: {"token": " add"}
+
+data: {"token": "ing and s"}
+
+data: {"token": "ubt"}
+
+data: {"token": "ra"}
+
+data: {"token": "ct"}
+
+data: {"token": "i"}
+
+data: {"token": "ng \\"}
+
+data: {"token": "("}
+
+data: {"token": "("}
+
+data: {"token": "\\f"}
+
+data: {"token": "r"}
+
+data: {"token": "a"}
+
+data: {"token": "c{"}
+
+data: {"token": "1}{2"}
+
+data: {"token": "} "}
+
+data: {"token": "\\cdo"}
+
+data: {"token": "t"}
+
+data: {"token": " "}
+
+data: {"token": "\\f"}
+
+data: {"token": "r"}
+
+data: {"token": "ac"}
+
+data: {"token": "{"}
+
+data: {"token": "b"}
+
+data: {"token": "}{"}
+
+data: {"token": "a})"}
+
+data: {"token": "^2 ="}
+
+data: {"token": " "}
+
+data: {"token": "("}
+
+data: {"token": "\\f"}
+
+data: {"token": "r"}
+
+data: {"token": "a"}
+
+data: {"token": "c{"}
+
+data: {"token": "b"}
+
+data: {"token": "}"}
+
+data: {"token": "{"}
+
+data: {"token": "2a}"}
+
+data: {"token": ")^"}
+
+data: {"token": "2\\)"}
+
+data: {"token": ":\n"}
+
+data: {"token": " "}
+
+data: {"token": " "}
+
+data: {"token": " $"}
+
+data: {"token": "$ "}
+
+data: {"token": "x^2 "}
+
+data: {"token": "+"}
+
+data: {"token": " "}
+
+data: {"token": "\\f"}
+
+data: {"token": "r"}
+
+data: {"token": "a"}
+
+data: {"token": "c"}
+
+data: {"token": "{b"}
+
+data: {"token": "}{"}
+
+data: {"token": "a}x "}
+
+data: {"token": "+ "}
+
+data: {"token": "\\lef"}
+
+data: {"token": "t"}
+
+data: {"token": "("}
+
+data: {"token": "\\f"}
+
+data: {"token": "r"}
+
+data: {"token": "a"}
+
+data: {"token": "c{"}
+
+data: {"token": "b}{2a"}
+
+data: {"token": "}\\"}
+
+data: {"token": "r"}
+
+data: {"token": "ig"}
+
+data: {"token": "ht"}
+
+data: {"token": ")"}
+
+data: {"token": "^2 ="}
+
+data: {"token": " "}
+
+data: {"token": "-"}
+
+data: {"token": "\\f"}
+
+data: {"token": "r"}
+
+data: {"token": "a"}
+
+data: {"token": "c{"}
+
+data: {"token": "c}"}
+
+data: {"token": "{a} "}
+
+data: {"token": "+ "}
+
+data: {"token": "\\lef"}
+
+data: {"token": "t"}
+
+data: {"token": "("}
+
+data: {"token": "\\f"}
+
+data: {"token": "r"}
+
+data: {"token": "a"}
+
+data: {"token": "c{"}
+
+data: {"token": "b}{2a"}
+
+data: {"token": "}\\"}
+
+data: {"token": "r"}
+
+data: {"token": "igh"}
+
+data: {"token": "t)"}
+
+data: {"token": "^"}
+
+data: {"token": "2"}
+
+data: {"token": " $$\n\n5. "}
+
+data: {"token": "Rewr"}
+
+data: {"token": "ite t"}
+
+data: {"token": "he le"}
+
+data: {"token": "ft "}
+
+data: {"token": "si"}
+
+data: {"token": "de as a "}
+
+data: {"token": "perfect"}
+
+data: {"token": " squ"}
+
+data: {"token": "are and s"}
+
+data: {"token": "impl"}
+
+data: {"token": "ify th"}
+
+data: {"token": "e rig"}
+
+data: {"token": "ht"}
+
+data: {"token": " s"}
+
+data: {"token": "ide"}
+
+data: {"token": ":\n"}
+
+data: {"token": "   $"}
+
+data: {"token": "$ "}
+
+data: {"token": "\\l"}
+
+data: {"token": "ef"}
+
+data: {"token": "t(x "}
+
+data: {"token": "+"}
+
+data: {"token": " "}
+
+data: {"token": "\\f"}
+
+data: {"token": "r"}
+
+data: {"token": "a"}
+
+data: {"token": "c{"}
+
+data: {"token": "b}{2a"}
+
+data: {"token": "}\\"}
+
+data: {"token": "r"}
+
+data: {"token": "ig"}
+
+data: {"token": "ht"}
+
+data: {"token": ")"}
+
+data: {"token": "^2 ="}
+
+data: {"token": " "}
+
+data: {"token": "-"}
+
+data: {"token": "\\f"}
+
+data: {"token": "r"}
+
+data: {"token": "a"}
+
+data: {"token": "c{"}
+
+data: {"token": "c}"}
+
+data: {"token": "{a} "}
+
+data: {"token": "+"}
+
+data: {"token": " "}
+
+data: {"token": "\\"}
+
+data: {"token": "f"}
+
+data: {"token": "ra"}
+
+data: {"token": "c"}
+
+data: {"token": "{"}
+
+data: {"token": "b"}
+
+data: {"token": "^"}
+
+data: {"token": "2"}
+
+data: {"token": "}{"}
+
+data: {"token": "4a"}
+
+data: {"token": "^2"}
+
+data: {"token": "} $"}
+
+data: {"token": "$\n"}
+
+data: {"token": "   $"}
+
+data: {"token": "$ "}
+
+data: {"token": "\\l"}
+
+data: {"token": "ef"}
+
+data: {"token": "t(x "}
+
+data: {"token": "+"}
+
+data: {"token": " "}
+
+data: {"token": "\\f"}
+
+data: {"token": "r"}
+
+data: {"token": "a"}
+
+data: {"token": "c{"}
+
+data: {"token": "b}{2a"}
+
+data: {"token": "}\\"}
+
+data: {"token": "r"}
+
+data: {"token": "ig"}
+
+data: {"token": "ht"}
+
+data: {"token": ")^2 "}
+
+data: {"token": "= "}
+
+data: {"token": "\\"}
+
+data: {"token": "fr"}
+
+data: {"token": "ac"}
+
+data: {"token": "{-"}
+
+data: {"token": "4"}
+
+data: {"token": "a"}
+
+data: {"token": "c "}
+
+data: {"token": "+"}
+
+data: {"token": " "}
+
+data: {"token": "b"}
+
+data: {"token": "^"}
+
+data: {"token": "2"}
+
+data: {"token": "}{4"}
+
+data: {"token": "a^"}
+
+data: {"token": "2"}
+
+data: {"token": "}"}
+
+data: {"token": " $$\n\n"}
+
+data: {"token": "6. T"}
+
+data: {"token": "ake the"}
+
+data: {"token": " squa"}
+
+data: {"token": "re "}
+
+data: {"token": "root "}
+
+data: {"token": "of bot"}
+
+data: {"token": "h "}
+
+data: {"token": "si"}
+
+data: {"token": "des"}
+
+data: {"token": ":\n"}
+
+data: {"token": "  "}
+
+data: {"token": " $"}
+
+data: {"token": "$ x "}
+
+data: {"token": "+"}
+
+data: {"token": " "}
+
+data: {"token": "\\f"}
+
+data: {"token": "r"}
+
+data: {"token": "a"}
+
+data: {"token": "c"}
+
+data: {"token": "{b"}
+
+data: {"token": "}{"}
+
+data: {"token": "2a"}
+
+data: {"token": "} "}
+
+data: {"token": "= \\p"}
+
+data: {"token": "m "}
+
+data: {"token": "\\sqr"}
+
+data: {"token": "t"}
+
+data: {"token": "{"}
+
+data: {"token": "\\"}
+
+data: {"token": "f"}
+
+data: {"token": "ra"}
+
+data: {"token": "c"}
+
+data: {"token": "{"}
+
+data: {"token": "b^"}
+
+data: {"token": "2 "}
+
+data: {"token": "-"}
+
+data: {"token": " "}
+
+data: {"token": "4"}
+
+data: {"token": "a"}
+
+data: {"token": "c}"}
+
+data: {"token": "{4"}
+
+data: {"token": "a^"}
+
+data: {"token": "2}"}
+
+data: {"token": "} $"}
+
+data: {"token": "$\n"}
+
+data: {"token": "  "}
+
+data: {"token": " $"}
+
+data: {"token": "$ x "}
+
+data: {"token": "+"}
+
+data: {"token": " "}
+
+data: {"token": "\\f"}
+
+data: {"token": "r"}
+
+data: {"token": "a"}
+
+data: {"token": "c"}
+
+data: {"token": "{b"}
+
+data: {"token": "}{"}
+
+data: {"token": "2a"}
+
+data: {"token": "} "}
+
+data: {"token": "= \\p"}
+
+data: {"token": "m "}
+
+data: {"token": "\\fra"}
+
+data: {"token": "c"}
+
+data: {"token": "{"}
+
+data: {"token": "\\"}
+
+data: {"token": "s"}
+
+data: {"token": "qr"}
+
+data: {"token": "t"}
+
+data: {"token": "{"}
+
+data: {"token": "b^"}
+
+data: {"token": "2 "}
+
+data: {"token": "-"}
+
+data: {"token": " "}
+
+data: {"token": "4"}
+
+data: {"token": "a"}
+
+data: {"token": "c}}"}
+
+data: {"token": "{2"}
+
+data: {"token": "a"}
+
+data: {"token": "}"}
+
+data: {"token": " $$"}
+
+data: {"token": "\n\n7. "}
+
+data: {"token": "Iso"}
+
+data: {"token": "l"}
+
+data: {"token": "at"}
+
+data: {"token": "e \\"}
+
+data: {"token": "(x\\) by s"}
+
+data: {"token": "ubt"}
+
+data: {"token": "ra"}
+
+data: {"token": "ct"}
+
+data: {"token": "ing "}
+
+data: {"token": "\\"}
+
+data: {"token": "("}
+
+data: {"token": "\\f"}
+
+data: {"token": "r"}
+
+data: {"token": "a"}
+
+data: {"token": "c{"}
+
+data: {"token": "b"}
+
+data: {"token": "}{2a}"}
+
+data: {"token": "\\) fr"}
+
+data: {"token": "om bot"}
+
+data: {"token": "h "}
+
+data: {"token": "si"}
+
+data: {"token": "des"}
+
+data: {"token": ":\n"}
+
+data: {"token": "  "}
+
+data: {"token": " $"}
+
+data: {"token": "$"}
+
+data: {"token": " x ="}
+
+data: {"token": " "}
+
+data: {"token": "-"}
+
+data: {"token": "\\f"}
+
+data: {"token": "r"}
+
+data: {"token": "a"}
+
+data: {"token": "c"}
+
+data: {"token": "{b"}
+
+data: {"token": "}{"}
+
+data: {"token": "2a"}
+
+data: {"token": "} \\p"}
+
+data: {"token": "m "}
+
+data: {"token": "\\fra"}
+
+data: {"token": "c"}
+
+data: {"token": "{"}
+
+data: {"token": "\\"}
+
+data: {"token": "s"}
+
+data: {"token": "qr"}
+
+data: {"token": "t"}
+
+data: {"token": "{"}
+
+data: {"token": "b^"}
+
+data: {"token": "2 "}
+
+data: {"token": "-"}
+
+data: {"token": " "}
+
+data: {"token": "4"}
+
+data: {"token": "a"}
+
+data: {"token": "c}"}
+
+data: {"token": "}{"}
+
+data: {"token": "2a} "}
+
+data: {"token": "$"}
+
+data: {"token": "$"}
+
+data: {"token": "\n   \n8. "}
+
+data: {"token": "Comb"}
+
+data: {"token": "ine th"}
+
+data: {"token": "e t"}
+
+data: {"token": "erms"}
+
+data: {"token": " on th"}
+
+data: {"token": "e rig"}
+
+data: {"token": "ht "}
+
+data: {"token": "side to"}
+
+data: {"token": " obt"}
+
+data: {"token": "ain the qu"}
+
+data: {"token": "adratic "}
+
+data: {"token": "fo"}
+
+data: {"token": "rm"}
+
+data: {"token": "ula"}
+
+data: {"token": ":\n"}
+
+data: {"token": "  "}
+
+data: {"token": " $"}
+
+data: {"token": "$ x "}
+
+data: {"token": "= "}
+
+data: {"token": "\\"}
+
+data: {"token": "fr"}
+
+data: {"token": "ac"}
+
+data: {"token": "{-"}
+
+data: {"token": "b \\p"}
+
+data: {"token": "m"}
+
+data: {"token": " "}
+
+data: {"token": "\\"}
+
+data: {"token": "s"}
+
+data: {"token": "qr"}
+
+data: {"token": "t"}
+
+data: {"token": "{"}
+
+data: {"token": "b^"}
+
+data: {"token": "2 "}
+
+data: {"token": "-"}
+
+data: {"token": " "}
+
+data: {"token": "4"}
+
+data: {"token": "a"}
+
+data: {"token": "c}}"}
+
+data: {"token": "{2"}
+
+data: {"token": "a} $"}
+
+data: {"token": "$\n\n"}
+
+data: {"token": "This"}
+
+data: {"token": " is the s"}
+
+data: {"token": "tanda"}
+
+data: {"token": "rd "}
+
+data: {"token": "form"}
+
+data: {"token": " of the qu"}
+
+data: {"token": "adratic "}
+
+data: {"token": "f"}
+
+data: {"token": "ormula"}
+
+data: {"token": ", whic"}
+
+data: {"token": "h gi"}
+
+data: {"token": "ves the so"}
+
+data: {"token": "luti"}
+
+data: {"token": "ons"}
+
+data: {"token": " "}
+
+data: {"token": "fo"}
+
+data: {"token": "r \\"}
+
+data: {"token": "(x\\)"}
+
+data: {"token": " in any qu"}
+
+data: {"token": "adratic e"}
+
+data: {"token": "qua"}
+
+data: {"token": "ti"}
+
+data: {"token": "o"}
+
+data: {"token": "n"}
+
+data: {"token": " \\"}
+
+data: {"token": "(ax"}
+
+data: {"token": "^2"}
+
+data: {"token": " +"}
+
+data: {"token": " b"}
+
+data: {"token": "x"}
+
+data: {"token": " "}
+
+data: {"token": "+"}
+
+data: {"token": " c"}
+
+data: {"token": " = 0\\)."}
+
+data: {"done": true, "response": {"answer": "To derive the quadratic formula from \\( ax^2 + bx + c = 0 \\), follow these steps:\n\n1. Start with the standard form of a quadratic equation:\n   $$ ax^2 + bx + c = 0 $$\n\n2. Divide both sides by \\(a\\) (assuming \\(a \\neq 0\\)):\n   $$ x^2 + \\frac{b}{a}x + \\frac{c}{a} = 0 $$\n\n3. Subtract \\(\\frac{c}{a}\\) from both sides:\n   $$ x^2 + \\frac{b}{a}x = -\\frac{c}{a} $$\n\n4. Complete the square on the left side by adding and subtracting \\((\\frac{1}{2} \\cdot \\frac{b}{a})^2 = (\\frac{b}{2a})^2\\):\n   $$ x^2 + \\frac{b}{a}x + \\left(\\frac{b}{2a}\\right)^2 = -\\frac{c}{a} + \\left(\\frac{b}{2a}\\right)^2 $$\n\n5. Rewrite the left side as a perfect square and simplify the right side:\n   $$ \\left(x + \\frac{b}{2a}\\right)^2 = -\\frac{c}{a} + \\frac{b^2}{4a^2} $$\n   $$ \\left(x + \\frac{b}{2a}\\right)^2 = \\frac{-4ac + b^2}{4a^2} $$\n\n6. Take the square root of both sides:\n   $$ x + \\frac{b}{2a} = \\pm \\sqrt{\\frac{b^2 - 4ac}{4a^2}} $$\n   $$ x + \\frac{b}{2a} = \\pm \\frac{\\sqrt{b^2 - 4ac}}{2a} $$\n\n7. Isolate \\(x\\) by subtracting \\(\\frac{b}{2a}\\) from both sides:\n   $$ x = -\\frac{b}{2a} \\pm \\frac{\\sqrt{b^2 - 4ac}}{2a} $$\n   \n8. Combine the terms on the right side to obtain the quadratic formula:\n   $$ x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a} $$\n\nThis is the standard form of the quadratic formula, which gives the solutions for \\(x\\) in any quadratic equation \\(ax^2 + bx + c = 0\\).", "complexity": "simple", "passes_used": 1, "total_time_seconds": 9.72, "search_performed": false}, "done_reason": "stop"}
+

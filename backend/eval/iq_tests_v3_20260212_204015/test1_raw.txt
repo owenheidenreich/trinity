@@ -1,0 +1,24 @@
+data: {"phase": "classifying", "message": "Pondering the complexity..."}
+
+data: {"phase": "executing", "message": "Assembling the thoughts..."}
+
+data: {"phase": "tool_execution", "message": "Using calculator..."}
+
+data: {"phase": "tool_result", "message": "calculator: done"}
+
+data: {"token": "The "}
+
+data: {"token": "resu"}
+
+data: {"token": "lt o"}
+
+data: {"token": "f 2+"}
+
+data: {"token": "2 is"}
+
+data: {"token": " 4."}
+
+data: {"react_done": true, "tools_used": ["calculator"], "iterations": 2}
+
+data: {"done": true, "response": {"answer": "The result of 2+2 is 4.", "complexity": "simple", "passes_used": 1, "total_time_seconds": 1.51, "search_performed": false}, "done_reason": "stop"}
+

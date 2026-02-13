@@ -113,6 +113,22 @@ try:
 except Exception as e:
     logger.warning(f"⚠️ LangGraph not available: {e}")
 
+MCP_SERVER_AVAILABLE = False
+MCP_CLIENT_TOOLS = 0
+try:
+    from services.mcp_server import MCP_SERVER_AVAILABLE  # noqa: F811
+    logger.info(f"✅ MCP server: {'ENABLED' if MCP_SERVER_AVAILABLE else 'DISABLED'}")
+except Exception as e:
+    logger.warning(f"⚠️ MCP server not available: {e}")
+
+try:
+    from services.mcp_client import initialize_mcp_client
+    MCP_CLIENT_TOOLS = initialize_mcp_client()
+    if MCP_CLIENT_TOOLS > 0:
+        logger.info(f"✅ MCP client: {MCP_CLIENT_TOOLS} external tools discovered")
+except Exception as e:
+    logger.debug(f"MCP client init: {e}")
+
 
 # ===========================================================================
 # Flask App Creation
@@ -150,6 +166,8 @@ app.config["V4_FEATURES"] = {
     "structured": V4_STRUCTURED_AVAILABLE,
 }
 app.config["LANGGRAPH_AVAILABLE"] = LANGGRAPH_AVAILABLE
+app.config["MCP_SERVER_AVAILABLE"] = MCP_SERVER_AVAILABLE
+app.config["MCP_CLIENT_TOOLS"] = MCP_CLIENT_TOOLS
 
 # ===========================================================================
 # Register Blueprints

@@ -95,7 +95,7 @@ def generate():
 
         user_prompt = data.get("prompt", "")
         max_length = data.get("max_length", DEFAULT_MAX_TOKENS)
-        context_memory = data.get("contextMemory", [])
+        context_memory = data.get("context_messages", data.get("contextMemory", []))
         principal = data.get("principal")
         document_context = data.get("documentContext")
         reasoning_mode = data.get("reasoning_mode", False)
@@ -335,7 +335,7 @@ def generate_stream():
 
         user_prompt = data.get("prompt", "")
         max_length = data.get("max_length", DEFAULT_MAX_TOKENS_STREAM)
-        context_memory = data.get("contextMemory", [])
+        context_memory = data.get("context_messages", data.get("contextMemory", []))
         principal = data.get("principal")
         document_context = data.get("documentContext")
         temperature = data.get("temperature", DEFAULT_TEMPERATURE)
@@ -434,7 +434,7 @@ def generate_agent():
             raise ValueError("No JSON data provided")
 
         user_prompt = data.get("prompt", "")
-        context_memory = data.get("contextMemory", [])
+        context_memory = data.get("context_messages", data.get("contextMemory", []))
         principal = data.get("principal")
         force_mode = data.get("force_mode")
         enable_voting = data.get("enable_voting")
@@ -552,7 +552,7 @@ def generate_langgraph():
             raise ValueError("No JSON data provided")
 
         user_prompt = data.get("prompt", "")
-        context_memory = data.get("contextMemory", [])
+        context_memory = data.get("context_messages", data.get("contextMemory", []))
         principal = data.get("principal")
         mode = data.get("mode", "auto")
 

@@ -57,9 +57,9 @@ WALLET_NAME = "trinity-wallet"
 
 # Tier definitions
 TIERS = {
-    1: {"yaml": "deploy-tier1-basic.yaml", "desc": "TinyLlama 1.1B (Testing)", "cost": "~$25/mo"},
-    2: {"yaml": "deploy-tier2-balanced.yaml", "desc": "Qwen 2.5 3B (Fast & Smart)", "cost": "~$30/mo"},
-    3: {"yaml": "deploy-tier3-complex.yaml", "desc": "Qwen 2.5 72B (Intelligence)", "cost": "~$200/mo"},
+    1: {"yaml": "deploy-tier1-basic.yaml", "desc": "Qwen3 1.7B (Testing)", "cost": "~$25/mo"},
+    2: {"yaml": "deploy-tier2-balanced.yaml", "desc": "Qwen2.5 14B (Balanced)", "cost": "~$50/mo"},
+    3: {"yaml": "deploy-tier3-complex.yaml", "desc": "Qwen3 32B (Intelligence)", "cost": "~$200/mo"},
 }
 
 # Minimum price thresholds per tier (below this = hardware too weak)
@@ -75,6 +75,11 @@ BLOCKED_PROVIDERS = [
     "akash19yhu3jgw8h0320av98h8n5qczje3pj3u9u2amp",  # bdl.computer - times out
     "akash1sjwuwre4qprcaa34f6324yz7m8nn0awvc75gp5",  # quanglong.org - very slow image pulls
     "akash1adyrcsp2ptwd83txgv555eqc0vhfufc37wx040",  # airitdecomp.net - DNS doesn't resolve
+]
+
+# Provider URIs to AVOID - matched against ingress hostnames (domain-level blocking)
+BLOCKED_PROVIDER_URIS = [
+    "subangle.com",  # subangle - unreliable
 ]
 
 def run_cmd(cmd, capture=True, timeout=120):
@@ -596,6 +601,7 @@ def main():
         print(f"  Waiting for container (up to {max_wait//60} min for Tier {selected_tier})...")
         uri = None
         container_ready = False
+        blocked_uri_hit = False
         start_time = time.time()
         check_count = 0
         for i in range(max_wait // 10):  # Check every 10 seconds
@@ -619,6 +625,14 @@ def main():
                         
                         if uris and not uri:
                             uri = uris[0]
+                            # Check if this URI matches a blocked provider
+                            if any(blocked in uri for blocked in BLOCKED_PROVIDER_URIS):
+                                print(f"\n    ⚠️  URI {uri} matches blocked provider list!")
+                                print(f"    Closing and retrying with different provider...")
+                                blocked_uri_hit = True
+                                uri = None
+                                container_ready = False
+                                break
                             print(f"\n    URI assigned: {uri}")
                             print(f"    Waiting for container to be ready (available={available}, ready={ready})...")
                         
@@ -632,7 +646,7 @@ def main():
                 except:
                     container_ready = False
                 
-                if container_ready:
+                if container_ready or blocked_uri_hit:
                     break
             # Print progress every 30 seconds
             if check_count % 6 == 0:
@@ -640,6 +654,25 @@ def main():
             else:
                 print(".", end="", flush=True)
         
+        # If we hit a blocked URI, close everything and retry with a new deployment
+        if blocked_uri_hit:
+            print(f"  Closing deployment and creating new one without {provider[:30]}...")
+            close_deployment(dseq)
+            skip_providers.append(provider)
+            dseq = create_deployment(yaml_path, image_tag)
+            if not dseq:
+                print("  ❌ Failed to create new deployment")
+                sys.exit(1)
+            print(f"  New DSEQ: {dseq}")
+            time.sleep(20)
+            bids = get_bids(wallet_addr, dseq, selected_tier)
+            bids = [(p, pr, m) for p, pr, m in bids if p not in skip_providers]
+            if not bids:
+                print("  ❌ No more providers available")
+                close_deployment(dseq)
+                sys.exit(1)
+            continue
+
         if uri and container_ready:
             print(f" READY!")
             

@@ -1,10 +1,10 @@
 # Trinity Codebase Reference
 
 > **Purpose:** Comprehensive documentation for AI assistants to quickly understand the Trinity project
-> **Last Updated:** February 10, 2026
-> **Last Verified:** February 10, 2026
-> **Status:** Production - V4.0 Intelligence Upgrade
-> **Version:** v4.0.1 (Qwen 14B on P40, ~$65/mo)
+> **Last Updated:** February 13, 2026
+> **Last Verified:** February 13, 2026
+> **Status:** Production - V5.0 (ReAct + Memory Tools + MCP + Qwen3 Migration)
+> **Version:** v5.0.0 (Qwen2.5 14B on RTX 3090, DSEQ 25505658)
 >
 > **See also:** [CODEBASE-MAP.md](CODEBASE-MAP.md) — Quick-reference map of all files, routes, and constants
 
@@ -28,6 +28,38 @@
 
 ### ✅ Recently Fixed (Feb 6, 2026)
 - **DEPLOYMENT_TIER=KING crash** - `int()` failed on non-numeric tier; added try/except in `akash.py`
+
+### ✅ Recently Fixed (Feb 12-13, 2026) — Post-Opus Incident Recovery
+
+**Opus Session Incident (6 features, 4-part failure chain):**
+A prior Claude Opus session implemented ReAct loops, native tool calling, MemGPT memory tools, MCP server/client, and Qwen3 migration — but left `/generate` completely broken. See `docs/HANDOFF-INCIDENT-REPORT.md` for full forensics.
+
+**Backend fixes applied (by prior recovery session):**
+- **Think-block fallback** — `_get_response_content()` in `react_loop.py` now extracts answer from `<think>` blocks when stripping produces empty content
+- **Tool detection tightened** — `detect_tools_needed()` patterns in `tools.py` now require context anchoring (e.g. `"current price|news|weather"` instead of `"current|today|now"`)
+- **Context key mismatch** — `routes/generate.py` now reads `context_messages` with `contextMemory` fallback (4 locations)
+- **REACT_NATIVE_TOOLS default** — Changed from `"auto"` to `"never"` in `config.py` (Qwen3 native tools + thinking = empty responses)
+- **Dead code cleanup** — Deleted `model_router.py`, removed 11 stale tests
+- **Admin auth tests** — Added `mock_admin_auth` fixture to 7 admin endpoint tests
+
+**Frontend fixes applied (this session):**
+- **Invisible code blocks (root cause 1)** — `preprocessToolCalls()` in `messages.js` stripped `<tool_call name="code_display">` with `<execute>true</execute>` to empty string. Fixed: always convert to fenced code blocks regardless of execute flag
+- **Invisible code blocks (root cause 2)** — `generate.js` imported `parseMarkdownWithMath` from `editMessage.js` (which had a DUPLICATE unfixed `preprocessToolCalls`), not from `messages.js`. Fixed: synced the editMessage.js copy
+- **Greedy orphaned tag regex** — `/<tool_call...>[\s\S]*$/` ate ALL text after any orphaned tool_call tag (e.g. malformed `<tool_call name="web_search"><query>...</query><tool_call>`). Fixed: surgical stripping of just the tag + XML children, plus cleanup of bare remnant tags
+- **Anti-XML prompt instructions** — Added "NEVER use `<tool_call>` or `<code_display>` XML" to `EXECUTE_PROMPT_WITH_PLAN`, `EXECUTE_PROMPT_SIMPLE`, and `REACT_SYSTEM_PROMPT` in `agent_prompts.py`
+- **Tool detection guard** — `detect_tools_needed()` code patterns gated behind `CODE_EXECUTION_ENABLED` flag in `tools.py`
+
+**Deployment:**
+- Docker image rebuilt and pushed (`gdubx/trinity-inference:latest`)
+- Akash deployment: DSEQ `25505658`, provider `akash175llqyjvxfle9qwt740vm46772dzaznpzgm576`, RTX 3090 24GB
+- Cloudflare Worker AKASH_URL secret updated
+- ICP frontend canister redeployed (3 rebuilds for incremental fixes)
+- `update_deployment.py` DSEQ updated to `25505658`
+
+**Verification:**
+- IQ stress tests v3: **8/8 PASS**, 0 think-block leaks, 58s total
+- Local test suite: **709 passed**, 9 skipped, 91.30% coverage
+- Production health: `qwen2.5:14b`, Ollama connected, RTX 3090
 
 ---
 
@@ -75,7 +107,7 @@ Local Code Change → Docker Build → Docker Push → Akash Redeploy → Live
 | **Primary URL** | https://dubya.ai |
 | **Canister URL** | https://zc67k-kiaaa-aaaal-qtmiq-cai.icp0.io |
 | **Cloudflare Worker** | https://api.dubya.ai |
-| **Docker Image** | `gdubx/trinity-inference:v4-unlimited` |
+| **Docker Image** | `gdubx/trinity-inference:latest` |
 | **Akash Wallet** | `akash155hphg6qyy3vtr584p38wlngtqxzdr0l6jutmp` |
 
 ---
@@ -87,8 +119,8 @@ Local Code Change → Docker Build → Docker Push → Akash Redeploy → Live
 
 # Examples:
 ./scripts/trinity-deploy-production.sh      # Interactive tier selection
-./scripts/trinity-deploy-production.sh 2    # Llama 3.1 8B (~$50/mo)
-./scripts/trinity-deploy-production.sh 3    # Qwen 2.5 72B (~$200/mo)
+./scripts/trinity-deploy-production.sh 2    # Qwen2.5 14B (~$50/mo)
+./scripts/trinity-deploy-production.sh 3    # Qwen3 32B (~$200/mo)
 ```
 
 **⚠️ IMPORTANT FOR AI ASSISTANTS:**
@@ -161,7 +193,12 @@ Trinity/
 │   │   ├── vector_store.py      # V4: Per-user SQLite vector DB
 │   │   ├── memory.py            # V4: Semantic memory retrieval
 │   │   ├── tools.py             # V4: Tool registry and parser
-│   │   ├── code_executor.py     # V4: RestrictedPython sandbox
+│   │   ├── code_executor.py     # V4: Tool execution dispatcher
+│   │   ├── react_loop.py        # V5: ReAct agentic loop (think/act/observe)
+│   │   ├── memory_tools.py      # V5: MemGPT save/recall/search with embeddings
+│   │   ├── mcp_server.py        # V5: MCP JSON-RPC 2.0 handler + stdio server
+│   │   ├── mcp_client.py        # V5: External MCP server connector
+│   │   ├── fact_check.py        # V5: Dual web-search fact verification
 │   │   ├── voting.py            # V4: Self-consistency voting (experimental)
 │   │   ├── structured.py        # V4: JSON schema enforcement (experimental)
 │   │   └── graph/               # LangGraph multi-agent system (20% traffic)
@@ -172,7 +209,7 @@ Trinity/
 │   │       ├── nodes.py          # Graph node implementations
 │   │       ├── edges.py          # Conditional routing logic
 │   │       └── graph.py          # StateGraph assembly
-│   ├── routes/                  # 🆕 Route blueprints (49 routes across 7 blueprints)
+│   ├── routes/                  # Route blueprints (50+ routes across 8 blueprints)
 │   │   ├── __init__.py          # ALL_BLUEPRINTS list
 │   │   ├── shared.py            # Shared route helpers
 │   │   ├── health.py            # /health, /metrics, /stats (4 routes)
@@ -181,12 +218,15 @@ Trinity/
 │   │   ├── chat.py              # /chat/*, /user/* CRUD + memory (14 routes)
 │   │   ├── tools.py             # /tools/* search, browse, documents (7 routes)
 │   │   ├── v4.py                # /v4/* vector store, tool execution (6 routes)
+│   │   ├── mcp.py               # V5: /mcp endpoint (MCP JSON-RPC)
 │   │   └── session.py           # /session/*, /funding/* (4 routes)
+│   ├── mcp_stdio_server.py      # V5: MCP stdio entry point (Claude Desktop)
 │   ├── database.py              # SQLAlchemy ORM (NOT integrated — future feature)
-│   ├── eval/                    # Benchmarking tools
+│   ├── eval/                    # Benchmarking & IQ tests
 │   │   ├── benchmark_legacy_vs_langgraph.py  # Pipeline comparison
+│   │   ├── run_iq_tests_v3.sh   # 8-test IQ stress suite
 │   │   └── BENCHMARK_GUIDE.md   # Benchmark documentation
-│   ├── tests/                   # Test suite (607+ tests, 91.30% coverage)
+│   ├── tests/                   # Test suite (709 tests, 91.30% coverage)
 │   │   ├── conftest.py          # Shared fixtures
 │   │   ├── fixtures/
 │   │   │   └── auth_fixtures.py # Ed25519 test keypairs
@@ -194,19 +234,21 @@ Trinity/
 │   │   │   └── test_full_pipeline.py
 │   │   ├── integration/
 │   │   │   └── test_inference.py # Integration tests
-│   │   └── unit/                # 14 unit test files
+│   │   └── unit/                # 17+ unit test files
 │   │       ├── test_phase1_security.py, test_phase2_stability.py
 │   │       ├── test_phase3_architecture.py, test_phase4_quality.py
 │   │       ├── test_caching.py, test_complexity.py, test_encryption.py
 │   │       ├── test_experiments.py, test_icp_auth.py, test_langgraph.py
 │   │       ├── test_langgraph_endpoint.py, test_observability.py
 │   │       ├── test_storage.py, test_validation.py
+│   │       ├── test_mcp.py, test_memory_tools.py
+│   │       ├── test_react_loop.py, test_tools_real.py
 │
 ├── deploy/                      # 🚀 DEPLOYMENT CONFIGS
 │   ├── akash/                   # Akash SDL manifests
-│   │   ├── deploy-tier1-basic.yaml      # TinyLlama 1.1B
-│   │   ├── deploy-tier2-balanced.yaml   # Llama 3.1 8B
-│   │   └── deploy-tier3-complex.yaml    # Qwen 2.5 72B
+│   │   ├── deploy-tier1-basic.yaml      # Qwen3 1.7B
+│   │   ├── deploy-tier2-balanced.yaml   # Qwen2.5 14B
+│   │   └── deploy-tier3-complex.yaml    # Qwen3 32B
 │   ├── docker/                  # Docker build files
 │   │   ├── Dockerfile           # Container definition
 │   │   ├── build.sh             # Build script
@@ -534,7 +576,11 @@ Trinity maintains comprehensive test coverage using pytest.
 | **Storage** | 22 | 85%+ |
 | **E2E Pipeline** | 23 | N/A |
 | **Integration** | 11 | N/A |
-| **Total** | **607+** | **91.30%** |
+| **ReAct Loop** | 22 | 90%+ |
+| **Memory Tools** | 28 | 90%+ |
+| **MCP Server/Client** | 25 | 85%+ |
+| **Tools (Real)** | 18 | 85%+ |
+| **Total** | **709** | **91.30%** |
 
 ### Running Tests
 ```bash
@@ -615,6 +661,53 @@ Production-readiness overhaul across three sub-phases.
 - Compares both pipelines on P50/P95/P99 latency, success rate, token usage
 - Decision framework: when to keep 80/20 split vs adjust routing
 - See `backend/eval/BENCHMARK_GUIDE.md` for usage and interpretation
+
+---
+
+## 🚀 V5.0: ReAct + Memory Tools + MCP (February 2026)
+
+Major feature session implementing six capabilities, followed by incident recovery and frontend fixes.
+
+### New Capabilities
+
+| Feature | File(s) | Status |
+|---------|---------|--------|
+| **ReAct Agentic Loop** | `services/react_loop.py` (465 lines) | Active (iterative think/act/observe tool calling) |
+| **MemGPT Memory Tools** | `services/memory_tools.py` (244 lines) | Active (save/recall/search user facts with embeddings + dedup) |
+| **MCP Server** | `services/mcp_server.py` (207 lines), `routes/mcp.py` | Active (JSON-RPC 2.0 + stdio, exposes 8 tools) |
+| **MCP Client** | `services/mcp_client.py` (281 lines) | Disabled by default (`MCP_CLIENT_ENABLED=false`) |
+| **Fact Checking** | `services/fact_check.py` (80 lines) | Active (dual web-search verification) |
+| **Native Ollama Tools** | `services/tools.py` (native calling functions) | Disabled (`REACT_NATIVE_TOOLS="never"`) |
+
+### New Config Variables (all in `backend/config.py`)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `REACT_ENABLED` | `true` | Enable the ReAct agentic loop |
+| `REACT_MAX_ITERATIONS` | `5` | Max tool-calling rounds before forced answer |
+| `REACT_NATIVE_TOOLS` | `"never"` | Native tool mode: `never`/`auto`/`always` |
+| `QWEN3_THINKING_MODE` | `"auto"` | Thinking: `auto`/`always`/`never` |
+| `QWEN3_THINKING_BUDGET` | `4096` | Max tokens for internal reasoning |
+| `MEMORY_TOOLS_ENABLED` | `true` | Enable save/recall/search memory tools |
+| `MCP_SERVER_ENABLED` | `true` | Expose Trinity tools via MCP |
+| `MCP_CLIENT_ENABLED` | `false` | Connect to external MCP servers |
+| `CODE_EXECUTION_ENABLED` | `false` | Enable code execution tool |
+
+### Frontend Display Pipeline (Critical Path)
+
+The code display pipeline has been a source of bugs. Key files and their roles:
+
+| File | Function | Used By |
+|------|----------|---------|
+| `ui/messages.js` | `preprocessToolCalls()` + `parseMarkdownWithMath()` | `showMessage()` (chat history rendering) |
+| `ui/editMessage.js` | `preprocessToolCalls()` + `parseMarkdownWithMath()` (DUPLICATE) | `generate.js` (live streaming) |
+| `features/generate.js` | Streaming renderer (stable/stream/tail DOM split) | All live AI responses |
+
+**WARNING:** `generate.js` imports `parseMarkdownWithMath` from `editMessage.js`, NOT `messages.js`. Any fix to `preprocessToolCalls` must be applied to BOTH files.
+
+### Incident Report Reference
+
+See `docs/HANDOFF-INCIDENT-REPORT.md` for the full 4-part failure chain from the Opus session and all fixes applied.
 
 ---
 
@@ -1310,9 +1403,9 @@ provider-services lease-logs \
 
 | Tier | Model | GPU | Memory | Cost | Use Case |
 |------|-------|-----|--------|------|----------|
-| 1 | TinyLlama 1.1B | T4/RTX3090/4090 | 16GB | ~$25/mo | Testing |
-| 2 | Llama 3.1 8B | RTX4090/A10 | 32GB | ~$50/mo | Balanced |
-| 3 | Qwen 2.5 72B | A100 80GB | 180GB | ~$200/mo | Complex |
+| 1 | Qwen3 1.7B | T4/RTX3090 | 16GB | ~$25/mo | Testing |
+| 2 | Qwen2.5 14B | RTX3090/P40 | 24GB | ~$50/mo | Balanced (current) |
+| 3 | Qwen3 32B | A100 40GB | 64GB | ~$200/mo | Complex |
 
 ---
 
@@ -2303,4 +2396,4 @@ cat results/battles/battle_*/BATTLE_REPORT.md
 
 ---
 
-*This document is maintained for AI assistants to quickly understand Trinity without re-exploring files. Last updated February 6, 2026 (Added War of Kings benchmarking system).*
+*This document is maintained for AI assistants to quickly understand Trinity without re-exploring files. Last updated February 13, 2026 (V5.0: ReAct + Memory Tools + MCP + frontend display fixes + Akash redeployment).*

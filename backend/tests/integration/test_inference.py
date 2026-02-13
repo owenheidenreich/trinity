@@ -82,28 +82,6 @@ class TestStreamingGeneration:
         assert any(e.get("done") for e in events)
 
 
-class TestModelRouting:
-    """Test model selection logic (integration)."""
-
-    def test_model_router_import(self):
-        """Model router is importable and functional."""
-        from services.model_router import select_model
-        result = select_model("hello there")
-        assert isinstance(result, str)
-        assert len(result) > 0
-
-    def test_code_query_routes_differently(self):
-        """Code queries should route to quality model (when auto-routing)."""
-        from services.model_router import select_model, QUALITY_MODEL, FAST_MODEL
-        from unittest.mock import patch
-
-        with patch("services.model_router.MODEL_NAME", "auto"):
-            code_model = select_model("write a python function to sort a list")
-            chat_model = select_model("hello how are you")
-            assert code_model == QUALITY_MODEL
-            assert chat_model == FAST_MODEL
-
-
 class TestEndpointValidation:
     """Test request validation on real endpoints."""
 

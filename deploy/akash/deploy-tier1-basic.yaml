@@ -1,29 +1,34 @@
 version: "2.0"
 
 # ============================================================================
-# Trinity Tier 1: Test/Development (TinyLlama 1.1B)
+# Trinity Tier 1: Test/Development (Qwen3 1.7B)
 # ============================================================================
-# 
-# Purpose: Cheap testing for infrastructure, auth, storage features
-# Model: TinyLlama 1.1B (636MB)
+#
+# Purpose: Cheap testing + light production use
+# Model: Qwen3 1.7B (~1.5GB) — hybrid thinking, native tool calling
 # Cost: ~$0.05-0.15/hour (~$40-100/month)
 # Response Time: 1-3 seconds
-# Intelligence: Basic (good enough for testing)
+# Intelligence: Solid for its size (outperforms TinyLlama by a wide margin)
+#
+# Qwen3 advantages over TinyLlama:
+# - Native function calling (tools parameter)
+# - Hybrid thinking mode (/think and /no_think)
+# - Much better instruction following
 #
 # GPU Selection: T4/RTX3090/4090/A10 - filters to reliable providers
 # ============================================================================
 
 services:
   trinity:
-    image: gdubx/trinity-inference:v2-20260212-041706
+    image: gdubx/trinity-inference:v2-20260212-211828
     env:
-      - PROVIDER_ID=trinity-tier1-test
-      - MODEL_NAME=tinyllama:1.1b
+      - PROVIDER_ID=trinity-tier1-qwen3
+      - MODEL_NAME=qwen3:1.7b
       - MODEL_BACKEND=ollama
       - GPU_TYPE=NVIDIA-GPU
       - MAX_QUEUE_SIZE=10
       - OLLAMA_HOST=http://localhost:11434
-      # Multi-Model DISABLED for Tier 1 (single model only)
+      # Multi-Model DISABLED for Tier 1 (single Qwen3 model)
       - MULTI_MODEL_ENABLED=false
       # RAG & Semantic Memory (v4.0) - still enabled for Tier 1
       - EMBEDDING_MODEL=BAAI/bge-small-en-v1.5

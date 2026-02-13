@@ -55,9 +55,13 @@ class AgentState(TypedDict):
     complexity: Literal["simple", "medium", "complex"]
     error: Optional[str]
 
+    # User context for tool execution
+    principal_id: Optional[str]
+
 
 def create_initial_state(
-    user_message: str, complexity: str = "complex", max_iterations: int = 5
+    user_message: str, complexity: str = "complex", max_iterations: int = 5,
+    principal_id: str = None,
 ) -> AgentState:
     """
     Create initial state for graph execution.
@@ -85,4 +89,5 @@ def create_initial_state(
         final_answer=None,
         complexity=complexity,
         error=None,
+        principal_id=principal_id,
     )

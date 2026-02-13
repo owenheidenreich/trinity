@@ -1,0 +1,25 @@
+data: {"phase": "classifying", "message": "Examining the question..."}
+
+data: {"phase": "executing", "message": "Writing the story..."}
+
+data: {"phase": "tool_execution", "message": "Using calculator..."}
+
+data: {"phase": "tool_result", "message": "calculator: done"}
+
+data: {"token": "The "}
+
+data: {"token": "answ"}
+
+data: {"token": "er t"}
+
+data: {"token": "o 2+"}
+
+data: {"token": "2 is"}
+
+data: {"token": " 4."}
+
+data: {"react_done": true, "tools_used": ["calculator"], "iterations": 2}
+
+data: {"done": true, "response": {"answer": "The answer to 2+2 is 4.", "complexity": "simple", "passes_used": 1, "total_time_seconds": 1.09, "search_performed": false}, "done_reason": "stop"}
+
+TIME=1 COMPLEXITY=simple PASSES=1 CRITIQUE= TOKENS=6 THINKS=0

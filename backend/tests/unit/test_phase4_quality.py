@@ -163,7 +163,7 @@ class TestNamedConstants:
             MAX_SESSION_HOURS,
         )
         # Spot-check values
-        assert DEFAULT_MAX_TOKENS == 4000
+        assert DEFAULT_MAX_TOKENS == 8000
         assert DEFAULT_TEMPERATURE == 0.7
         assert OLLAMA_TIMEOUT == 600
         assert MAX_ARCHIVED_CHATS == 20

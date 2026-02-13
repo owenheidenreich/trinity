@@ -1,0 +1,447 @@
+data: {"phase": "classifying", "message": "Pondering the complexity..."}
+
+data: {"phase": "searching", "message": "Querying the databases..."}
+
+data: {"phase": "searching", "message": "Found 5 sources..."}
+
+data: {"phase": "understanding", "message": "Pondering the question..."}
+
+data: {"phase": "executing", "message": "Brewing the answer..."}
+
+data: {"phase": "tool_execution", "message": "Using web_search..."}
+
+data: {"phase": "tool_result", "message": "web_search: done"}
+
+data: {"token": "The "}
+
+data: {"token": "curr"}
+
+data: {"token": "ent "}
+
+data: {"token": "fede"}
+
+data: {"token": "ral "}
+
+data: {"token": "fund"}
+
+data: {"token": "s ra"}
+
+data: {"token": "te t"}
+
+data: {"token": "arge"}
+
+data: {"token": "t se"}
+
+data: {"token": "t by"}
+
+data: {"token": " the"}
+
+data: {"token": " Fed"}
+
+data: {"token": "eral"}
+
+data: {"token": " Res"}
+
+data: {"token": "erve"}
+
+data: {"token": " is "}
+
+data: {"token": "with"}
+
+data: {"token": "in a"}
+
+data: {"token": " ran"}
+
+data: {"token": "ge o"}
+
+data: {"token": "f 3."}
+
+data: {"token": "5% t"}
+
+data: {"token": "o 3."}
+
+data: {"token": "75%."}
+
+data: {"token": " Thi"}
+
+data: {"token": "s ra"}
+
+data: {"token": "te s"}
+
+data: {"token": "erve"}
+
+data: {"token": "s as"}
+
+data: {"token": " a b"}
+
+data: {"token": "ench"}
+
+data: {"token": "mark"}
+
+data: {"token": " for"}
+
+data: {"token": " oth"}
+
+data: {"token": "er i"}
+
+data: {"token": "nter"}
+
+data: {"token": "est "}
+
+data: {"token": "rate"}
+
+data: {"token": "s in"}
+
+data: {"token": " the"}
+
+data: {"token": " eco"}
+
+data: {"token": "nomy"}
+
+data: {"token": " and"}
+
+data: {"token": " inf"}
+
+data: {"token": "luen"}
+
+data: {"token": "ces "}
+
+data: {"token": "borr"}
+
+data: {"token": "owin"}
+
+data: {"token": "g co"}
+
+data: {"token": "sts "}
+
+data: {"token": "acro"}
+
+data: {"token": "ss v"}
+
+data: {"token": "ario"}
+
+data: {"token": "us s"}
+
+data: {"token": "ecto"}
+
+data: {"token": "rs.\n"}
+
+data: {"token": "\nInt"}
+
+data: {"token": "eres"}
+
+data: {"token": "t ra"}
+
+data: {"token": "tes "}
+
+data: {"token": "matt"}
+
+data: {"token": "er b"}
+
+data: {"token": "ecau"}
+
+data: {"token": "se t"}
+
+data: {"token": "hey "}
+
+data: {"token": "play"}
+
+data: {"token": " a c"}
+
+data: {"token": "ruci"}
+
+data: {"token": "al r"}
+
+data: {"token": "ole "}
+
+data: {"token": "in m"}
+
+data: {"token": "anag"}
+
+data: {"token": "ing "}
+
+data: {"token": "infl"}
+
+data: {"token": "atio"}
+
+data: {"token": "n an"}
+
+data: {"token": "d pr"}
+
+data: {"token": "omot"}
+
+data: {"token": "ing "}
+
+data: {"token": "econ"}
+
+data: {"token": "omic"}
+
+data: {"token": " gro"}
+
+data: {"token": "wth."}
+
+data: {"token": " By "}
+
+data: {"token": "rais"}
+
+data: {"token": "ing "}
+
+data: {"token": "or l"}
+
+data: {"token": "ower"}
+
+data: {"token": "ing "}
+
+data: {"token": "thes"}
+
+data: {"token": "e ra"}
+
+data: {"token": "tes,"}
+
+data: {"token": " the"}
+
+data: {"token": " Fed"}
+
+data: {"token": "eral"}
+
+data: {"token": " Res"}
+
+data: {"token": "erve"}
+
+data: {"token": " aim"}
+
+data: {"token": "s to"}
+
+data: {"token": " bal"}
+
+data: {"token": "ance"}
+
+data: {"token": " bet"}
+
+data: {"token": "ween"}
+
+data: {"token": " sti"}
+
+data: {"token": "mula"}
+
+data: {"token": "ting"}
+
+data: {"token": " an "}
+
+data: {"token": "econ"}
+
+data: {"token": "omy "}
+
+data: {"token": "duri"}
+
+data: {"token": "ng d"}
+
+data: {"token": "ownt"}
+
+data: {"token": "urns"}
+
+data: {"token": " (by"}
+
+data: {"token": " mak"}
+
+data: {"token": "ing "}
+
+data: {"token": "borr"}
+
+data: {"token": "owin"}
+
+data: {"token": "g ch"}
+
+data: {"token": "eape"}
+
+data: {"token": "r) a"}
+
+data: {"token": "nd c"}
+
+data: {"token": "ooli"}
+
+data: {"token": "ng i"}
+
+data: {"token": "t do"}
+
+data: {"token": "wn w"}
+
+data: {"token": "hen "}
+
+data: {"token": "ther"}
+
+data: {"token": "e's "}
+
+data: {"token": "risk"}
+
+data: {"token": " of "}
+
+data: {"token": "over"}
+
+data: {"token": "heat"}
+
+data: {"token": "ing "}
+
+data: {"token": "or e"}
+
+data: {"token": "xces"}
+
+data: {"token": "sive"}
+
+data: {"token": " inf"}
+
+data: {"token": "lati"}
+
+data: {"token": "on ("}
+
+data: {"token": "by i"}
+
+data: {"token": "ncre"}
+
+data: {"token": "asin"}
+
+data: {"token": "g co"}
+
+data: {"token": "sts "}
+
+data: {"token": "for "}
+
+data: {"token": "borr"}
+
+data: {"token": "owin"}
+
+data: {"token": "g). "}
+
+data: {"token": "This"}
+
+data: {"token": " aff"}
+
+data: {"token": "ects"}
+
+data: {"token": " eve"}
+
+data: {"token": "ryth"}
+
+data: {"token": "ing "}
+
+data: {"token": "from"}
+
+data: {"token": " mor"}
+
+data: {"token": "tgag"}
+
+data: {"token": "e lo"}
+
+data: {"token": "ans "}
+
+data: {"token": "and "}
+
+data: {"token": "cred"}
+
+data: {"token": "it c"}
+
+data: {"token": "ard "}
+
+data: {"token": "inte"}
+
+data: {"token": "rest"}
+
+data: {"token": " rat"}
+
+data: {"token": "es t"}
+
+data: {"token": "o bu"}
+
+data: {"token": "sine"}
+
+data: {"token": "ss i"}
+
+data: {"token": "nves"}
+
+data: {"token": "tmen"}
+
+data: {"token": "ts a"}
+
+data: {"token": "nd c"}
+
+data: {"token": "onsu"}
+
+data: {"token": "mer "}
+
+data: {"token": "spen"}
+
+data: {"token": "ding"}
+
+data: {"token": " pat"}
+
+data: {"token": "tern"}
+
+data: {"token": "s.\n\n"}
+
+data: {"token": "For "}
+
+data: {"token": "up-t"}
+
+data: {"token": "o-da"}
+
+data: {"token": "te i"}
+
+data: {"token": "nfor"}
+
+data: {"token": "mati"}
+
+data: {"token": "on, "}
+
+data: {"token": "you "}
+
+data: {"token": "can "}
+
+data: {"token": "refe"}
+
+data: {"token": "r di"}
+
+data: {"token": "rect"}
+
+data: {"token": "ly t"}
+
+data: {"token": "o th"}
+
+data: {"token": "e Fe"}
+
+data: {"token": "dera"}
+
+data: {"token": "l Re"}
+
+data: {"token": "serv"}
+
+data: {"token": "e's "}
+
+data: {"token": "offi"}
+
+data: {"token": "cial"}
+
+data: {"token": " ann"}
+
+data: {"token": "ounc"}
+
+data: {"token": "emen"}
+
+data: {"token": "ts o"}
+
+data: {"token": "r ec"}
+
+data: {"token": "onom"}
+
+data: {"token": "ic r"}
+
+data: {"token": "epor"}
+
+data: {"token": "ts."}
+
+data: {"react_done": true, "tools_used": ["web_search"], "iterations": 2}
+
+data: {"phase": "critiquing", "message": "Reviewing the craftsmanship..."}
+
+data: {"done": true, "response": {"answer": "The current federal funds rate target set by the Federal Reserve is within a range of 3.5% to 3.75%. This rate serves as a benchmark for other interest rates in the economy and influences borrowing costs across various sectors.\n\nInterest rates matter because they play a crucial role in managing inflation and promoting economic growth. By raising or lowering these rates, the Federal Reserve aims to balance between stimulating an economy during downturns (by making borrowing cheaper) and cooling it down when there's risk of overheating or excessive inflation (by increasing costs for borrowing). This affects everything from mortgage loans and credit card interest rates to business investments and consumer spending patterns.\n\nFor up-to-date information, you can refer directly to the Federal Reserve's official announcements or economic reports.", "complexity": "medium", "passes_used": 3, "total_time_seconds": 7.93, "search_performed": true, "search_query": "what are the current federal reserve interest rates and why do they matter", "understanding": {"type": "factual", "domains": ["economics", "finance", "politics"], "complexity": 2, "summary": "User is asking for the current Federal Reserve interest rates and their significance."}, "critique": {"score": 8, "verdict": "The answer is clear and well-organized, providing a good explanation of why interest rates matter, but it could benefit from more precise information about the current rate."}}, "done_reason": "stop"}
+
+TIME=8 COMPLEXITY=medium PASSES=3 CRITIQUE= TOKENS=213 THINKS=0

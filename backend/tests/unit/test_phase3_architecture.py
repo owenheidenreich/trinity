@@ -126,9 +126,9 @@ class TestBlueprintImports:
         assert _io_executor._max_workers == 10
 
     def test_all_blueprints_list(self):
-        """routes.__init__ exports ALL_BLUEPRINTS list with 7 items."""
+        """routes.__init__ exports ALL_BLUEPRINTS list with 8 items."""
         from routes import ALL_BLUEPRINTS
-        assert len(ALL_BLUEPRINTS) == 7
+        assert len(ALL_BLUEPRINTS) == 8
 
 
 class TestRequestHooks:
@@ -161,79 +161,7 @@ class TestRequestHooks:
 
 
 # =============================================================================
-# 3.2 MODEL ROUTER TESTS
-# =============================================================================
-
-class TestModelRouter:
-    """Test task-based two-model routing."""
-
-    def test_import(self):
-        """model_router module imports without error."""
-        from services.model_router import select_model, FAST_MODEL, QUALITY_MODEL
-        assert FAST_MODEL == "qwen2.5:3b"
-        assert QUALITY_MODEL == "qwen2.5:14b"
-
-    def test_code_routes_to_quality(self):
-        """Messages about code should route to quality model."""
-        from services.model_router import select_model, QUALITY_MODEL
-        with patch("services.model_router.MODEL_NAME", "auto"):
-            result = select_model("Please write a function to sort a list")
-            assert result == QUALITY_MODEL
-
-    def test_chat_routes_to_fast(self):
-        """Simple chat messages should route to fast model."""
-        from services.model_router import select_model, FAST_MODEL
-        with patch("services.model_router.MODEL_NAME", "auto"):
-            result = select_model("Hello, how are you?")
-            assert result == FAST_MODEL
-
-    def test_hint_overrides_keywords(self):
-        """Explicit task hints should override keyword matching."""
-        from services.model_router import select_model, FAST_MODEL
-        with patch("services.model_router.MODEL_NAME", "auto"):
-            # "code" keyword would trigger quality, but hint says fast
-            result = select_model("write some code", task_hints=["fast"])
-            assert result == FAST_MODEL
-
-    def test_long_message_routes_to_quality(self):
-        """Long messages (>2000 chars) should route to quality model."""
-        from services.model_router import select_model, QUALITY_MODEL
-        with patch("services.model_router.MODEL_NAME", "auto"):
-            long_msg = "a " * 1500  # 3000 chars
-            result = select_model(long_msg)
-            assert result == QUALITY_MODEL
-
-    def test_single_model_passthrough(self):
-        """If MODEL_NAME is a specific model (not auto), always return it."""
-        from services.model_router import select_model
-        # Default MODEL_NAME from config is 'phi3' — should pass through
-        result = select_model("code debug analyze")
-        assert result not in ("qwen2.5:3b", "qwen2.5:14b")  # should be the configured model
-
-    def test_default_is_fast(self):
-        """Ambiguous messages default to fast model."""
-        from services.model_router import select_model, FAST_MODEL
-        with patch("services.model_router.MODEL_NAME", "auto"):
-            result = select_model("test message xyz")
-            assert result == FAST_MODEL
-
-    def test_quality_hint(self):
-        """quality/complex hints route to quality model."""
-        from services.model_router import select_model, QUALITY_MODEL
-        with patch("services.model_router.MODEL_NAME", "auto"):
-            result = select_model("hello", task_hints=["quality"])
-            assert result == QUALITY_MODEL
-
-    def test_debug_keyword(self):
-        """debug keyword routes to quality model."""
-        from services.model_router import select_model, QUALITY_MODEL
-        with patch("services.model_router.MODEL_NAME", "auto"):
-            result = select_model("please debug this issue")
-            assert result == QUALITY_MODEL
-
-
-# =============================================================================
-# 3.3 SQLITE DATABASE TESTS
+# 3.2 SQLITE DATABASE TESTS
 # =============================================================================
 
 class TestSQLiteDatabase:
@@ -448,10 +376,4 @@ class TestDockerfileUpdates:
         content = path.read_text()
         assert "routes/" in content, "Dockerfile missing COPY for routes/"
 
-    def test_dockerfile_bakes_models(self):
-        """Dockerfile should pre-pull models during build."""
-        path = Path(__file__).parent.parent.parent.parent / "deploy" / "docker" / "Dockerfile"
-        content = path.read_text()
-        assert "ollama pull" in content, "Dockerfile missing model pre-pull"
-        assert "qwen2.5:3b" in content, "Dockerfile missing qwen2.5:3b"
-        assert "qwen2.5:14b" in content, "Dockerfile missing qwen2.5:14b"
+

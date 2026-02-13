@@ -69,7 +69,6 @@ backend/
 │   ├── experiments.py       # 338 lines — A/B testing framework
 │   ├── loading_messages.py  # 197 lines — Random loading messages
 │   ├── memory.py            # 286 lines — User memory management
-│   ├── model_router.py      #  82 lines — Multi-model routing by complexity
 │   ├── ollama.py            # 192 lines — Ollama HTTP client
 │   ├── parallel.py          # 390 lines — Parallel inference
 │   ├── prompts.py           # 216 lines — System prompt construction
@@ -306,9 +305,9 @@ Uses `cachetools.TTLCache(maxsize=10000, ttl=65)` — nonces expire after 65 sec
 |----------|---------|-------------|
 | `MODEL_NAME` | `"phi3"` | Primary model (env override) |
 | `MODEL_BACKEND` | `"ollama"` | Inference backend |
-| `FAST_MODEL` | `"phi3:mini"` | Quick responses |
-| `SMART_MODEL` | `"llama3.1:8b"` | Complex queries |
-| `REASONING_MODEL` | `"qwen2.5:32b"` | Deep reasoning |
+| `FAST_MODEL` | `"qwen3:1.7b"` | Quick responses |
+| `SMART_MODEL` | `"qwen3:8b"` | Complex queries |
+| `REASONING_MODEL` | `"qwen3:32b"` | Deep reasoning |
 | `MULTI_MODEL_ENABLED` | `DEPLOYMENT_TIER >= 2` | Multi-model routing |
 | `OLLAMA_HOST` | `"http://localhost:11434"` | Ollama endpoint |
 
@@ -317,8 +316,8 @@ Uses `cachetools.TTLCache(maxsize=10000, ttl=65)` — nonces expire after 65 sec
 | Constant | Value | Description |
 |----------|-------|-------------|
 | `MAX_PROMPT_LENGTH` | `50000` | Max input chars |
-| `DEFAULT_MAX_TOKENS` | `4000` | Standard response |
-| `DEFAULT_MAX_TOKENS_STREAM` | `800` | Streaming response |
+| `DEFAULT_MAX_TOKENS` | `8000` | Standard response |
+| `DEFAULT_MAX_TOKENS_STREAM` | `4000` | Streaming response |
 | `SIMPLE_MAX_TOKENS` | `150` | Simple mode |
 | `SIMPLE_MAX_TOKENS_CAP` | `300` | Simple mode cap |
 | `REASONING_MIN_TOKENS` | `8000` | Reasoning mode |
@@ -486,7 +485,7 @@ curl http://localhost:8000/health          # Local
 | Change encryption | `backend/encryption.py` |
 | Modify chat save/load | `backend/routes/chat.py` + `backend/storage.py` |
 | Change LLM prompts | `backend/services/prompts.py` or `services/agent_prompts.py` |
-| Adjust model routing | `backend/services/model_router.py` + `backend/config.py` |
+| Adjust model routing | `backend/config.py` + `backend/services/agent.py` |
 | Change rate limits | `backend/middleware/rate_limit.py` |
 | Fix metrics | `backend/middleware/observability.py` |
 | Add a frontend feature | `trinity-icp/src/features/` → import in `app.js` |

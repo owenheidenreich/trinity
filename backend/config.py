@@ -79,9 +79,16 @@ ICP_FRONTEND_CANISTER = os.getenv("ICP_FRONTEND_CANISTER", "zc67k-kiaaa-aaaal-qt
 
 # Deployment tier detection
 tier_names = {
+    # Legacy models
     "tinyllama:1.1b": 1,
     "llama3.1:8b": 2,
     "qwen2.5:72b": 3,
+    "qwen2.5:14b": 2,
+    "qwen2.5:32b": 3,
+    # Qwen3 models
+    "qwen3:1.7b": 1,
+    "qwen3:8b": 2,
+    "qwen3:32b": 3,
 }
 DEPLOYMENT_TIER = tier_names.get(MODEL_NAME, 0)
 
@@ -142,14 +149,17 @@ ENCRYPTION_KEY_LENGTH = 32  # 256 bits
 
 # ===== MULTI-MODEL CONFIGURATION (Tier 2 & 3 only) =====
 # Fast model for classification/summarization (Tier 2+)
-FAST_MODEL = os.getenv("FAST_MODEL", "phi3:mini")
+FAST_MODEL = os.getenv("FAST_MODEL", "qwen3:1.7b")
 # Smart model for general tasks (Tier 2+)
-SMART_MODEL = os.getenv("SMART_MODEL", "llama3.1:8b")
+SMART_MODEL = os.getenv("SMART_MODEL", "qwen3:8b")
 # Reasoning model for complex tasks (Tier 3 only)
-REASONING_MODEL = os.getenv("REASONING_MODEL", "qwen2.5:32b")
+REASONING_MODEL = os.getenv("REASONING_MODEL", "qwen3:32b")
 
-# Enable multi-model only on Tier 2 and 3
-MULTI_MODEL_ENABLED = DEPLOYMENT_TIER >= 2
+# Enable multi-model only when explicitly enabled via env var.
+# Default False: deploy scripts don't set FAST/SMART/REASONING_MODEL env vars,
+# so the defaults would point to qwen3 models that aren't installed.
+# Set MULTI_MODEL_ENABLED=true in your deploy YAML to enable.
+MULTI_MODEL_ENABLED = os.getenv("MULTI_MODEL_ENABLED", "false").lower() == "true"
 
 # ===== RAG CONFIGURATION =====
 # FastEmbed model for embeddings (33MB, 384 dimensions)
@@ -176,6 +186,34 @@ RECENCY_WEIGHT = 0.3
 CODE_EXECUTION_ENABLED = os.getenv("CODE_EXECUTION_ENABLED", "false").lower() == "true"
 CODE_EXECUTION_TIMEOUT = 5  # seconds
 CODE_EXECUTION_MEMORY_LIMIT = 10 * 1024 * 1024  # 10MB
+
+# ===== REACT AGENTIC LOOP =====
+# Enable iterative tool calling (think -> act -> observe -> repeat)
+REACT_ENABLED = os.getenv("REACT_ENABLED", "true").lower() == "true"
+# Maximum tool-calling iterations before forcing a final answer
+REACT_MAX_ITERATIONS = int(os.getenv("REACT_MAX_ITERATIONS", "5"))
+# Native tool calling mode: "auto" (detect by model), "always", "never"
+# Default "never" — Qwen3 native tools + thinking mode produces empty content;
+# XML-based tool calling works reliably. Re-enable with "auto" after validation.
+REACT_NATIVE_TOOLS = os.getenv("REACT_NATIVE_TOOLS", "never")
+
+# ===== QWEN3 THINKING MODE =====
+# Qwen3 hybrid thinking: "auto" (think for complex, skip for simple), "always", "never"
+QWEN3_THINKING_MODE = os.getenv("QWEN3_THINKING_MODE", "auto")
+# Budget tokens for thinking (controls depth of internal reasoning)
+QWEN3_THINKING_BUDGET = int(os.getenv("QWEN3_THINKING_BUDGET", "4096"))
+
+# ===== MEMORY TOOLS (MemGPT) =====
+MEMORY_TOOLS_ENABLED = os.getenv("MEMORY_TOOLS_ENABLED", "true").lower() == "true"
+
+# ===== MCP (Model Context Protocol) =====
+# Enable MCP server (exposes Trinity tools to external MCP clients)
+MCP_SERVER_ENABLED = os.getenv("MCP_SERVER_ENABLED", "true").lower() == "true"
+# Enable MCP client (connects to external MCP servers for additional tools)
+MCP_CLIENT_ENABLED = os.getenv("MCP_CLIENT_ENABLED", "false").lower() == "true"
+# External MCP servers to connect to (JSON array)
+# Format: [{"name": "server1", "url": "http://host:port/sse"}]
+MCP_SERVERS_CONFIG = os.getenv("MCP_SERVERS", "[]")
 
 # ===== SELF-CONSISTENCY VOTING =====
 # Number of candidates to generate for voting

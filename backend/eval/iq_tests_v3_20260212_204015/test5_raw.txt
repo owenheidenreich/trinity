@@ -1,0 +1,532 @@
+data: {"phase": "classifying", "message": "Examining the question..."}
+
+data: {"phase": "searching", "message": "Scouring the web..."}
+
+data: {"phase": "searching", "message": "Found 5 sources..."}
+
+data: {"phase": "understanding", "message": "Pondering the question..."}
+
+data: {"phase": "executing", "message": "Writing the story..."}
+
+data: {"token": "The "}
+
+data: {"token": "curr"}
+
+data: {"token": "ent "}
+
+data: {"token": "fede"}
+
+data: {"token": "ral "}
+
+data: {"token": "fund"}
+
+data: {"token": "s ra"}
+
+data: {"token": "te t"}
+
+data: {"token": "arge"}
+
+data: {"token": "t ra"}
+
+data: {"token": "nge "}
+
+data: {"token": "is s"}
+
+data: {"token": "et b"}
+
+data: {"token": "etwe"}
+
+data: {"token": "en 3"}
+
+data: {"token": ".5% "}
+
+data: {"token": "and "}
+
+data: {"token": "3.75"}
+
+data: {"token": "%. T"}
+
+data: {"token": "his "}
+
+data: {"token": "rate"}
+
+data: {"token": " is "}
+
+data: {"token": "cruc"}
+
+data: {"token": "ial "}
+
+data: {"token": "as i"}
+
+data: {"token": "t in"}
+
+data: {"token": "flue"}
+
+data: {"token": "nces"}
+
+data: {"token": " oth"}
+
+data: {"token": "er i"}
+
+data: {"token": "nter"}
+
+data: {"token": "est "}
+
+data: {"token": "rate"}
+
+data: {"token": "s, e"}
+
+data: {"token": "cono"}
+
+data: {"token": "mic "}
+
+data: {"token": "acti"}
+
+data: {"token": "vity"}
+
+data: {"token": ", an"}
+
+data: {"token": "d in"}
+
+data: {"token": "flat"}
+
+data: {"token": "ion."}
+
+data: {"token": "\n\nWh"}
+
+data: {"token": "y do"}
+
+data: {"token": "es t"}
+
+data: {"token": "his "}
+
+data: {"token": "matt"}
+
+data: {"token": "er?\n"}
+
+data: {"token": "\n1. "}
+
+data: {"token": "**Ec"}
+
+data: {"token": "onom"}
+
+data: {"token": "ic A"}
+
+data: {"token": "ctiv"}
+
+data: {"token": "ity*"}
+
+data: {"token": "*: L"}
+
+data: {"token": "ower"}
+
+data: {"token": "ing "}
+
+data: {"token": "the "}
+
+data: {"token": "fede"}
+
+data: {"token": "ral "}
+
+data: {"token": "fund"}
+
+data: {"token": "s ra"}
+
+data: {"token": "te c"}
+
+data: {"token": "an e"}
+
+data: {"token": "ncou"}
+
+data: {"token": "rage"}
+
+data: {"token": " bor"}
+
+data: {"token": "rowi"}
+
+data: {"token": "ng a"}
+
+data: {"token": "nd s"}
+
+data: {"token": "pend"}
+
+data: {"token": "ing,"}
+
+data: {"token": " whi"}
+
+data: {"token": "ch s"}
+
+data: {"token": "timu"}
+
+data: {"token": "late"}
+
+data: {"token": "s ec"}
+
+data: {"token": "onom"}
+
+data: {"token": "ic g"}
+
+data: {"token": "rowt"}
+
+data: {"token": "h. C"}
+
+data: {"token": "onve"}
+
+data: {"token": "rsel"}
+
+data: {"token": "y, r"}
+
+data: {"token": "aisi"}
+
+data: {"token": "ng t"}
+
+data: {"token": "he r"}
+
+data: {"token": "ate "}
+
+data: {"token": "can "}
+
+data: {"token": "help"}
+
+data: {"token": " red"}
+
+data: {"token": "uce "}
+
+data: {"token": "infl"}
+
+data: {"token": "atio"}
+
+data: {"token": "n by"}
+
+data: {"token": " slo"}
+
+data: {"token": "wing"}
+
+data: {"token": " dow"}
+
+data: {"token": "n th"}
+
+data: {"token": "e ec"}
+
+data: {"token": "onom"}
+
+data: {"token": "y.\n2"}
+
+data: {"token": ". **"}
+
+data: {"token": "Infl"}
+
+data: {"token": "atio"}
+
+data: {"token": "n Co"}
+
+data: {"token": "ntro"}
+
+data: {"token": "l**:"}
+
+data: {"token": " Cen"}
+
+data: {"token": "tral"}
+
+data: {"token": " ban"}
+
+data: {"token": "ks u"}
+
+data: {"token": "se i"}
+
+data: {"token": "nter"}
+
+data: {"token": "est "}
+
+data: {"token": "rate"}
+
+data: {"token": "s as"}
+
+data: {"token": " a t"}
+
+data: {"token": "ool "}
+
+data: {"token": "to m"}
+
+data: {"token": "anag"}
+
+data: {"token": "e pr"}
+
+data: {"token": "ice "}
+
+data: {"token": "stab"}
+
+data: {"token": "ilit"}
+
+data: {"token": "y in"}
+
+data: {"token": " the"}
+
+data: {"token": " eco"}
+
+data: {"token": "nomy"}
+
+data: {"token": ". By"}
+
+data: {"token": " adj"}
+
+data: {"token": "usti"}
+
+data: {"token": "ng t"}
+
+data: {"token": "he f"}
+
+data: {"token": "eder"}
+
+data: {"token": "al f"}
+
+data: {"token": "unds"}
+
+data: {"token": " rat"}
+
+data: {"token": "e, p"}
+
+data: {"token": "olic"}
+
+data: {"token": "ymak"}
+
+data: {"token": "ers "}
+
+data: {"token": "aim "}
+
+data: {"token": "to k"}
+
+data: {"token": "eep "}
+
+data: {"token": "infl"}
+
+data: {"token": "atio"}
+
+data: {"token": "n ne"}
+
+data: {"token": "ar t"}
+
+data: {"token": "heir"}
+
+data: {"token": " tar"}
+
+data: {"token": "get "}
+
+data: {"token": "leve"}
+
+data: {"token": "l.\n3"}
+
+data: {"token": ". **"}
+
+data: {"token": "Inve"}
+
+data: {"token": "stme"}
+
+data: {"token": "nt a"}
+
+data: {"token": "nd S"}
+
+data: {"token": "avin"}
+
+data: {"token": "gs D"}
+
+data: {"token": "ecis"}
+
+data: {"token": "ions"}
+
+data: {"token": "**: "}
+
+data: {"token": "Inte"}
+
+data: {"token": "rest"}
+
+data: {"token": " rat"}
+
+data: {"token": "es a"}
+
+data: {"token": "ffec"}
+
+data: {"token": "t de"}
+
+data: {"token": "cisi"}
+
+data: {"token": "ons "}
+
+data: {"token": "abou"}
+
+data: {"token": "t bo"}
+
+data: {"token": "rrow"}
+
+data: {"token": "ing "}
+
+data: {"token": "vers"}
+
+data: {"token": "us s"}
+
+data: {"token": "avin"}
+
+data: {"token": "g mo"}
+
+data: {"token": "ney."}
+
+data: {"token": " Hig"}
+
+data: {"token": "her "}
+
+data: {"token": "rate"}
+
+data: {"token": "s ma"}
+
+data: {"token": "ke i"}
+
+data: {"token": "t mo"}
+
+data: {"token": "re a"}
+
+data: {"token": "ttra"}
+
+data: {"token": "ctiv"}
+
+data: {"token": "e fo"}
+
+data: {"token": "r in"}
+
+data: {"token": "divi"}
+
+data: {"token": "dual"}
+
+data: {"token": "s an"}
+
+data: {"token": "d bu"}
+
+data: {"token": "sine"}
+
+data: {"token": "sses"}
+
+data: {"token": " to "}
+
+data: {"token": "save"}
+
+data: {"token": " rat"}
+
+data: {"token": "her "}
+
+data: {"token": "than"}
+
+data: {"token": " spe"}
+
+data: {"token": "nd o"}
+
+data: {"token": "r in"}
+
+data: {"token": "vest"}
+
+data: {"token": ".\n\nT"}
+
+data: {"token": "hese"}
+
+data: {"token": " fac"}
+
+data: {"token": "tors"}
+
+data: {"token": " ill"}
+
+data: {"token": "ustr"}
+
+data: {"token": "ate "}
+
+data: {"token": "how "}
+
+data: {"token": "chan"}
+
+data: {"token": "ges "}
+
+data: {"token": "in t"}
+
+data: {"token": "he f"}
+
+data: {"token": "eder"}
+
+data: {"token": "al f"}
+
+data: {"token": "unds"}
+
+data: {"token": " rat"}
+
+data: {"token": "e ca"}
+
+data: {"token": "n ha"}
+
+data: {"token": "ve s"}
+
+data: {"token": "igni"}
+
+data: {"token": "fica"}
+
+data: {"token": "nt i"}
+
+data: {"token": "mpac"}
+
+data: {"token": "ts o"}
+
+data: {"token": "n va"}
+
+data: {"token": "riou"}
+
+data: {"token": "s as"}
+
+data: {"token": "pect"}
+
+data: {"token": "s of"}
+
+data: {"token": " the"}
+
+data: {"token": " eco"}
+
+data: {"token": "nomy"}
+
+data: {"token": ", in"}
+
+data: {"token": "clud"}
+
+data: {"token": "ing "}
+
+data: {"token": "empl"}
+
+data: {"token": "oyme"}
+
+data: {"token": "nt l"}
+
+data: {"token": "evel"}
+
+data: {"token": "s, c"}
+
+data: {"token": "onsu"}
+
+data: {"token": "mer "}
+
+data: {"token": "spen"}
+
+data: {"token": "ding"}
+
+data: {"token": ", an"}
+
+data: {"token": "d bu"}
+
+data: {"token": "sine"}
+
+data: {"token": "ss i"}
+
+data: {"token": "nves"}
+
+data: {"token": "tmen"}
+
+data: {"token": "t."}
+
+data: {"react_done": true, "tools_used": [], "iterations": 1}
+
+data: {"phase": "critiquing", "message": "Inspecting the work..."}
+
+data: {"done": true, "response": {"answer": "The current federal funds rate target range is set between 3.5% and 3.75%. This rate is crucial as it influences other interest rates, economic activity, and inflation.\n\nWhy does this matter?\n\n1. **Economic Activity**: Lowering the federal funds rate can encourage borrowing and spending, which stimulates economic growth. Conversely, raising the rate can help reduce inflation by slowing down the economy.\n2. **Inflation Control**: Central banks use interest rates as a tool to manage price stability in the economy. By adjusting the federal funds rate, policymakers aim to keep inflation near their target level.\n3. **Investment and Savings Decisions**: Interest rates affect decisions about borrowing versus saving money. Higher rates make it more attractive for individuals and businesses to save rather than spend or invest.\n\nThese factors illustrate how changes in the federal funds rate can have significant impacts on various aspects of the economy, including employment levels, consumer spending, and business investment.", "complexity": "medium", "passes_used": 3, "total_time_seconds": 9.29, "search_performed": true, "search_query": "what are the current federal reserve interest rates and why do they matter", "understanding": {"type": "factual", "domains": ["economics", "banking", "federal_reserve"], "complexity": 2, "summary": "User is asking for the current federal reserve interest rates and their significance."}, "critique": {"score": 8, "verdict": "The response is clear and covers key points about federal reserve interest rates but could benefit from more current data."}}, "done_reason": "stop"}
+

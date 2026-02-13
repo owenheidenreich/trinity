@@ -85,6 +85,20 @@ LOADING_PHRASES = {
         ("Buffing", "brilliance"),
         ("Distilling", "essence"),
     ],
+    "tool_execution": [
+        ("Running", "tool"),
+        ("Executing", "operation"),
+        ("Processing", "computation"),
+        ("Applying", "instrument"),
+        ("Engaging", "machinery"),
+    ],
+    "tool_result": [
+        ("Analyzing", "results"),
+        ("Reviewing", "output"),
+        ("Processing", "findings"),
+        ("Interpreting", "data"),
+        ("Digesting", "information"),
+    ],
 }
 
 # Default fallback phrases

@@ -1,40 +1,42 @@
 version: "2.0"
 
 # ============================================================================
-# Trinity Tier 3: Complex Reasoning (Qwen 2.5 32B or 72B)
+# Trinity Tier 3: Complex Reasoning (Qwen3 32B)
 # ============================================================================
-# 
+#
 # Purpose: Complex reasoning, code generation, multi-step analysis
-# Model: Qwen 2.5 32B (fits on more GPUs) - can upgrade to 72B on A100
+# Model: Qwen3 32B — outperforms Qwen2.5-72B at half the VRAM
 # Cost: ~$0.80-1.50/hour (~$600-1000/month)
-# Response Time: 10-30 seconds
-# Intelligence: Excellent
+# Response Time: 5-20 seconds
+# Intelligence: Excellent (hybrid thinking mode for deep reasoning)
 #
-# NOTE: 72B requires A100 80GB which has very limited availability.
-#       32B runs on A100 40GB, A6000, or 2x RTX 4090.
-#       Edit MODEL_NAME to qwen2.5:72b if you get A100 80GB bids.
+# Qwen3 advantages:
+# - 32B outperforms Qwen2.5-72B on most benchmarks
+# - Hybrid thinking: /think for complex, /no_think for speed
+# - Native function calling with structured JSON output
+# - Multi-model: qwen3:1.7b (fast) + qwen3:8b (smart) + qwen3:32b (reasoning)
 #
-# Using 48GB RAM and 32B model to increase provider availability.
+# Fits on A100 40GB, A6000, or 2x RTX 4090.
 # ============================================================================
 
 services:
   trinity:
-    image: gdubx/trinity-inference:v2-20260212-041706
+    image: gdubx/trinity-inference:v2-20260212-211828
     env:
-      - PROVIDER_ID=trinity-tier3-complex
-      - MODEL_NAME=qwen2.5:32b
+      - PROVIDER_ID=trinity-tier3-qwen3-32b
+      - MODEL_NAME=qwen3:32b
       - MODEL_BACKEND=ollama
       - GPU_TYPE=A100
       - MAX_QUEUE_SIZE=5
       - OLLAMA_HOST=http://localhost:11434
       # Multi-Model Architecture (v4.0)
-      # FAST_MODEL: Quick classification/routing tasks
-      # SMART_MODEL: General purpose balanced reasoning
-      # REASONING_MODEL: Complex reasoning (same as MODEL_NAME for Tier 3)
+      # FAST_MODEL: Quick classification/routing (tiny Qwen3)
+      # SMART_MODEL: General purpose balanced reasoning (Qwen3 8B)
+      # REASONING_MODEL: Complex reasoning (Qwen3 32B — same as MODEL_NAME)
       - MULTI_MODEL_ENABLED=true
-      - FAST_MODEL=phi3:mini
-      - SMART_MODEL=llama3.1:8b
-      - REASONING_MODEL=qwen2.5:32b
+      - FAST_MODEL=qwen3:1.7b
+      - SMART_MODEL=qwen3:8b
+      - REASONING_MODEL=qwen3:32b
       # RAG & Semantic Memory (v4.0)
       - EMBEDDING_MODEL=BAAI/bge-small-en-v1.5
       - RAG_TOP_K=5

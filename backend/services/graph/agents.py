@@ -3,9 +3,13 @@ Trinity LangGraph Specialized Agents
 
 Defines specialized agents for different task types:
 - SupervisorAgent: Routes tasks to appropriate specialists
-- ResearchAgent: Web search and document analysis
-- ReasoningAgent: Complex logic and multi-step analysis
+- ResearchAgent: Web search, document analysis, and fact-checking
+- ReasoningAgent: Complex logic, math, and multi-step analysis
 - CodingAgent: Code generation and execution
+- SynthesisAgent: Combines outputs into final response
+
+All agents can use tools via XML tool_call format. Tool calls in agent output
+are parsed and executed by the node layer (nodes.py) with principal_id context.
 """
 
 import logging
@@ -57,20 +61,13 @@ class SupervisorAgent(BaseAgent):
     DEFAULT_CONFIG = AgentConfig(
         name="supervisor",
         model_type="fast",
-        system_prompt="""You are a task router for a multi-agent AI system. Analyze the user's query and decide which specialist should handle it.
+        system_prompt="""Route to the best specialist. Respond with exactly ONE word.
 
-Available specialists:
-- RESEARCH: For queries requiring web search, fact-finding, current information, news, prices, or document analysis
-- REASONING: For complex logic, math, multi-step analysis, strategic thinking, comparisons, or explanations
-- CODING: For code generation, debugging, technical implementation, or programming questions
+RESEARCH — web search, current events, prices, fact-checking, document lookup
+REASONING — logic, math, analysis, comparisons, explanations, strategy
+CODING — code generation, debugging, programming, technical implementation
 
-Rules:
-1. Choose exactly ONE specialist
-2. If unclear, default to REASONING
-3. If the query mentions code, programming, or technical implementation, choose CODING
-4. If the query asks about current events, prices, or needs external data, choose RESEARCH
-
-Respond with exactly one word: RESEARCH, REASONING, or CODING""",
+Default to REASONING if unclear. One word only: RESEARCH, REASONING, or CODING""",
         tools=[],
         max_tokens=50,
         temperature=0.3,
@@ -119,17 +116,17 @@ class ResearchAgent(BaseAgent):
     DEFAULT_CONFIG = AgentConfig(
         name="research",
         model_type="smart",
-        system_prompt="""You are a research specialist AI. Your job is to:
-1. Analyze the user's question to identify information needs
-2. Formulate effective search queries
-3. Synthesize findings into clear, accurate summaries
-4. Always cite your sources when presenting external information
+        system_prompt="""You are a research specialist. Synthesize information into clear, accurate summaries.
 
-When you need to search for information, indicate what you would search for.
-Structure your response with clear sections and supporting evidence.
+You have access to tools. Use them by outputting XML tool calls:
+- <tool_call name="web_search"><query>search terms</query></tool_call>
+- <tool_call name="fact_check"><claim>claim to verify</claim></tool_call>
+- <tool_call name="document_search"><query>what to find</query></tool_call>
+- <tool_call name="recall_memory"><query>what to recall about the user</query></tool_call>
 
-If you have research context provided, use it to answer the question thoroughly.""",
-        tools=["web_search", "document_search", "fact_check"],
+If research context is provided, use it to answer thoroughly. Cite sources when available.
+Structure your response with clear sections.""",
+        tools=["web_search", "document_search", "fact_check", "recall_memory"],
         max_tokens=4096,
         temperature=0.5,
     )
@@ -174,18 +171,17 @@ class ReasoningAgent(BaseAgent):
     DEFAULT_CONFIG = AgentConfig(
         name="reasoning",
         model_type="reasoning",
-        system_prompt="""You are a reasoning specialist AI. Your job is to:
-1. Break down complex problems into clear steps
-2. Apply logical analysis and critical thinking
-3. Consider multiple perspectives and edge cases
-4. Provide well-structured, thorough explanations
-5. Use calculations when needed (show your work)
+        system_prompt="""You are a reasoning specialist. Break down complex problems step by step.
 
-Think step by step. Show your reasoning process clearly.
-Structure your response with numbered steps or clear sections.
+You have access to tools:
+- <tool_call name="calculator"><expression>math expression</expression></tool_call>
+- <tool_call name="recall_memory"><query>what to recall about the user</query></tool_call>
+- <tool_call name="save_memory"><fact>important fact</fact><category>general</category><importance>3</importance></tool_call>
 
-When solving math or logic problems, verify your answer before presenting it.""",
-        tools=["calculator"],
+Think step by step. Show your reasoning clearly. Verify answers before presenting.
+For math, use the calculator tool for non-trivial computations.
+Consider multiple perspectives and edge cases.""",
+        tools=["calculator", "recall_memory", "save_memory"],
         max_tokens=8192,
         temperature=0.5,
     )
@@ -232,23 +228,20 @@ class CodingAgent(BaseAgent):
     DEFAULT_CONFIG = AgentConfig(
         name="coding",
         model_type="smart",
-        system_prompt="""You are a coding specialist AI. Your job is to:
-1. Write clean, well-documented, production-quality code
-2. Debug and fix issues with clear explanations
-3. Explain technical concepts at the appropriate level
-4. Follow best practices and coding standards
-5. Include error handling and edge cases
+        system_prompt="""You are a coding specialist. Write clean, production-quality code.
 
-When writing code:
-- Use clear variable and function names
-- Add helpful comments
-- Handle potential errors gracefully
-- Provide example usage when helpful
+You have access to tools:
+- <tool_call name="code_display"><language>python</language><code>your code</code><execute>true</execute></tool_call>
+- <tool_call name="calculator"><expression>math expression</expression></tool_call>
 
-Languages you excel at: Python, JavaScript, TypeScript, SQL, Bash, and more.""",
-        tools=["code_execute", "code_display"],
+Guidelines:
+- Write COMPLETE code — never use "..." or placeholders
+- Include imports, error handling, and clear naming
+- Use fenced code blocks with language tags (```python)
+- Provide example usage when helpful""",
+        tools=["code_display", "calculator"],
         max_tokens=8192,
-        temperature=0.3,  # Lower temp for more precise code
+        temperature=0.3,
     )
 
     def __init__(self, config: AgentConfig = None):
@@ -289,14 +282,14 @@ class SynthesisAgent(BaseAgent):
     DEFAULT_CONFIG = AgentConfig(
         name="synthesis",
         model_type="smart",
-        system_prompt="""You are a synthesis specialist. Your job is to:
-1. Combine outputs from multiple specialist agents
-2. Create a coherent, well-structured final response
-3. Ensure all parts of the user's question are addressed
-4. Remove redundancy while preserving important information
-5. Present the response in a clear, user-friendly format
+        system_prompt="""Combine the specialist outputs below into one coherent response.
 
-Do NOT add new information. Only synthesize what has been provided.""",
+Rules:
+- Address ALL parts of the user's question
+- Remove redundancy while keeping important details
+- Use Markdown formatting (headers, lists, code blocks)
+- Do NOT add new information — only synthesize what is provided
+- Start directly with the answer, no preamble""",
         tools=[],
         max_tokens=4096,
         temperature=0.5,

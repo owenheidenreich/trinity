@@ -2,7 +2,7 @@ version: "2.0"
 
 services:
   trinity:
-    image: gdubx/trinity-inference:v2-20260212-041706
+    image: gdubx/trinity-inference:v2-20260212-211828
     env:
       - PROVIDER_ID=trinity-tier2-qwen14b
       - MODEL_NAME=qwen2.5:14b
@@ -36,7 +36,7 @@ services:
       - BRAVE_SEARCH_API_KEY=${BRAVE_SEARCH_API_KEY}
       # Deployment tracking (set by deploy script, used for /funding/status)
       - DEPLOYMENT_TIER=2
-      - DEPLOYMENT_TIER_NAME=Qwen3B-Fast
+      - DEPLOYMENT_TIER_NAME=Qwen14B-Balanced
       - HOURLY_COST_AKT=0.25
       - DAILY_COST_AKT=6
       - SESSION_TYPE=community

@@ -125,6 +125,10 @@ const UI = {
     showWarning(message) {
         return Notifications.showWarning(message);
     },
+
+    showRateLimitCountdown(seconds) {
+        return Notifications.showRateLimitCountdown(seconds);
+    },
     
     showNotification(message, type = 'info') {
         return Notifications.showNotification(message, type);

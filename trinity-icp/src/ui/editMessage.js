@@ -11,39 +11,41 @@ import { protectMath, restoreMath } from '../utils/math.js';
  * - code_display → fenced code block
  * - all others → stripped entirely
  */
-function preprocessToolCalls(text) {
+export function preprocessToolCalls(text) {
     if (!text || !text.includes('<tool_call')) return text;
 
-    // code_display with execute=true — code is already shown above, just strip it
+    // code_display (complete) → fenced code block
+    // Handles proper </tool_call>, malformed <tool_call> closing, AND missing closing tag
     text = text.replace(
-        /<tool_call\s+name="code_display"[^>]*>\s*<language>[^<]*<\/language>\s*<code>[\s\S]*?<\/code>\s*<execute>true<\/execute>\s*<\/tool_call>/gi,
-        ''
-    );
-
-    // code_display without execute=true → fenced code block
-    text = text.replace(
-        /<tool_call\s+name="code_display"[^>]*>\s*<language>([^<]*)<\/language>\s*<code>([\s\S]*?)<\/code>(?:\s*<execute>[^<]*<\/execute>)?\s*<\/tool_call>/gi,
+        /<tool_call\s+name="code_display"[^>]*>\s*<language>([^<]*)<\/language>\s*<code>([\s\S]*?)<\/code>(?:\s*<execute>[^<]*<\/execute>)?(?:\s*<\/?tool_call\s*>)?/gi,
         (_, lang, code) => '\n```' + (lang || 'text') + '\n' + code.trim() + '\n```\n'
     );
 
-    // In-progress code_display (no closing </tool_call> yet)
-    // Check if we can see <execute>true — if so, strip; otherwise convert to fence
+    // In-progress code_display (no </code> yet, genuinely still streaming)
     text = text.replace(
         /<tool_call\s+name="code_display"[^>]*>\s*<language>([^<]*)<\/language>\s*<code>([\s\S]*)$/gi,
         (match, lang, rest) => {
-            // If execute>true is visible in the partial, strip entirely
-            if (/<execute>true/i.test(rest)) return '';
-            // Otherwise it may be display-only code still streaming
-            const code = rest.replace(/<\/code>[\s\S]*$/, '');
-            return '\n```' + (lang || 'text') + '\n' + code.trim() + '\n';
+            // Safety: if </code> exists, block is complete but was missed above
+            const codeEndIdx = rest.indexOf('</code>');
+            if (codeEndIdx >= 0) {
+                const code = rest.substring(0, codeEndIdx);
+                const after = rest.substring(codeEndIdx + 7);
+                return '\n```' + (lang || 'text') + '\n' + code.trim() + '\n```\n' +
+                       after.replace(/^\s*(?:<\/?tool_call[^>]*>)?\s*/, '');
+            }
+            return '\n```' + (lang || 'text') + '\n' + rest.trim() + '\n';
         }
     );
 
     // Strip other complete tool_call blocks
     text = text.replace(/<tool_call[^>]*>[\s\S]*?<\/tool_call>/gi, '');
 
-    // Strip orphaned opening tags for non-code tools
-    text = text.replace(/<tool_call\s+name="(?!code_display)[^"]*"[^>]*>[\s\S]*$/gi, '');
+    // Strip orphaned non-code tool_call tags and their immediate XML children
+    // (e.g. <tool_call name="web_search"><query>...</query>) without eating prose after them
+    text = text.replace(/<tool_call\s+name="(?!code_display)[^"]*"[^>]*>(?:\s*<[a-z_]+>[^<]*<\/[a-z_]+>)*\s*/gi, '');
+
+    // Strip any remaining bare <tool_call> or </tool_call> tags (malformed remnants)
+    text = text.replace(/<\/?\s*tool_call[^>]*>/gi, '');
 
     return text;
 }

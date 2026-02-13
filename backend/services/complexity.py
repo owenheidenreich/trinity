@@ -3,14 +3,22 @@ Trinity Agentic Pipeline - Complexity Classifier & Tool Detection
 
 Determines:
 1. How many passes a question needs (simple/medium/complex)
-2. What tools are needed (web search, etc.)
+2. What tools are needed (web search, memory, calculator, etc.)
+
+Tool-aware routing: queries needing external tools (web_search, fact_check,
+document_search, memory) are bumped to at least medium complexity so the
+understanding pass runs first. Lightweight tools (calculator, code_display)
+don't trigger a bump.
 """
 
 import re
-from dataclasses import dataclass
-from typing import Literal
+from dataclasses import dataclass, field
+from typing import List, Literal
 
 ComplexityLevel = Literal["simple", "medium", "complex"]
+
+# Tools that benefit from an understanding pass before execution
+HEAVYWEIGHT_TOOLS = {"web_search", "fact_check", "document_search", "save_memory", "recall_memory", "search_memory"}
 
 
 @dataclass
@@ -21,6 +29,7 @@ class QuestionAnalysis:
     needs_search: bool
     search_query: str  # Extracted search query if needs_search
     passes: int
+    tools_needed: List[str] = field(default_factory=list)
 
 
 # Pattern lists for classification
@@ -109,6 +118,7 @@ COMPLEX_PATTERNS = [
     r"\boptimize\b",
     r"\btroubleshoot\b",
     r"\breview this code\b",
+    r"\b(write|create|generate|build|make)\s+(me\s+)?(a\s+)?(code|function|program|script|class|app|website|page)\b",
 ]
 
 MEDIUM_PATTERNS = [
@@ -287,19 +297,40 @@ def analyze_question(question: str) -> QuestionAnalysis:
     """
     Full analysis of a question for the agentic pipeline.
 
+    Detects tools needed and bumps complexity to at least medium when
+    heavyweight tools (web_search, fact_check, document_search, memory)
+    are detected — these benefit from the understanding pass.
+
     Args:
         question: The user's question/prompt
 
     Returns:
-        QuestionAnalysis with complexity, search needs, and pass count
+        QuestionAnalysis with complexity, search needs, tools, and pass count
     """
+    from .tools import detect_tools_needed
+
     complexity = classify_complexity(question)
     search_needed = needs_web_search(question)
     search_query = extract_search_query(question) if search_needed else ""
+
+    # Detect tools needed
+    tools_needed = detect_tools_needed(question)
+    if search_needed and "web_search" not in tools_needed:
+        tools_needed.append("web_search")
+
+    # Bump complexity when heavyweight tools are detected
+    # These tools benefit from the understanding pass running first
+    if complexity == "simple" and any(t in HEAVYWEIGHT_TOOLS for t in tools_needed):
+        complexity = "medium"
+
     passes = get_pass_count(complexity)
 
     return QuestionAnalysis(
-        complexity=complexity, needs_search=search_needed, search_query=search_query, passes=passes
+        complexity=complexity,
+        needs_search=search_needed,
+        search_query=search_query,
+        passes=passes,
+        tools_needed=tools_needed,
     )
 
 

@@ -1,0 +1,74 @@
+data: {"phase": "classifying", "message": "Sensing the nuances..."}
+
+data: {"phase": "executing", "message": "Assembling the thoughts..."}
+
+data: {"token": "The"}
+
+data: {"token": " far"}
+
+data: {"token": "m"}
+
+data: {"token": "e"}
+
+data: {"token": "r has "}
+
+data: {"token": "9 she"}
+
+data: {"token": "ep "}
+
+data: {"token": "left.\n\nExpl"}
+
+data: {"token": "an"}
+
+data: {"token": "a"}
+
+data: {"token": "tion"}
+
+data: {"token": ":\n\">"}
+
+data: {"token": "A"}
+
+data: {"token": "l"}
+
+data: {"token": "l bu"}
+
+data: {"token": "t"}
+
+data: {"token": " 9 die"}
+
+data: {"token": "\" mea"}
+
+data: {"token": "n"}
+
+data: {"token": "s"}
+
+data: {"token": " that "}
+
+data: {"token": "9 sheep s"}
+
+data: {"token": "u"}
+
+data: {"token": "rviv"}
+
+data: {"token": "ed. T"}
+
+data: {"token": "he "}
+
+data: {"token": "rest"}
+
+data: {"token": " "}
+
+data: {"token": "o"}
+
+data: {"token": "f"}
+
+data: {"token": " the 1"}
+
+data: {"token": "7 she"}
+
+data: {"token": "e"}
+
+data: {"token": "p died."}
+
+data: {"done": true, "response": {"answer": "The farmer has 9 sheep left.\n\nExplanation:\n\">All but 9 die\" means that 9 sheep survived. The rest of the 17 sheep died.", "complexity": "simple", "passes_used": 1, "total_time_seconds": 1.06, "search_performed": false}, "done_reason": "stop"}
+

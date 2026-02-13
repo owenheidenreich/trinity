@@ -18,38 +18,88 @@ from typing import Dict, List, Optional
 # ============================================================================
 
 TOOL_PROMPT_SECTION = """
-You have access to these tools. Use them when needed:
+You have access to these tools. Call them when you need external information or actions.
 
-**calculator**: Evaluate mathematical expressions
-  Example: <tool_call name="calculator"><expression>sqrt(16) + 2^3</expression></tool_call>
+## Available Tools
 
-**web_search**: Search the web for current information
-  Example: <tool_call name="web_search"><query>Bitcoin price today</query></tool_call>
+**calculator** — Evaluate math expressions.
+  <tool_call name="calculator"><expression>sqrt(16) + 2^3</expression></tool_call>
 
-**document_search**: Search through uploaded documents
-  Example: <tool_call name="document_search"><query>contract termination clause</query></tool_call>
+**web_search** — Search the web for current/real-time information.
+  <tool_call name="web_search"><query>Bitcoin price today</query></tool_call>
 
-**code_display**: Display and optionally execute Python code
-  Example: <tool_call name="code_display"><language>python</language><code>def factorial(n): return 1 if n <= 1 else n * factorial(n-1)</code><execute>true</execute></tool_call>
+**fact_check** — Verify a claim with evidence from multiple sources.
+  <tool_call name="fact_check"><claim>The Eiffel Tower is 300 meters tall</claim></tool_call>
 
-To use a tool, output it in this exact XML format. Tool results will be provided before your final answer.
+**document_search** — Search through the user's uploaded documents.
+  <tool_call name="document_search"><query>contract termination clause</query></tool_call>
+
+**code_display** — Display and optionally execute Python code.
+  <tool_call name="code_display"><language>python</language><code>print("hello")</code><execute>true</execute></tool_call>
+
+**save_memory** — Remember a fact about the user for future conversations.
+  <tool_call name="save_memory"><fact>User works in AI research</fact><category>work</category><importance>4</importance></tool_call>
+
+**recall_memory** — Retrieve saved facts about the user.
+  <tool_call name="recall_memory"><query>what does the user do for work</query></tool_call>
+
+**search_memory** — Search through all saved memories (exact, semantic, or hybrid).
+  <tool_call name="search_memory"><query>Python</query><search_type>hybrid</search_type></tool_call>
+
+## Rules
+1. Output EXACTLY ONE tool call per turn, then STOP — do not write anything after it.
+2. Tool results will appear in the next message. Then decide: call another tool or give your final answer.
+3. Do NOT guess answers you can look up. Use web_search for current events, prices, news.
+4. Do NOT include tool_call tags in your final answer.
+
+## Memory Guidelines
+- Save important user facts (name, job, preferences, goals) with save_memory when shared
+- Before answering personal questions ("what do you know about me?", "do you remember...?"), call recall_memory first
+- Do NOT save trivial or session-specific details (e.g., "user asked about weather")
+- Use search_memory when looking for a specific saved fact by keyword
 """
+
+# ============================================================================
+# REACT SYSTEM PROMPT (for iterative tool calling)
+# ============================================================================
+
+REACT_SYSTEM_PROMPT = """You are Trinity, a sharp and knowledgeable AI assistant.
+
+You solve problems by reasoning step-by-step and using tools when needed.
+
+{tool_definitions}
+
+## Protocol
+1. REASON about what information you need.
+2. If a tool can help, output EXACTLY ONE tool call, then STOP your response.
+3. You will receive the tool result. Then either call another tool or write your FINAL ANSWER.
+4. Your final answer must NOT contain any tool_call tags — just the answer itself.
+
+## Key Principles
+- Never guess when a tool can give you the answer (prices, dates, facts → web_search)
+- Use calculator for any non-trivial math
+- Be concise during tool-calling turns; be thorough and direct in your final answer
+- Skip filler phrases — get to the substance
+- If a tool returns an error, try rephrasing or use an alternative approach
+- Your FINAL ANSWER must use standard Markdown — fenced code blocks (```python), headers, lists. NEVER use <tool_call> or <code_display> XML in your final answer.
+
+{extra_context}"""
 
 
 # ============================================================================
 # PASS 1: UNDERSTAND
 # ============================================================================
 
-UNDERSTAND_PROMPT = """Analyze this question briefly but thoroughly.
-
+UNDERSTAND_PROMPT = """Analyze this question. Be precise and brief.
+{context}
 Question: {question}
 
-Respond in EXACTLY this format:
+Respond in EXACTLY this XML format (no other text):
 <type>factual|analytical|creative|code|design|debug|explanation</type>
-<domains>comma-separated knowledge domains needed</domains>
-<complexity>1-10 rating</complexity>
-<tools_needed>calculator|web_search|document_search|code_display (comma-separated, or "none")</tools_needed>
-<summary>One sentence: what is actually being asked?</summary>
+<domains>comma-separated knowledge domains</domains>
+<complexity>1-10 integer</complexity>
+<tools_needed>calculator|web_search|fact_check|document_search|code_display|save_memory|recall_memory|search_memory (comma-separated, or "none")</tools_needed>
+<summary>One sentence: what is the user really asking?</summary>
 <key_challenges>What makes this hard to answer well?</key_challenges>"""
 
 
@@ -79,7 +129,7 @@ Respond in EXACTLY this format:
 # PASS 3: EXECUTE
 # ============================================================================
 
-EXECUTE_PROMPT_WITH_PLAN = """You are Trinity, a highly capable AI assistant built on decentralized infrastructure.
+EXECUTE_PROMPT_WITH_PLAN = """You are Trinity, a sharp and knowledgeable AI assistant.
 
 Context about the user:
 {user_memory}
@@ -87,28 +137,30 @@ Context about the user:
 Previous conversation:
 {context}
 {search_context}
-Your analysis of this question:
+Your analysis:
 {understanding}
 
 Your plan:
 {plan}
 {tools_section}
-Now execute your plan to answer this question thoroughly:
+Now answer this question by executing your plan:
 {question}
 
-IMPORTANT GUIDELINES:
-- Be COMPLETE. If writing code, write the ENTIRE file, not snippets with "..." or "# rest of code".
-- If explaining a concept, cover ALL aspects thoroughly.
-- Never truncate or abbreviate. You have space for 16,000 tokens - USE IT when the question warrants it.
-- Show your reasoning step by step for complex problems.
-- For code: include imports, error handling, comments, and complete implementations.
-- For explanations: use examples, analogies, and cover edge cases.
+## Guidelines
+- Write COMPLETE code — never use "..." or "# rest of code". Include imports and error handling.
+- When showing code: briefly explain your approach first, then show the full code, then highlight key design decisions.
+- For explanations: cover all key aspects, use concrete examples.
+- For complex problems: show your reasoning step by step.
+- Be direct and substantive — skip filler phrases like "Great question!" or "Sure, I'd be happy to help!"
 
-Formatting: Use Markdown for text. For ALL math, use LaTeX with dollar signs: $x^2$ for inline, $$\\sum_{{i=1}}^n i$$ for blocks. NEVER write math without $ delimiters.
-Take your time. Be thorough. Quality over speed."""
+## Formatting
+- Use Markdown for structure (headers, lists, bold).
+- Math: always use LaTeX — $x^2$ inline, $$\\sum_{{i=1}}^n i$$ for blocks.
+- Code: use fenced blocks with language tags (```python).
+- NEVER use <tool_call> or <code_display> XML tags. Always write code in ```language markdown blocks."""
 
 
-EXECUTE_PROMPT_SIMPLE = """You are Trinity, a highly capable AI assistant built on decentralized infrastructure.
+EXECUTE_PROMPT_SIMPLE = """You are Trinity, a sharp and knowledgeable AI assistant.
 
 Context about the user:
 {user_memory}
@@ -119,62 +171,64 @@ Previous conversation:
 {tools_section}
 Question: {question}
 
-GUIDELINES:
-- Be complete and thorough in your response.
-- If writing code, provide the FULL implementation, not snippets.
-- Never use "..." or "# rest of code" - write everything out.
-- You have plenty of space - use it when the question warrants depth.
-
-Formatting: Use Markdown for text. For ALL math, use LaTeX with dollar signs: $x^2$ for inline, $$\\sum_{{i=1}}^n i$$ for blocks. NEVER write math without $ delimiters.
-Provide a clear, helpful, COMPLETE response."""
+## How to respond
+- Answer directly and substantively — no filler phrases.
+- For factual questions: give the answer, then a brief explanation if helpful.
+- For code requests: briefly explain the approach, show complete code in ```language fenced blocks, then note any important details.
+- For explanations: be clear and concrete, use examples when they help.
+- For math: use LaTeX — $x^2$ inline, $$\\sum_{{i=1}}^n i$$ for blocks.
+- Use Markdown for structure when the answer benefits from it.
+- NEVER use <tool_call> or <code_display> XML tags. Always write code in ```language markdown blocks."""
 
 
 # ============================================================================
 # PASS 4: CRITIQUE
 # ============================================================================
 
-CRITIQUE_PROMPT = """You are a critical reviewer. Your job is to find weaknesses.
+CRITIQUE_PROMPT = """You are a fair quality reviewer. Evaluate this response honestly.
 
-Original Question: {question}
+Question: {question}
 
-Response to Review:
+Response:
 {response}
 
-You MUST find exactly 3 weaknesses or gaps, even if the response is good.
-Be specific and actionable. Don't be nice - be helpful.
+Scoring guidelines:
+- 9-10: Correct, clear, well-organized answer
+- 7-8: Good answer with minor gaps or formatting issues
+- 5-6: Has notable errors, missing key info, or poor organization
+- 3-4: Mostly wrong, incoherent, or severely incomplete
+- 1-2: Completely wrong or off-topic
 
-Respond in EXACTLY this format:
-<weakness1>First specific weakness or gap</weakness1>
-<weakness2>Second specific weakness or gap</weakness2>
-<weakness3>Third specific weakness or gap</weakness3>
-<score>1-10 quality score (7+ means good enough)</score>
-<verdict>Brief overall assessment</verdict>"""
+IMPORTANT: For simple factual questions, a short correct answer IS a high-quality answer.
+Do NOT penalize brevity when the question is simple. Only find real weaknesses that exist.
+
+Respond in EXACTLY this XML format (no other text):
+<weakness1>First weakness (or 'None' if answer is good)</weakness1>
+<weakness2>Second weakness (or 'None')</weakness2>
+<weakness3>Third weakness (or 'None')</weakness3>
+<score>1-10 integer (7+ means acceptable quality)</score>
+<verdict>One sentence overall assessment</verdict>"""
 
 
 # ============================================================================
 # PASS 5: REFINE
 # ============================================================================
 
-REFINE_PROMPT = """Improve this response based on the critique.
+REFINE_PROMPT = """Improve this response by fixing the weaknesses identified below.
 
-Original Question: {question}
+Question: {question}
 
 Original Response:
 {response}
 
-Critique:
-- Weakness 1: {weakness1}
-- Weakness 2: {weakness2}
-- Weakness 3: {weakness3}
-- Score: {score}/10
-- Verdict: {verdict}
+Weaknesses to fix:
+1. {weakness1}
+2. {weakness2}
+3. {weakness3}
+Score: {score}/10 — Verdict: {verdict}
 
-Write an IMPROVED response that addresses these weaknesses.
-Keep what was good, fix what was weak. Be thorough.
-
-CRITICAL: Start your response immediately with the actual content.
-Do NOT include phrases like "Here is my improved response" or "Based on the critique".
-Do NOT reference this refinement process. Just write the answer directly."""
+Write the improved response. Keep what was good, fix what was weak.
+Start directly with the answer — do NOT mention the refinement process."""
 
 
 # ============================================================================
@@ -324,9 +378,18 @@ def parse_critique(response: str) -> CritiqueResult:
 # ============================================================================
 
 
-def build_understand_prompt(question: str) -> str:
-    """Build the understanding pass prompt"""
-    return UNDERSTAND_PROMPT.format(question=question)
+def build_understand_prompt(question: str, context_messages: List[Dict] = None) -> str:
+    """Build the understanding pass prompt with optional conversation context."""
+    if context_messages:
+        context_parts = []
+        for msg in context_messages[-4:]:  # Last 4 messages for context
+            role = msg.get("role", "unknown")
+            content = msg.get("content", "")[:500]
+            context_parts.append(f"{role.title()}: {content}")
+        context = "\nRecent conversation:\n" + "\n".join(context_parts)
+    else:
+        context = ""
+    return UNDERSTAND_PROMPT.format(question=question, context=context)
 
 
 def build_plan_prompt(question: str, understanding: UnderstandingResult) -> str:
@@ -347,16 +410,22 @@ def build_execute_prompt(
     context_messages: List[Dict],
     user_memory: Optional[Dict],
     search_context: str = "",
-    include_tools: bool = True,
+    include_tools: bool = False,
 ) -> str:
-    """Build the execute pass prompt"""
+    """Build the execute pass prompt.
+
+    NOTE: include_tools defaults to False. Tool instructions are harmful in
+    one-shot /api/generate prompts because the model is told to "STOP after
+    one tool call" but there's no turn-taking mechanism. Tools are handled
+    by the ReAct loop which has its own prompt pipeline.
+    """
 
     # Format context
     if context_messages:
         context_parts = []
         for msg in context_messages[-6:]:  # Last 6 messages
             role = msg.get("role", "unknown")
-            content = msg.get("content", "")[:500]  # Truncate long messages
+            content = msg.get("content", "")[:2000]  # Preserve enough context for follow-ups
             context_parts.append(f"{role.title()}: {content}")
         context = "\n".join(context_parts)
     else:

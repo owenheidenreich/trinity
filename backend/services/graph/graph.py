@@ -115,6 +115,7 @@ def execute_graph(
     complexity: str = "complex",
     max_iterations: int = 5,
     context: Dict[str, Any] = None,
+    principal_id: str = None,
 ) -> Dict[str, Any]:
     """
     Execute the Trinity graph on a user message.
@@ -124,6 +125,7 @@ def execute_graph(
         complexity: Query complexity level
         max_iterations: Maximum reasoning iterations
         context: Additional context to merge into initial state
+        principal_id: User ID for tool execution context
 
     Returns:
         Final state dict with 'final_answer' and metadata
@@ -132,7 +134,8 @@ def execute_graph(
 
     # Create initial state
     initial_state = create_initial_state(
-        user_message=user_message, complexity=complexity, max_iterations=max_iterations
+        user_message=user_message, complexity=complexity, max_iterations=max_iterations,
+        principal_id=principal_id,
     )
 
     # Merge any additional context
@@ -165,6 +168,7 @@ def execute_graph_streaming(
     complexity: str = "complex",
     max_iterations: int = 5,
     context: Dict[str, Any] = None,
+    principal_id: str = None,
 ) -> Generator[Dict[str, Any], None, None]:
     """
     Execute the Trinity graph with streaming updates.
@@ -176,6 +180,7 @@ def execute_graph_streaming(
         complexity: Query complexity level
         max_iterations: Maximum reasoning iterations
         context: Additional context
+        principal_id: User ID for tool execution context
 
     Yields:
         Progress updates with node name and state changes
@@ -183,7 +188,8 @@ def execute_graph_streaming(
     graph = get_trinity_graph()
 
     initial_state = create_initial_state(
-        user_message=user_message, complexity=complexity, max_iterations=max_iterations
+        user_message=user_message, complexity=complexity, max_iterations=max_iterations,
+        principal_id=principal_id,
     )
 
     if context:

@@ -87,6 +87,39 @@ TOOL_DEFINITIONS = {
             '<tool_call name="fact_check"><claim>The Eiffel Tower is 300 meters tall</claim></tool_call>'
         ],
     },
+    "save_memory": {
+        "description": "Remember an important fact about the user (name, job, preferences, goals). Only save meaningful, lasting information — not trivial session details.",
+        "params": {
+            "fact": "The fact to remember (e.g., 'User works in AI research')",
+            "category": "Category: personal, work, preferences, or general (default: general)",
+            "importance": "1-5 importance rating (default: 3). Use 4-5 for key identity facts.",
+        },
+        "examples": [
+            '<tool_call name="save_memory"><fact>User prefers Python over JavaScript</fact><category>preferences</category><importance>4</importance></tool_call>'
+        ],
+    },
+    "recall_memory": {
+        "description": "Retrieve saved facts about the user by relevance. Use BEFORE answering personal questions like 'what do you know about me?' or 'do you remember...?'",
+        "params": {
+            "query": "What to recall (e.g., 'user preferences', 'their job')",
+            "category": "Optional: filter by category (personal, work, preferences, general)",
+            "limit": "Max number of facts to return (default: 5)",
+        },
+        "examples": [
+            '<tool_call name="recall_memory"><query>what does the user do for work</query></tool_call>'
+        ],
+    },
+    "search_memory": {
+        "description": "Search through all saved memories by keyword or meaning. Use when looking for a specific saved fact.",
+        "params": {
+            "query": "Search query",
+            "search_type": "Search mode: semantic (default), exact, or hybrid",
+            "limit": "Max results (default: 5)",
+        },
+        "examples": [
+            '<tool_call name="search_memory"><query>Python</query><search_type>hybrid</search_type></tool_call>'
+        ],
+    },
 }
 
 
@@ -187,48 +220,71 @@ def detect_tools_needed(query: str, understanding: Dict = None) -> List[str]:
             tools.append("calculator")
             break
 
-    # Web search detection
+    # Web search detection - anchored to avoid matching casual uses of "now", "current", etc.
     search_patterns = [
-        r"current|today|now|latest|recent",
-        r"20\d\d|price|stock|bitcoin|crypto",
-        r"news|update|happening",
-        r"who is|where is|when is",
+        r"current (price|news|weather|status|version|events?|situation)",
+        r"today'?s?\s+(news|weather|price|date|events?)",
+        r"(right now|as of now|happening now)\b",
+        r"latest (news|version|update|release|price)",
+        r"recent (events?|news|developments?|updates?)",
+        r"20\d\d|price of|stock price|bitcoin|crypto",
+        r"(breaking|trending)\s+news",
+        r"who is \w+\s+\w+|where is \w+\s+\w+",  # "who is Elon Musk" but not "who is this"
+        r"when (was|did)\s+\w+\s+(born|founded|released|created|happen)",
     ]
     for pattern in search_patterns:
         if re.search(pattern, query_lower):
             tools.append("web_search")
             break
 
-    # Document search detection
+    # Document search detection - require explicit document/file references
     doc_patterns = [
-        r"document|file|upload|pdf|text",
-        r"according to|in the|from the",
-        r"search.*for|find.*in",
+        r"(this |the |my |uploaded )?(document|file|upload|pdf|attachment)",
+        r"according to (the|my|this|that)",
+        r"(search|look|find)\s+(in|through|within)\s+(the|my|this)",
     ]
     for pattern in doc_patterns:
         if re.search(pattern, query_lower):
             tools.append("document_search")
             break
 
-    # Code detection
-    code_patterns = [
-        r"code|function|program|script",
-        r"python|javascript|java|c\+\+",
-        r"implement|write.*function|def\s+\w+",
-    ]
-    for pattern in code_patterns:
-        if re.search(pattern, query_lower):
-            tools.append("code_display")
-            break
+    # Code detection - only detect if code execution is actually enabled.
+    # When disabled, code_display is just a formatting tool and the model
+    # should write code inline using markdown fenced blocks.
+    if CODE_EXECUTION_ENABLED:
+        code_patterns = [
+            r"(write|create|generate|build|make)\s+(me\s+)?(a\s+)?(code|function|program|script|class)",
+            r"(show|give)\s+me\s+(the\s+)?(code|function|implementation)",
+            r"\b(debug|refactor|optimize|fix)\s+(this|the|my)\s+(code|function|program|script)",
+            r"(python|javascript|typescript|java|c\+\+|rust|go)\s+(code|function|program|script|implementation)",
+            r"implement\b|write\s+a?\s*function|def\s+\w+\(|class\s+\w+[\(:]",
+        ]
+        for pattern in code_patterns:
+            if re.search(pattern, query_lower):
+                tools.append("code_display")
+                break
 
-    # Fact check detection
+    # Fact check detection - require full phrases, not bare words
     fact_patterns = [
-        r"is it true|verify|fact.?check",
-        r"really|actually|correct that",
+        r"is it (true|correct|accurate)\s+that",
+        r"(verify|fact.?check|confirm)\s+(that|whether|if|this)",
+        r"is that (really|actually|correct|true|accurate)",
     ]
     for pattern in fact_patterns:
         if re.search(pattern, query_lower):
             tools.append("fact_check")
+            break
+
+    # Memory recall detection
+    memory_patterns = [
+        r"remember|recall|what do you know about me",
+        r"my name|my job|my prefer|about me",
+        r"last time|previously|you said|i told you",
+        r"what did i|do you remember",
+    ]
+    for pattern in memory_patterns:
+        if re.search(pattern, query_lower):
+            tools.append("recall_memory")
             break
 
     return list(set(tools))  # Remove duplicates
@@ -254,6 +310,133 @@ def replace_tool_calls_with_results(text: str, results: Dict[str, ToolResult]) -
         text = text.replace(raw_text, replacement)
 
     return text
+
+
+# ============================================================================
+# NATIVE OLLAMA TOOL CALLING (Phase 2)
+# ============================================================================
+
+# Models known to support native function calling via Ollama /api/chat tools param
+NATIVE_TOOL_MODEL_PREFIXES = [
+    "qwen3", "qwen2.5", "qwen2",
+    "llama3.1", "llama3.2", "llama3.3",
+    "mistral", "mixtral",
+    "command-r",
+]
+
+
+def model_supports_native_tools(model_name: str) -> bool:
+    """Check if a model supports Ollama's native tool calling."""
+    model_lower = model_name.lower().split(":")[0]
+    return any(model_lower.startswith(p) for p in NATIVE_TOOL_MODEL_PREFIXES)
+
+
+def get_native_tool_definitions(tool_names: List[str] = None) -> List[Dict]:
+    """
+    Convert TOOL_DEFINITIONS to Ollama's native JSON Schema format.
+
+    Args:
+        tool_names: Optional list of tool names to include. If None, include all.
+
+    Returns:
+        List of tool definitions in Ollama native format
+    """
+    tools = []
+    for name, tool in TOOL_DEFINITIONS.items():
+        if tool_names and name not in tool_names:
+            continue
+
+        # Skip code execution if disabled
+        if name == "code_display" and not CODE_EXECUTION_ENABLED:
+            continue
+
+        properties = {}
+        required = []
+        for param_name, param_desc in tool["params"].items():
+            properties[param_name] = {
+                "type": "string",
+                "description": param_desc,
+            }
+            required.append(param_name)
+
+        tools.append({
+            "type": "function",
+            "function": {
+                "name": name,
+                "description": tool["description"],
+                "parameters": {
+                    "type": "object",
+                    "properties": properties,
+                    "required": required,
+                },
+            },
+        })
+
+    return tools
+
+
+def extract_native_tool_calls(response_message: Dict) -> List[ToolCall]:
+    """
+    Extract tool calls from Ollama's native response format.
+
+    Args:
+        response_message: The message dict from Ollama /api/chat response
+
+    Returns:
+        List of ToolCall objects (same format as parse_tool_calls)
+    """
+    tool_calls = []
+    native_calls = response_message.get("tool_calls", [])
+
+    for call in native_calls:
+        func = call.get("function", {})
+        name = func.get("name", "").lower().strip()
+        arguments = func.get("arguments", {})
+
+        # Arguments may be a JSON string or dict
+        if isinstance(arguments, str):
+            try:
+                import json
+                arguments = json.loads(arguments)
+            except (json.JSONDecodeError, ValueError):
+                arguments = {"raw": arguments}
+
+        if name:
+            tool_calls.append(
+                ToolCall(
+                    name=name,
+                    params=arguments,
+                    raw_text=str(call),
+                )
+            )
+
+    return tool_calls
+
+
+# ============================================================================
+# MERGED TOOL REGISTRY (local + external MCP)
+# ============================================================================
+
+
+def get_all_tool_definitions() -> Dict[str, dict]:
+    """
+    Get all available tools: local Trinity tools + external MCP tools.
+
+    Returns:
+        Combined TOOL_DEFINITIONS dict with both local and MCP tools
+    """
+    combined = dict(TOOL_DEFINITIONS)
+
+    try:
+        from .mcp_client import get_mcp_client
+
+        client = get_mcp_client()
+        if client.is_initialized and client.tool_count > 0:
+            combined.update(client.get_tool_definitions())
+    except Exception:
+        pass  # MCP client not available or not initialized
+
+    return combined
 
 
 # Module availability flag for graceful degradation

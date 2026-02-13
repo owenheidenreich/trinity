@@ -2,10 +2,11 @@
 Trinity LangGraph LLM Wrapper
 
 LangChain-compatible wrapper for Ollama that integrates with Trinity's
-existing multi-model configuration.
+multi-model configuration and Qwen3 thinking mode.
 """
 
 import logging
+import re
 from typing import Any, Iterator, List, Optional
 
 import requests
@@ -29,17 +30,24 @@ try:
         MODEL_NAME,
         MULTI_MODEL_ENABLED,
         OLLAMA_HOST,
+        QWEN3_THINKING_MODE,
         REASONING_MODEL,
         SMART_MODEL,
     )
 except ImportError:
     # Fallback defaults
     OLLAMA_HOST = "http://localhost:11434"
-    MODEL_NAME = "llama3.1:8b"
+    MODEL_NAME = "qwen3:8b"
     MULTI_MODEL_ENABLED = False
     FAST_MODEL = None
     SMART_MODEL = None
     REASONING_MODEL = None
+    QWEN3_THINKING_MODE = "auto"
+
+
+def _strip_think_blocks(text: str) -> str:
+    """Strip Qwen3 <think>...</think> blocks from output."""
+    return re.sub(r"<think>.*?</think>\s*", "", text, flags=re.DOTALL)
 
 
 class TrinityLLM(BaseLLM):
@@ -47,9 +55,13 @@ class TrinityLLM(BaseLLM):
     LangChain-compatible LLM that wraps Trinity's Ollama integration.
 
     Supports multi-model routing:
-    - 'fast': Quick classification/routing (phi3:mini or similar)
-    - 'smart': Standard generation (llama3.1:8b)
-    - 'reasoning': Complex analysis (qwen2.5:32b or larger)
+    - 'fast': Quick classification/routing (qwen3:1.7b)
+    - 'smart': Standard generation (qwen3:8b)
+    - 'reasoning': Complex analysis (qwen3:32b)
+
+    Qwen3 features:
+    - Hybrid thinking mode (/think for complex, /no_think for simple)
+    - <think> block stripping from output
     """
 
     model_type: str = "smart"
@@ -57,6 +69,7 @@ class TrinityLLM(BaseLLM):
     temperature: float = 0.7
     max_tokens: int = 4096
     timeout: int = 120
+    use_thinking: Optional[bool] = None  # None = auto, True = always, False = never
 
     class Config:
         arbitrary_types_allowed = True
@@ -85,6 +98,31 @@ class TrinityLLM(BaseLLM):
         else:  # 'smart' or default
             return SMART_MODEL or MODEL_NAME
 
+    def _is_qwen3(self) -> bool:
+        """Check if the current model is Qwen3."""
+        return self._get_model_name().lower().startswith("qwen3")
+
+    def _get_thinking_prefix(self) -> str:
+        """Get Qwen3 thinking instruction prefix.
+
+        Returns /think or /no_think for Qwen3, empty string for others.
+        """
+        if not self._is_qwen3():
+            return ""
+        if self.use_thinking is True:
+            return "/think\n"
+        if self.use_thinking is False:
+            return "/no_think\n"
+        # Auto: reasoning model thinks, fast/smart don't
+        if QWEN3_THINKING_MODE == "always":
+            return "/think\n"
+        if QWEN3_THINKING_MODE == "never":
+            return "/no_think\n"
+        # Auto: enable thinking for reasoning model type
+        if self.model_type == "reasoning":
+            return "/think\n"
+        return "/no_think\n"
+
     def _call(
         self,
         prompt: str,
@@ -92,8 +130,13 @@ class TrinityLLM(BaseLLM):
         run_manager: Optional[CallbackManagerForLLMRun] = None,
         **kwargs: Any,
     ) -> str:
-        """Execute LLM call via Ollama."""
+        """Execute LLM call via Ollama. Strips Qwen3 think blocks from output."""
         model = self._get_model_name()
+
+        # Prepend Qwen3 thinking instruction
+        thinking_prefix = self._get_thinking_prefix()
+        if thinking_prefix:
+            prompt = thinking_prefix + prompt
 
         try:
             response = requests.post(
@@ -116,7 +159,8 @@ class TrinityLLM(BaseLLM):
                 return f"Error: Ollama returned status {response.status_code}"
 
             result = response.json()
-            return result.get("response", "")
+            text = result.get("response", "")
+            return _strip_think_blocks(text)
 
         except requests.exceptions.Timeout:
             logger.warning(f"Ollama timeout after {self.timeout}s for model {model}")

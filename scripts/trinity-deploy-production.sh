@@ -49,9 +49,9 @@ TIER_YAML[2]="deploy-tier2-balanced.yaml"
 TIER_YAML[3]="deploy-tier3-complex.yaml"
 
 typeset -A TIER_DESC
-TIER_DESC[1]="TinyLlama 1.1B - Testing (~\$25/mo)"
-TIER_DESC[2]="Qwen 2.5 3B - Fast & Smart (~\$30/mo)"
-TIER_DESC[3]="Qwen 2.5 72B - Complex (~\$200/mo)"
+TIER_DESC[1]="Qwen3 1.7B - Testing (~\$25/mo)"
+TIER_DESC[2]="Qwen2.5 14B - Balanced (~\$50/mo)"
+TIER_DESC[3]="Qwen3 32B - Intelligence (~\$200/mo)"
 
 # =============================================================================
 # HELPER FUNCTIONS
@@ -77,6 +77,16 @@ log_warning() {
 
 log_info() {
     echo -e "${BLUE}ℹ️  $1${NC}"
+}
+
+# Track elapsed time for each step
+DEPLOY_START_TIME=$(date +%s)
+step_timer() {
+    local now=$(date +%s)
+    local elapsed=$((now - DEPLOY_START_TIME))
+    local mins=$((elapsed / 60))
+    local secs=$((elapsed % 60))
+    echo -e "${BLUE}  ⏱  ${mins}m ${secs}s elapsed${NC}"
 }
 
 # =============================================================================
@@ -182,9 +192,9 @@ select_tier() {
     echo "┌─────────────────────────────────────────────────────────────┐"
     echo "│                    SELECT DEPLOYMENT TIER                    │"
     echo "├─────────────────────────────────────────────────────────────┤"
-    echo "│  1) TinyLlama 1.1B  - Testing (~\$25/mo)                     │"
-    echo "│  2) Qwen 2.5 3B     - Fast & Smart (~\$30/mo)                │"
-    echo "│  3) Qwen 2.5 72B    - Intelligence (~\$200/mo)               │"
+    echo "│  1) Qwen3 1.7B     - Testing (~\$25/mo)                       │"
+    echo "│  2) Qwen2.5 14B    - Balanced (~\$50/mo)                     │"
+    echo "│  3) Qwen3 32B      - Intelligence (~\$200/mo)                │"
     echo "└─────────────────────────────────────────────────────────────┘"
     echo ""
     
@@ -198,6 +208,43 @@ select_tier() {
         SELECTED_TIER="1"
     fi
     log_success "Selected Tier $SELECTED_TIER: ${TIER_DESC[$SELECTED_TIER]}"
+}
+
+ask_deposit() {
+    echo ""
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}                         DEPLOYMENT FUNDING                               ${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    
+    # Get current balance
+    CURRENT_BALANCE=$(provider-services query bank balances $WALLET_ADDR --node $AKASH_NODE -o json 2>/dev/null | grep -o '"amount":"[0-9]*"' | head -1 | grep -o '[0-9]*' || echo "0")
+    CURRENT_AKT=$(echo "scale=2; $CURRENT_BALANCE / 1000000" | bc 2>/dev/null || echo "unknown")
+    
+    echo ""
+    echo "  Current wallet balance: $CURRENT_AKT AKT"
+    echo "  Selected tier: ${TIER_DESC[$SELECTED_TIER]}"
+    echo ""
+    echo "  How many AKT would you like to deposit to this deployment?"
+    echo "  (Enter 0 or press Enter to skip)"
+    echo ""
+    printf "  AKT to deposit: "
+    read -r FUNDING_AKT_AMOUNT </dev/tty
+    
+    # Default to 0 if empty
+    FUNDING_AKT_AMOUNT="${FUNDING_AKT_AMOUNT:-0}"
+    
+    # Validate it's a number
+    if ! [[ "$FUNDING_AKT_AMOUNT" =~ ^[0-9]+\.?[0-9]*$ ]]; then
+        log_warning "Invalid amount '$FUNDING_AKT_AMOUNT' - skipping deposit"
+        FUNDING_AKT_AMOUNT="0"
+    fi
+    
+    if [ "$FUNDING_AKT_AMOUNT" != "0" ]; then
+        log_info "Will deposit ${FUNDING_AKT_AMOUNT} AKT after deployment completes"
+    else
+        log_info "No additional deposit requested"
+    fi
+    echo ""
 }
 
 deploy_to_akash() {
@@ -247,26 +294,7 @@ deploy_to_akash() {
     fi
     
     log_success "Akash deployment complete: $DEPLOYED_URL"
-    echo ""
-    
-    # Ask about funding NOW (while user is watching)
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${CYAN}                         DEPLOYMENT FUNDING                               ${NC}"
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    
-    # Get current balance
-    CURRENT_BALANCE=$(provider-services query bank balances $WALLET_ADDRESS --node $AKASH_NODE -o json 2>/dev/null | grep -o '"amount":"[0-9]*"' | head -1 | grep -o '[0-9]*' || echo "0")
-    CURRENT_AKT=$(echo "scale=2; $CURRENT_BALANCE / 1000000" | bc 2>/dev/null || echo "unknown")
-    
-    echo ""
-    echo "  Current wallet balance: $CURRENT_AKT AKT"
-    echo "  Deployment DSEQ: $DEPLOYED_DSEQ"
-    echo ""
-    echo "  How many AKT would you like to deposit to this deployment?"
-    echo "  (Enter 0 or press Enter to skip)"
-    echo ""
-    printf "  AKT to deposit: "
-    read FUNDING_AKT_AMOUNT
+    step_timer
     echo ""
 }
 
@@ -279,49 +307,49 @@ validate_local() {
     
     cd "$PROJECT_ROOT"
     
-    # Python syntax check
+    # Python syntax check — validate ALL backend Python files
     echo "Checking Python syntax..."
-    if ! python3 -m py_compile backend/inference_server.py 2>&1; then
-        log_error "Python syntax error in inference_server.py"
+    local syntax_ok=true
+    local checked=0
+    for pyfile in backend/*.py backend/services/*.py backend/routes/*.py backend/middleware/*.py; do
+        if [ -f "$pyfile" ]; then
+            if ! python3 -m py_compile "$pyfile" 2>&1; then
+                log_error "Syntax error in $pyfile"
+                syntax_ok=false
+            fi
+            checked=$((checked + 1))
+        fi
+    done
+    if [ "$syntax_ok" = false ]; then
+        log_error "Python syntax check failed"
         exit 1
     fi
-    log_success "Python syntax OK"
-    
-    # Note: Import checking skipped - packages only exist in Docker container
-    # Docker build will fail if imports are broken
-    log_success "Python syntax validated (imports verified during Docker build)"
+    log_success "Python syntax OK ($checked files checked)"
     
     # Build Docker image locally
     echo ""
     echo "Building Docker image (AMD64 for Akash)..."
     TAG="v2-$(date +%Y%m%d-%H%M%S)"
     
+    # DOCKER_BUILDKIT=1 with --provenance=false --sbom=false skips attestation
+    # layers that change every build and slow down pushes unnecessarily
     docker build --platform linux/amd64 \
-        -t "$DOCKER_IMAGE:$TAG" \
-        -t "$DOCKER_IMAGE:latest" \
+        --provenance=false --sbom=false \
+        -t "${DOCKER_IMAGE}:${TAG}" \
+        -t "${DOCKER_IMAGE}:latest" \
         -f "$DEPLOY_DIR/docker/Dockerfile" \
         "$PROJECT_ROOT" || {
         log_error "Docker build failed"
         exit 1
     }
-    log_success "Docker build OK: $DOCKER_IMAGE:$TAG"
+    log_success "Docker build OK: ${DOCKER_IMAGE}:${TAG}"
     
-    # Store tag for later (MUST be before cleanup so grep excludes it)
+    # Store tag for later
     DEPLOY_TAG="$TAG"
     
     # Skip local container test (AMD64 image on ARM Mac is too slow)
     log_info "Skipping local container test (cross-platform)"
-    
-    # Clean Docker build cache and old images
-    echo ""
-    echo "Cleaning Docker build cache and old images..."
-    docker builder prune -f &> /dev/null || true
-    # Remove old tagged images (keep only latest + current deploy tag)
-    docker images "$DOCKER_IMAGE" --format '{{.Tag}} {{.ID}}' | \
-        grep -v -E "^(latest|$DEPLOY_TAG) " | \
-        awk '{print $2}' | xargs -r docker rmi -f &> /dev/null || true
-    # Remove dangling images
-    docker image prune -f &> /dev/null || true
+    step_timer
     
     log_success "Local validation passed - safe to deploy"
 }
@@ -333,18 +361,27 @@ validate_local() {
 push_image() {
     log_step "Pushing Docker Image"
     
-    echo "Pushing $DOCKER_IMAGE:$DEPLOY_TAG..."
+    echo "Pushing ${DOCKER_IMAGE}:latest..."
     
-    docker push "$DOCKER_IMAGE:$DEPLOY_TAG" || {
+    docker push "${DOCKER_IMAGE}:latest" || {
         log_error "Docker push failed"
         exit 1
     }
     
-    docker push "$DOCKER_IMAGE:latest" || {
-        log_warning "Failed to push :latest tag (non-fatal)"
+    # Also tag with deploy version for rollback reference (push is fast since layers already uploaded)
+    docker push "${DOCKER_IMAGE}:${DEPLOY_TAG}" || {
+        log_warning "Failed to push :${DEPLOY_TAG} tag (non-fatal, :latest already pushed)"
     }
     
-    log_success "Image pushed: $DOCKER_IMAGE:$DEPLOY_TAG"
+    log_success "Image pushed: ${DOCKER_IMAGE}:latest (also tagged ${DEPLOY_TAG})"
+    step_timer
+    
+    # Clean up old Docker images AFTER push (not before — preserves build cache for push)
+    echo "Cleaning up old Docker images..."
+    docker images "$DOCKER_IMAGE" --format '{{.Tag}} {{.ID}}' | \
+        grep -v -E "^(latest|$DEPLOY_TAG) " | \
+        awk '{print $2}' | xargs -r docker rmi -f &> /dev/null || true
+    docker image prune -f &> /dev/null || true
 }
 
 # =============================================================================
@@ -532,7 +569,7 @@ print_summary() {
     echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
     echo "  Tier:       ${TIER_DESC[$TIER]}"
-    echo "  Image:      $DOCKER_IMAGE:$DEPLOY_TAG"
+    echo "  Image:      ${DOCKER_IMAGE}:${DEPLOY_TAG}"
     echo "  DSEQ:       $DEPLOYED_DSEQ"
     echo "  Provider:   $DEPLOYED_PROVIDER"
     echo ""
@@ -603,10 +640,11 @@ main() {
     
     check_prerequisites
     select_tier
+    ask_deposit
     validate_local
     push_image
-    update_akash_yamls
     deploy_to_akash
+    update_akash_yamls     # After deploy succeeds — avoids dirty git state on failure
     update_cloudflare_worker
     update_icp_canisters
     verify_production

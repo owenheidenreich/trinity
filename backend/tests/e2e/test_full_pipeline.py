@@ -105,6 +105,24 @@ def mock_auth():
         yield mock_verify
 
 
+@pytest.fixture
+def mock_admin_auth():
+    """Mock admin authentication to always succeed.
+
+    Patches the low-level signature verification so the real
+    verify_request_auth() passes when it receives our fake headers.
+    Yields a headers dict that tests must pass to client.get/post.
+    """
+    with patch("icp_auth.verify_icp_signature") as mock_verify:
+        mock_verify.return_value = (True, None)
+        with patch("icp_auth.ADMIN_PRINCIPALS", ["test-admin-principal"]):
+            yield {
+                "ICP-Principal": "test-admin-principal",
+                "ICP-Signature": "deadbeef" * 16,
+                "ICP-Timestamp": str(int(time.time() * 1000)),
+            }
+
+
 # =============================================================================
 # HEALTH CHECK TESTS
 # =============================================================================
@@ -278,9 +296,9 @@ class TestAuthentication:
 class TestCachingIntegration:
     """Test caching layer integration."""
 
-    def test_cache_stats_endpoint(self, client):
+    def test_cache_stats_endpoint(self, client, mock_admin_auth):
         """Cache stats endpoint should return data."""
-        response = client.get("/admin/cache/stats")
+        response = client.get("/admin/cache/stats", headers=mock_admin_auth)
 
         assert response.status_code == 200
         data = response.get_json()
@@ -288,9 +306,9 @@ class TestCachingIntegration:
         assert "semantic_cache" in data
         assert "token_usage" in data
 
-    def test_cache_clear_endpoint(self, client):
+    def test_cache_clear_endpoint(self, client, mock_admin_auth):
         """Cache clear endpoint should work."""
-        response = client.post("/admin/cache/clear")
+        response = client.post("/admin/cache/clear", headers=mock_admin_auth)
 
         assert response.status_code == 200
         data = response.get_json()
@@ -305,21 +323,21 @@ class TestCachingIntegration:
 class TestExperimentsIntegration:
     """Test A/B experiment integration."""
 
-    def test_experiments_list_endpoint(self, client):
+    def test_experiments_list_endpoint(self, client, mock_admin_auth):
         """Should list all experiments."""
-        response = client.get("/admin/experiments")
+        response = client.get("/admin/experiments", headers=mock_admin_auth)
 
         assert response.status_code == 200
         data = response.get_json()
         # Should have experiment definitions
         assert isinstance(data, dict)
 
-    def test_experiment_assignment(self, client):
+    def test_experiment_assignment(self, client, mock_admin_auth):
         """Should return consistent assignment for session."""
         session_id = "test-session-12345"
 
-        response1 = client.get(f"/admin/experiments/assignment/{session_id}")
-        response2 = client.get(f"/admin/experiments/assignment/{session_id}")
+        response1 = client.get(f"/admin/experiments/assignment/{session_id}", headers=mock_admin_auth)
+        response2 = client.get(f"/admin/experiments/assignment/{session_id}", headers=mock_admin_auth)
 
         assert response1.status_code == 200
         assert response2.status_code == 200
@@ -329,14 +347,14 @@ class TestExperimentsIntegration:
         data2 = response2.get_json()
         assert data1["assignments"] == data2["assignments"]
 
-    def test_experiment_enable_disable(self, client):
+    def test_experiment_enable_disable(self, client, mock_admin_auth):
         """Should be able to enable/disable experiments."""
         # Try to disable
-        response = client.post("/admin/experiments/agent_mode/disable")
+        response = client.post("/admin/experiments/agent_mode/disable", headers=mock_admin_auth)
         assert response.status_code in [200, 404]
 
         # Try to re-enable
-        response = client.post("/admin/experiments/agent_mode/enable")
+        response = client.post("/admin/experiments/agent_mode/enable", headers=mock_admin_auth)
         assert response.status_code in [200, 404]
 
 
@@ -348,18 +366,18 @@ class TestExperimentsIntegration:
 class TestTokenTracking:
     """Test token usage tracking."""
 
-    def test_token_usage_endpoint(self, client):
+    def test_token_usage_endpoint(self, client, mock_admin_auth):
         """Should return token usage stats."""
-        response = client.get("/admin/tokens/usage")
+        response = client.get("/admin/tokens/usage", headers=mock_admin_auth)
 
         assert response.status_code == 200
         data = response.get_json()
         assert "totals" in data
         assert "top_users" in data
 
-    def test_quota_usage_endpoint(self, client):
+    def test_quota_usage_endpoint(self, client, mock_admin_auth):
         """Should return quota usage."""
-        response = client.get("/admin/quota/usage")
+        response = client.get("/admin/quota/usage", headers=mock_admin_auth)
 
         assert response.status_code == 200
         data = response.get_json()
