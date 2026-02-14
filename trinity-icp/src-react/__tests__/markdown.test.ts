@@ -100,13 +100,22 @@ describe('restoreMath', () => {
 });
 
 describe('preprocessToolCalls', () => {
-  it('converts tool_call XML to fenced code blocks', () => {
-    const input = '<tool_call>{"name": "search"}</tool_call>';
+  it('converts code_display tool call to fenced code block', () => {
+    const input = '<tool_call name="code_display"><language>python</language><code>print("hello")</code></tool_call>';
     const result = preprocessToolCalls(input);
-    expect(result).toContain('```json');
-    expect(result).toContain('{"name": "search"}');
+    expect(result).toContain('```python');
+    expect(result).toContain('print("hello")');
     expect(result).toContain('```');
-    expect(result).not.toContain('<tool_call>');
+    expect(result).not.toContain('<tool_call');
+  });
+
+  it('strips non-display tool calls', () => {
+    const input = 'Before <tool_call name="calculator"><expression>2+2</expression></tool_call> after';
+    const result = preprocessToolCalls(input);
+    expect(result).not.toContain('<tool_call');
+    expect(result).not.toContain('calculator');
+    expect(result).toContain('Before');
+    expect(result).toContain('after');
   });
 
   it('passes through text without tool calls unchanged', () => {

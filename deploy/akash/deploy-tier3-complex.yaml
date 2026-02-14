@@ -21,7 +21,7 @@ version: "2.0"
 
 services:
   trinity:
-    image: gdubx/trinity-inference:v2-20260213-154107
+    image: gdubx/trinity-inference:v2-20260213-210750
     env:
       - PROVIDER_ID=trinity-tier3-qwen25-coder-32b
       - MODEL_NAME=qwen2.5-coder:32b

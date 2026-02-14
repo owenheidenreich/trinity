@@ -122,6 +122,7 @@ export function useChat(): UseChatReturn {
           })),
           chat_id: currentChatId,
           message_index: chatHistory.length,
+          user_memory: useStore.getState().userMemory || {},
         };
 
         const response = await fetch(`${CONFIG.API_URL}/generate/agent`, {
@@ -204,6 +205,7 @@ export function useChat(): UseChatReturn {
           })),
           chat_id: currentChatId,
           message_index: chatHistory.length,
+          user_memory: useStore.getState().userMemory || {},
         };
 
         const response = await fetch(`${CONFIG.API_URL}/generate/agent`, {

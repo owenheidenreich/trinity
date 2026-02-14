@@ -1,9 +1,13 @@
 /**
  * Message — single message wrapper (user or AI).
+ * Supports: markdown rendering, code blocks, download cards, inline editing.
  */
-import { useCallback } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { MarkdownRenderer } from './MarkdownRenderer';
 import { CopyAllButton } from './CopyAllButton';
+import { DownloadCards } from './DownloadCards';
+import type { DownloadFile } from './DownloadCards';
+import { extractCodeBlocks } from '../../utils/codeParser';
 import styles from '../../styles/components/Message.module.css';
 
 interface MessageProps {
@@ -12,22 +16,103 @@ interface MessageProps {
   onEdit?: (content: string) => void;
 }
 
+/**  Map extracted code blocks → DownloadFile[] */
+function codeBlocksToFiles(content: string): DownloadFile[] {
+  const blocks = extractCodeBlocks(content);
+  return blocks
+    .filter((b) => b.code.trim().length > 0)
+    .map((b) => ({
+      filename: b.filename || b.displayName,
+      content: b.code,
+    }));
+}
+
 export function Message({ role, content, onEdit }: MessageProps) {
-  const handleEdit = useCallback(() => {
-    onEdit?.(content);
-  }, [content, onEdit]);
+  const [editing, setEditing] = useState(false);
+  const [editText, setEditText] = useState(content);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Auto-resize textarea
+  useEffect(() => {
+    if (editing && textareaRef.current) {
+      const ta = textareaRef.current;
+      ta.style.height = 'auto';
+      ta.style.height = ta.scrollHeight + 'px';
+      ta.focus();
+      ta.setSelectionRange(ta.value.length, ta.value.length);
+    }
+  }, [editing]);
+
+  const handleStartEdit = useCallback(() => {
+    setEditText(content);
+    setEditing(true);
+  }, [content]);
+
+  const handleCancelEdit = useCallback(() => {
+    setEditing(false);
+    setEditText(content);
+  }, [content]);
+
+  const handleSaveEdit = useCallback(() => {
+    setEditing(false);
+    if (editText.trim() && editText !== content) {
+      onEdit?.(editText.trim());
+    }
+  }, [editText, content, onEdit]);
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        handleSaveEdit();
+      } else if (e.key === 'Escape') {
+        handleCancelEdit();
+      }
+    },
+    [handleSaveEdit, handleCancelEdit]
+  );
+
+  // Extract downloadable files from assistant messages
+  const downloadFiles = useMemo(
+    () => (role === 'assistant' ? codeBlocksToFiles(content) : []),
+    [role, content]
+  );
 
   return (
     <div className={`${styles.message} ${role === 'user' ? styles.user : styles.assistant}`}>
-      <MarkdownRenderer content={content} className={styles.content} />
-      <div className={styles.actions}>
-        {role === 'assistant' && <CopyAllButton content={content} />}
-        {role === 'user' && onEdit && (
-          <button className={styles.actionBtn} onClick={handleEdit}>
-            Edit
-          </button>
-        )}
-      </div>
+      {editing ? (
+        <div className={styles.editContainer}>
+          <textarea
+            ref={textareaRef}
+            className={styles.editTextarea}
+            value={editText}
+            onChange={(e) => setEditText(e.target.value)}
+            onKeyDown={handleKeyDown}
+            rows={3}
+          />
+          <div className={styles.editActions}>
+            <button className={styles.editCancelBtn} onClick={handleCancelEdit}>
+              Cancel
+            </button>
+            <button className={styles.editSaveBtn} onClick={handleSaveEdit}>
+              Save & Regenerate
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <MarkdownRenderer content={content} className={styles.content} />
+          {downloadFiles.length > 0 && <DownloadCards files={downloadFiles} />}
+          <div className={styles.actions}>
+            {role === 'assistant' && <CopyAllButton content={content} />}
+            {role === 'user' && onEdit && (
+              <button className={styles.actionBtn} onClick={handleStartEdit}>
+                Edit
+              </button>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }

@@ -1,197 +1,129 @@
 # Trinity — AI Context Reference
 
-> **Last Updated:** February 13, 2026
-> **Status:** Post-overhaul (Intelligence + Frontend rewrites complete)
-> **Model:** qwen2.5-coder:32b on Akash (RTX 3090)
-> **See also:** [CODEBASE-MAP.md](CODEBASE-MAP.md) for file-level detail
+> **Last Updated:** February 13, 2026 · **Model:** qwen2.5-coder:32b on Akash (RTX 3090)
+
+---
+
+## Session Start
+
+1. Read this file (~100 lines) for orientation
+2. State what you're changing
+3. Read the relevant architecture doc from the map below
+4. Check [CODEBASE-MAP.md](CODEBASE-MAP.md) Quick Lookup table if you need file paths
+5. Check [CONVENTIONS.md](CONVENTIONS.md) for do/don't rules
 
 ---
 
 ## What Is Trinity
 
-Decentralized AI chat: ICP frontend → Cloudflare Worker → Flask/Ollama backend on Akash. Ed25519 self-custody auth, AES-256-GCM encryption, IPFS backup via Lighthouse.
+Fully decentralized AI chat with self-custody auth. No accounts, no passwords — your browser generates an Ed25519 keypair and that's your identity. Chats are encrypted client-side (AES-256-GCM) before the backend ever sees them. Backend can't read your messages.
 
 ```
-Browser (dubya.ai) → ICP Canister (frontend) → Cloudflare Worker (SSL) → Akash (Flask + Ollama)
-                                                                              ↓
-                                                                   Encrypted JSON + IPFS backup
+dubya.ai → ICP Canister (React frontend) → Cloudflare Worker (SSL) → Akash (Flask + Ollama)
+                                                                           ↓
+                                                                  Encrypted storage + IPFS backup
 ```
 
-| Layer | Tech | URL |
-|-------|------|-----|
-| Frontend | Vanilla JS + Zustand on ICP | https://dubya.ai |
-| SSL Proxy | Cloudflare Worker | https://api.dubya.ai |
-| Backend | Flask on Akash | Port 8000 |
-| LLM | Ollama (qwen2.5-coder:32b) | Port 11434 (internal) |
+**Stack:** React 19 / TypeScript / Zustand on ICP · Flask 3 / Python 3.11 on Akash · Ollama LLM · Cloudflare Worker SSL proxy · IPFS via Lighthouse
 
 ---
 
-## Architecture (Post-Overhaul)
+## Documentation Map
 
-### What Was Deleted
-LangGraph multi-agent, complexity router, voting, experiments/A/B testing, parallel pipeline — all removed. Single-pass + ReAct replaced everything.
+This file is a quick orientation. For implementation detail, read the architecture docs:
 
-### Agent Pipeline (`services/agent.py`)
+| Document | Read when... |
+|----------|-------------|
+| [SYSTEM-OVERVIEW](../architecture/SYSTEM-OVERVIEW.md) | Understanding full stack, request lifecycle, security model, deployment |
+| [FRONTEND](../architecture/FRONTEND.md) | Working on React components, hooks, state, or legacy vanilla JS |
+| [BACKEND](../architecture/BACKEND.md) | Working on Flask routes, middleware, services, API endpoints |
+| [MEMORY-SYSTEM](../architecture/MEMORY-SYSTEM.md) | Working on embeddings, vector store, semantic/user memory |
+| [STORAGE-AND-ENCRYPTION](../architecture/STORAGE-AND-ENCRYPTION.md) | Working on encryption, IPFS, autosave, IndexedDB |
+| [INTELLIGENCE-AND-ROUTING](../architecture/INTELLIGENCE-AND-ROUTING.md) | Working on agent pipeline, ReAct loop, tools, prompts |
+| [CODEBASE-MAP](CODEBASE-MAP.md) | Need file-level map with exact paths, routes, constants |
+| [FEATURE-CATALOG](FEATURE-CATALOG.md) | Need feature inventory with code locations |
+| [CONVENTIONS](CONVENTIONS.md) | Quick do/don't rules for AI coding sessions |
 
-```
-User Prompt → detect_tools_needed()
-  ├── Tools needed → ReAct loop (iterative think→act→observe, max 15 turns)
-  └── No tools    → Direct single-pass generation
-```
+### Context Loading Guide
 
-- **ReAct loop** (`services/react_loop.py`): Dual-mode tool calling — native Ollama JSON tools for Qwen/Llama/Mistral, XML `<tool_call>` fallback for others
-- **Token budget**: 24K (75% of 32K context window)
-- **Reflexion**: Code execution errors trigger self-correction (up to 3 retries)
-- **Think-block filtering**: `<think>…</think>` stripped before output
+- **Frontend-only change?** Read: this file + [FRONTEND.md](../architecture/FRONTEND.md). Skip backend sections of CODEBASE-MAP.
+- **Backend route change?** Read: this file + [BACKEND.md](../architecture/BACKEND.md) + CODEBASE-MAP API section.
+- **Deployment?** Read: this file + `deploy/` files. Skip architecture docs.
+- **Bug fix?** Read: this file + relevant architecture doc + CODEBASE-MAP Quick Lookup.
+- **New tool/feature?** Read: this file + [INTELLIGENCE-AND-ROUTING](../architecture/INTELLIGENCE-AND-ROUTING.md) + CONVENTIONS.md.
 
-### 13 Tools (`services/tools.py` + `services/code_executor.py`)
-
-| Tool | Category | Implementation |
-|------|----------|---------------|
-| calculator | Math | AST-safe eval |
-| code_display | Code | RestrictedPython (disabled by default) |
-| web_search | Search | Brave API |
-| fact_check | Verify | Dual web search |
-| document_search | RAG | Vector store embeddings |
-| save_memory | Memory | MemGPT (384-dim embeddings) |
-| recall_memory | Memory | Semantic + recency scoring |
-| search_memory | Memory | Exact/semantic/hybrid |
-| read_file | Workspace | Sandboxed to /workspace |
-| write_file | Workspace | Max 5MB |
-| list_directory | Workspace | Max depth 3 |
-| search_codebase | Workspace | Regex, max 50 results |
-| run_command | Workspace | python/pytest/node only |
-
-### MCP (Model Context Protocol)
-
-- **Server**: `POST /mcp` (HTTP) + `python mcp_stdio_server.py` (stdio for Claude Desktop)
-- **Client**: Connects to external MCP servers, extends tool system
-- Config: `MCP_SERVER_ENABLED=true` (default)
+**Check the relevant architecture doc before making changes** — it may contain constraints or design decisions that affect your approach.
 
 ---
 
-## Key Files
-
-| Purpose | File |
-|---------|------|
-| Flask app | `backend/inference_server.py` |
-| Config/constants | `backend/config.py` |
-| Agent orchestrator | `backend/services/agent.py` |
-| Agent prompts | `backend/services/agent_prompts.py` |
-| ReAct loop | `backend/services/react_loop.py` |
-| Tool dispatcher | `backend/services/code_executor.py` |
-| Tool definitions | `backend/services/tools.py` |
-| Memory tools (MemGPT) | `backend/services/memory_tools.py` |
-| Web search | `backend/services/search.py` |
-| Fact checker | `backend/services/fact_check.py` |
-| Embeddings | `backend/services/embeddings.py` |
-| Vector store | `backend/services/vector_store.py` |
-| Semantic memory | `backend/services/memory.py` |
-| Ollama client | `backend/services/ollama.py` |
-| Prometheus metrics | `backend/middleware/observability.py` |
-| Ed25519 auth | `backend/icp_auth.py` |
-| Chat storage | `backend/storage.py` |
-| IPFS backup | `backend/lighthouse.py` |
-
-### Frontend (Vanilla JS — active)
-| Purpose | File |
-|---------|------|
-| Orchestrator | `trinity-icp/src/app.js` |
-| State (Zustand) | `trinity-icp/src/state/store.js` |
-| API client | `trinity-icp/src/core/api.js` |
-| Streaming/generate | `trinity-icp/src/features/generate.js` |
-| Auth manager | `trinity-icp/src/auth/authManager.js` |
-| Autosave | `trinity-icp/src/storage/autosave.js` |
-
-### Frontend (React 19 — new, not yet primary)
-Located in `trinity-icp/src-react/`. Same Zustand store shape, TypeScript, hooks-first architecture.
-
----
-
-## Routes (8 Blueprints)
-
-| Blueprint | Key Routes |
-|-----------|------------|
-| health | `/health`, `/metrics`, `/stats` |
-| generate | `/generate`, `/generate/agent` |
-| chat | `/chat/autosave`, `/chat/list`, `/chat/<id>`, `/user/memory/*` |
-| tools | `/tools/search`, `/tools/browse`, `/tools/documents/*` |
-| admin | `/admin/cache/*`, `/admin/tokens/*`, `/admin/quota/*` |
-| v4 | `/v4/vector/*`, `/v4/search/*` |
-| session | `/funding/status`, `/session/*` |
-| mcp | `/mcp` (GET info, POST JSON-RPC 2.0) |
-
----
-
-## Config (`backend/config.py`)
-
-| Constant | Default | Notes |
-|----------|---------|-------|
-| `MODEL_NAME` | `qwen2.5-coder:32b` | Env override |
-| `NUM_CTX` | `32768` | Ollama context window |
-| `DEFAULT_MAX_TOKENS` | `8000` | Response limit |
-| `OLLAMA_TIMEOUT` | `600` | 10 min generation |
-| `MAX_PROMPT_LENGTH` | `50000` | Input limit |
-| `REACT_MAX_ITERATIONS` | `15` | Tool-calling turns |
-| `REACT_TOKEN_BUDGET` | `24000` | 75% of context |
-| `CODE_EXECUTION_ENABLED` | `false` | Security: disabled in prod |
-| `EMBEDDING_MODEL` | `BAAI/bge-small-en-v1.5` | 384-dim |
-| `RAG_TOP_K` | `5` | Retrieval results |
-
-### Deployment Tiers
-| Tier | Model | GPU |
-|------|-------|-----|
-| 1 | qwen3:1.7b | T4/3090 |
-| 2 | qwen2.5:14b | Any NVIDIA |
-| 3 | qwen2.5-coder:32b | A100/3090 |
-
----
-
-## Deployment
+## Project Layout
 
 ```
-Code → Docker build (--platform linux/amd64) → Push → Akash deploy → Cloudflare update → ICP deploy
+backend/                         # Python Flask server
+├── inference_server.py          # App factory, blueprint registration
+├── config.py                    # All constants + env vars
+├── routes/                      # 8 blueprints, 42+ endpoints
+├── services/                    # 21 modules (agent, tools, memory, search, etc.)
+├── middleware/                  # Observability, rate limiting, ICP cache
+└── tests/                       # 615 tests, 91% coverage
+
+trinity-icp/                     # Frontend (ICP canister)
+├── src-react/                   # Active: React 19 + TypeScript (v3.0.0)
+└── src/                         # Legacy: Vanilla JS (v2.8.0, still buildable)
+
+deploy/                          # Docker, Akash YAML, Cloudflare Worker
+scripts/                         # Deployment automation
+docs/                            # Architecture docs, guides, AI context
 ```
 
-**Script:** `./scripts/trinity-deploy-production.sh [tier]`
+---
 
-**Critical rules:**
+## How It Works (Summary)
+
+**Auth:** Ed25519 keypair → principal ID (base32). Signed message format: `{principal}:{timestamp}:{endpoint}:{nonce}`. Backend verifies via `@require_auth` decorator. 60s replay window.
+
+**Agent Pipeline:** User prompt → heuristic tool detection → if tools needed, ReAct loop (max 15 iterations, 24K token budget, 13 tools) → if not, direct LLM generation. Reflexion self-correction on errors.
+
+**Memory:** Three tiers — working (last 3 messages), semantic (top 5 by vector similarity), user memory (persistent facts on IPFS).
+
+**Storage:** AES-256-GCM + Argon2id KDF. Encrypted client-side before transmission. IPFS (Lighthouse) is source of truth; IndexedDB is session cache. Autosave with 2s debounce.
+
+---
+
+## Critical Rules
+
+**Deployment:**
 - Docker builds MUST use `--platform linux/amd64` (dev = Apple Silicon, prod = amd64)
-- NEVER put API keys in YAML — use `.env` + runtime injection
-- Test with `docker run` locally before deploying
+- Never put API keys in Akash YAML — use `.env` + runtime injection
+- Deploy script: `./scripts/trinity-deploy-production.sh [tier]`
+- First request after deploy takes 20-30s (model loading) — this is normal
+
+**Frontend (Zustand):**
+- Direct state assignments fail silently: `State.x = val` does nothing
+- Always use setters: `State.setAuthenticated()`, `State.setChatHistory()`
+
+**Testing:**
+```bash
+cd backend && python -m pytest tests/ -x -q    # 615 tests, 91% coverage
+```
+
+---
+
+## Key Identifiers
 
 | Resource | Value |
 |----------|-------|
+| Production URL | https://dubya.ai |
+| API URL | https://api.dubya.ai |
 | Frontend canister | `zc67k-kiaaa-aaaal-qtmiq-cai` |
-| Backend canister | `au5zq-2qaaa-aaaal-qtowa-cai` |
 | Docker image | `gdubx/trinity-inference:latest` |
-| Akash wallet | `akash155hphg6qyy3vtr584p38wlngtqxzdr0l6jutmp` |
 
 ---
 
-## Testing
+## Recent Changes
 
-```bash
-cd backend && python -m pytest tests/ -x -q    # 615 passed, 91.30% coverage
-```
-
----
-
-## Known Issues
-
-| Issue | Details |
-|-------|---------|
-| `AUTH_TIMESTAMP_WINDOW_MS` unused | config.py defines 5min, icp_auth.py hardcodes 60s |
-| `database.py` not integrated | 298-line ORM exists but unused |
-| React frontend not deployed | `src-react/` exists but `src/` (vanilla JS) is active |
-| Code execution disabled | Intentional — `CODE_EXECUTION_ENABLED=false` in all Akash YAMLs |
-
----
-
-## Overhaul History
-
-**Intelligence Overhaul (Feb 2026):** Deleted ~2,700 lines (LangGraph, voting, experiments, complexity, parallel, A/B testing). Replaced multi-pass pipeline with single-pass + ReAct. Upgraded model to qwen2.5-coder:32b. Added filesystem tools, code execution, repo map.
-
-**Frontend Overhaul (Feb 2026):** React 19 + TypeScript rewrite in `src-react/` (62 files, 137 tests). Vanilla JS in `src/` remains the active deployed frontend.
-
-**QA Audit (Feb 2026):** See `docs/QA-HANDOFF.md` for post-overhaul verification matrix.
+- **Feb 2026:** Deleted LangGraph multi-agent, complexity router, voting, A/B experiments, parallel pipeline — replaced by single-pass agent + ReAct loop
+- **Feb 2026:** Migrated frontend to React 19 + TypeScript (`src-react/`); vanilla JS in `src/` is now legacy
+- **Feb 2026:** Added MCP server/client, 13 tools, MemGPT memory tools
+- **Feb 2026:** Prometheus observability consolidated as single source of truth
+- **Feb 2026:** AI context files optimized — CONVENTIONS.md added, copilot-instructions.md trimmed, deduplication across docs

@@ -243,8 +243,14 @@ def inject_env_values(yaml_content):
         )
     return yaml_content
 
-def create_deployment(yaml_path, image_tag):
-    """Create a deployment and return DSEQ"""
+def create_deployment(yaml_path, image_tag, deposit_uakt=500000):
+    """Create a deployment and return DSEQ.
+    
+    Args:
+        yaml_path: Path to the Akash SDL YAML file
+        image_tag: Docker image tag to deploy
+        deposit_uakt: Escrow deposit in uakt (default 500000 = 0.5 AKT minimum)
+    """
     # Create temp YAML with updated image tag
     with open(yaml_path, 'r') as f:
         yaml_content = f.read()
@@ -266,6 +272,7 @@ def create_deployment(yaml_path, image_tag):
     try:
         stdout, stderr, code = run_cmd(
             f"provider-services tx deployment create {temp_yaml} "
+            f"--deposit {deposit_uakt}uakt "
             f"--from {WALLET_NAME} --keyring-backend os "
             f"--node {AKASH_NODE} --chain-id {AKASH_CHAIN_ID} "
             f"--gas auto --gas-adjustment 1.5 --gas-prices 0.025uakt "
@@ -460,10 +467,14 @@ def select_tier():
             print("\nCancelled.")
             sys.exit(1)
 
+# Maximum number of deployment retries (each retry costs deposit_uakt from wallet)
+MAX_RETRIES = 2
+
 def main():
     if len(sys.argv) < 3:
-        print("Usage: akash_deploy.py <deploy_dir> <image_tag> [tier]")
+        print("Usage: akash_deploy.py <deploy_dir> <image_tag> [tier] [additional_akt]")
         print("  tier: 1 (TinyLlama), 2 (Llama 8B), 3 (Qwen 72B)")
+        print("  additional_akt: Extra AKT to add to the 0.5 AKT base escrow deposit")
         sys.exit(1)
     
     deploy_dir = sys.argv[1]
@@ -476,6 +487,25 @@ def main():
     else:
         selected_tier = select_tier()
         print(f"\n✅ Selected Tier {selected_tier}: {TIERS[selected_tier]['desc']}")
+    
+    # Parse additional deposit amount (4th arg, in AKT)
+    additional_akt = 0.0
+    if len(sys.argv) >= 5:
+        try:
+            additional_akt = float(sys.argv[4])
+        except ValueError:
+            pass
+    
+    # Calculate total deposit in uakt: base 0.5 AKT + user's additional amount
+    BASE_DEPOSIT_UAKT = 500000  # 0.5 AKT minimum
+    additional_uakt = int(additional_akt * 1000000)
+    deposit_uakt = BASE_DEPOSIT_UAKT + additional_uakt
+    total_akt = deposit_uakt / 1000000
+    
+    if additional_akt > 0:
+        print(f"💰 Escrow deposit: {total_akt:.1f} AKT (0.5 base + {additional_akt:.1f} additional)")
+    else:
+        print(f"💰 Escrow deposit: {total_akt:.1f} AKT (base minimum)")
     
     tier_info = TIERS[selected_tier]
     yaml_path = os.path.join(deploy_dir, "akash", tier_info["yaml"])
@@ -499,7 +529,8 @@ def main():
     
     # Create deployment for selected tier
     print(f"\nCreating deployment for {tier_info['desc']}...", end=" ", flush=True)
-    dseq = create_deployment(yaml_path, image_tag)
+    dseq = create_deployment(yaml_path, image_tag, deposit_uakt)
+    retry_count = 0  # Track retries to cap escrow cost
     
     if not dseq:
         print("FAILED")
@@ -571,9 +602,15 @@ def main():
             print("FAILED (timeout or rejected)")
             print("  Closing lease and deployment (need to retry from scratch)...")
             close_deployment(dseq)
+            retry_count += 1
+            if retry_count > MAX_RETRIES:
+                print(f"\n  ❌ Max retries ({MAX_RETRIES}) reached. Each retry consumed {total_akt:.1f} AKT escrow.")
+                print(f"     Closed deployments will refund escrow after settlement period.")
+                sys.exit(1)
             # Retry with a new deployment, skipping this provider
-            print(f"\n  Retrying with new deployment, skipping {provider[:30]}...")
-            dseq = create_deployment(yaml_path, image_tag)
+            print(f"\n  ⚠️  Retry {retry_count}/{MAX_RETRIES} — new deployment will use {total_akt:.1f} AKT escrow")
+            print(f"  Retrying with new deployment, skipping {provider[:30]}...")
+            dseq = create_deployment(yaml_path, image_tag, deposit_uakt)
             if not dseq:
                 print("  ❌ Failed to create new deployment")
                 sys.exit(1)
@@ -656,10 +693,16 @@ def main():
         
         # If we hit a blocked URI, close everything and retry with a new deployment
         if blocked_uri_hit:
-            print(f"  Closing deployment and creating new one without {provider[:30]}...")
             close_deployment(dseq)
+            retry_count += 1
+            if retry_count > MAX_RETRIES:
+                print(f"\n  ❌ Max retries ({MAX_RETRIES}) reached. Each retry consumed {total_akt:.1f} AKT escrow.")
+                print(f"     Closed deployments will refund escrow after settlement period.")
+                sys.exit(1)
+            print(f"  ⚠️  Retry {retry_count}/{MAX_RETRIES} — new deployment will use {total_akt:.1f} AKT escrow")
+            print(f"  Closing deployment and creating new one without {provider[:30]}...")
             skip_providers.append(provider)
-            dseq = create_deployment(yaml_path, image_tag)
+            dseq = create_deployment(yaml_path, image_tag, deposit_uakt)
             if not dseq:
                 print("  ❌ Failed to create new deployment")
                 sys.exit(1)

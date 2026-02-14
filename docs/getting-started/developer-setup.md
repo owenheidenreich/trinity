@@ -4,7 +4,7 @@ This guide will help you set up a local development environment for Trinity.
 
 ## Prerequisites
 
-- **Python 3.9+** (macOS: comes pre-installed, Linux: `apt install python3`)
+- **Python 3.11+** (macOS: `brew install python@3.11`, Linux: `apt install python3.11`)
 - **Git** for version control
 - **Ollama** for local LLM inference (optional but recommended)
 - **Node.js 18+** for frontend development (optional)
@@ -97,29 +97,40 @@ curl http://localhost:11434/api/tags
 ```
 trinity/
 ├── backend/                    # Python Flask backend
-│   ├── inference_server.py     # Main Flask application
-│   ├── config.py               # Configuration management
+│   ├── inference_server.py     # App factory + blueprint registration
+│   ├── config.py               # All constants, env vars, defaults
+│   ├── routes/                 # 8 API blueprints (42+ endpoints)
+│   │   ├── health.py           # /health, /metrics, /stats
+│   │   ├── generate.py         # /generate, /generate/agent
+│   │   ├── chat.py             # /chat/*, /user/*
+│   │   ├── tools.py            # /tools/*
+│   │   └── ...                 # admin, v4, session, mcp
 │   ├── middleware/             # Request middleware
 │   │   ├── observability.py    # Prometheus metrics
-│   │   ├── rate_limit.py       # Rate limiting + quotas
-│   │   └── ab_test.py          # A/B testing
+│   │   ├── rate_limit.py       # Per-principal rate limiting
+│   │   └── icp_cache.py        # ICP idempotency cache
 │   ├── services/               # Business logic
-│   │   ├── agent.py            # LangGraph agent pipeline
-│   │   ├── complexity.py       # Query complexity classification
-│   │   ├── caching.py          # Embedding & response caching
-│   │   └── experiments.py      # A/B experiment framework
-│   └── tests/                  # Test suite (436+ tests)
+│   │   ├── agent.py            # Single-pass agent orchestrator
+│   │   ├── react_loop.py       # ReAct agentic loop (tool calling)
+│   │   ├── tools.py            # Tool definitions (13 tools)
+│   │   ├── code_executor.py    # Tool dispatcher
+│   │   ├── caching.py          # Embedding + semantic caching
+│   │   ├── memory.py           # Semantic memory retrieval
+│   │   └── ...                 # embeddings, search, ollama, etc.
+│   └── tests/                  # 615 tests, 91% coverage
 │       ├── unit/               # Unit tests
+│       ├── integration/        # Integration tests
 │       └── e2e/                # End-to-end tests
 ├── trinity-icp/                # ICP frontend canister
-│   └── src/                    # Vanilla JS frontend
+│   ├── src-react/              # Active: React 19 + TypeScript
+│   └── src/                    # Legacy: Vanilla JS (still buildable)
 ├── deploy/                     # Deployment configs
 │   ├── akash/                  # Akash YAML manifests
 │   ├── docker/                 # Dockerfile + scripts
 │   └── cloudflare-worker/      # SSL termination proxy
 └── docs/                       # Documentation
-    ├── decisions/              # Architecture Decision Records
-    └── onboarding/             # This guide!
+    ├── architecture/           # System architecture docs
+    └── getting-started/        # This guide!
 ```
 
 ## Development Workflow
@@ -157,16 +168,6 @@ curl http://localhost:5000/admin/cache/stats | jq
 
 # Clear caches (if needed)
 curl -X POST http://localhost:5000/admin/cache/clear
-```
-
-### Viewing Experiments
-
-```bash
-# List all experiments
-curl http://localhost:5000/admin/experiments | jq
-
-# Check assignment for a session
-curl http://localhost:5000/admin/experiments/assignment/my-session-id | jq
 ```
 
 ## IDE Setup
@@ -233,6 +234,6 @@ pytest tests/ --forked
 
 ## Next Steps
 
-- Read [Architecture Walkthrough](architecture-walkthrough.md) for system overview
 - Check [Common Tasks](common-tasks.md) for development workflows
-- Review [ADRs](../decisions/) for architectural decisions
+- Read the [Architecture Docs](../architecture/SYSTEM-OVERVIEW.md) for system overview
+- Review the [architecture docs](../architecture/) for design rationale

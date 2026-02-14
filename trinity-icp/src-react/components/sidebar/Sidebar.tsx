@@ -4,6 +4,7 @@
 import { useCallback, useMemo } from 'react';
 import type { ChatListItem } from '../../types';
 import type { ConnectionStatus } from '../../hooks/useConnection';
+import type { InfoVariant } from '../modals/InfoModal';
 import styles from '../../styles/components/Sidebar.module.css';
 
 interface SidebarProps {
@@ -17,6 +18,7 @@ interface SidebarProps {
   onExportChat?: (chatId: string) => void;
   onExportKey?: () => void;
   onLogout: () => void;
+  onShowInfo?: (variant: InfoVariant) => void;
 }
 
 const MAX_CHATS = 20;
@@ -32,6 +34,7 @@ export function Sidebar({
   onExportChat,
   onExportKey,
   onLogout,
+  onShowInfo,
 }: SidebarProps) {
   // Sort: pinned first, then by lastUpdated descending
   const sortedChats = useMemo(() => {
@@ -46,9 +49,21 @@ export function Sidebar({
     <div className={styles.sidebar}>
       <div className={styles.header}>
         <span className={styles.title}>Trinity</span>
-        <button className={styles.newChatBtn} onClick={onNewChat}>
-          New Chat
-        </button>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          {onShowInfo && (
+            <button
+              className={styles.chatActionBtn}
+              onClick={() => onShowInfo('about')}
+              title="About Trinity"
+              style={{ fontSize: '0.75rem' }}
+            >
+              About
+            </button>
+          )}
+          <button className={styles.newChatBtn} onClick={onNewChat}>
+            New Chat
+          </button>
+        </div>
       </div>
 
       <div className={styles.chatList}>
@@ -83,6 +98,49 @@ export function Sidebar({
               : 'Disconnected'}
           </span>
         </div>
+
+        {/* Infrastructure badges */}
+        {connectionStatus.connected && onShowInfo && (
+          <div style={{
+            display: 'flex',
+            gap: '6px',
+            padding: '4px 0',
+            flexWrap: 'wrap',
+          }}>
+            <button
+              className={styles.chatActionBtn}
+              onClick={() => onShowInfo('icp')}
+              title="Internet Computer"
+              style={{ fontSize: '0.7rem', padding: '2px 6px' }}
+            >
+              <span style={{ color: '#69db7c', fontSize: '8px', marginRight: '3px' }}>●</span>ICP
+            </button>
+            <button
+              className={styles.chatActionBtn}
+              onClick={() => onShowInfo('akash')}
+              title="Akash Network"
+              style={{ fontSize: '0.7rem', padding: '2px 6px' }}
+            >
+              <span style={{ color: connectionStatus.connected ? '#69db7c' : '#ff6b6b', fontSize: '8px', marginRight: '3px' }}>{connectionStatus.connected ? '●' : '○'}</span>Akash
+            </button>
+            <button
+              className={styles.chatActionBtn}
+              onClick={() => onShowInfo('ipfs')}
+              title="IPFS Storage"
+              style={{ fontSize: '0.7rem', padding: '2px 6px' }}
+            >
+              <span style={{ color: '#888', fontSize: '8px', marginRight: '3px' }}>●</span>IPFS
+            </button>
+            <button
+              className={styles.chatActionBtn}
+              onClick={() => onShowInfo('model')}
+              title="AI Model"
+              style={{ fontSize: '0.7rem', padding: '2px 6px' }}
+            >
+              <span style={{ color: connectionStatus.connected ? '#a78bfa' : '#888', fontSize: '8px', marginRight: '3px' }}>{connectionStatus.connected ? '●' : '○'}</span>Model
+            </button>
+          </div>
+        )}
 
         <div className={styles.chatCount}>
           {chats.length}/{MAX_CHATS} chats

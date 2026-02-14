@@ -1,0 +1,85 @@
+/* AutosaveIndicator — saving/saved/error badge */
+
+.container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 100;
+  pointer-events: none;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: var(--radius-md, 6px);
+  font-size: 0.8rem;
+  font-weight: 500;
+  animation: fadeIn 0.3s ease;
+  pointer-events: auto;
+}
+
+.saving {
+  background: linear-gradient(135deg, #ff6b6b, #feca57, #48dbfb, #ff9ff3, #54a0ff);
+  background-size: 300% 300%;
+  animation: fadeIn 0.3s ease, rainbowWave 2s ease infinite;
+  color: #000;
+}
+
+.saved {
+  background: var(--color-bg-tertiary, #2a2a2a);
+  border: 1px solid #69db7c;
+  color: #69db7c;
+}
+
+.error {
+  background: var(--color-bg-tertiary, #2a2a2a);
+  border: 1px solid #ff6b6b;
+  color: #ff6b6b;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.saving .dot {
+  background: #000;
+  animation: pulse 1s ease infinite;
+}
+
+.saved .dot {
+  background: #69db7c;
+}
+
+.error .dot {
+  background: #ff6b6b;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeOut {
+  from { opacity: 1; transform: translateY(0); }
+  to   { opacity: 0; transform: translateY(8px); }
+}
+
+@keyframes rainbowWave {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.4; }
+}
+
+.fadeOut {
+  animation: fadeOut 0.3s ease forwards;
+}

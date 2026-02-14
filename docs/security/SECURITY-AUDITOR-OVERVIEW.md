@@ -47,7 +47,7 @@ This isn't marketing. This is "here's where to look."
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                      BACKEND (Akash Network)                             │
-│                      Python 3.10 + Flask                                 │
+│                      Python 3.11 + Flask                                 │
 │  ┌─────────────────────────────────────────────────────────────────┐   │
 │  │                    AUTHENTICATION LAYER                          │   │
 │  │  Ed25519 signature verification on /chat/*, /user/*, /v4/*      │   │
@@ -56,9 +56,9 @@ This isn't marketing. This is "here's where to look."
 │  └─────────────────────────────────────────────────────────────────┘   │
 │  ┌─────────────────────────────────────────────────────────────────┐   │
 │  │                      INFERENCE LAYER                             │   │
-│  │  Ollama (local) → Qwen 2.5 14B model                            │   │
-│  │  Multi-pass agent pipeline (1-5 passes based on complexity)     │   │
-│  │  Tool execution (calculator, code sandbox, web search)          │   │
+│  │  Ollama (local) → qwen2.5-coder:32b model (Tier 3)                   │   │
+│  │  Single-pass agent pipeline with optional ReAct tool calling          │   │
+│  │  Tool execution (calculator, code sandbox, web search, 13 tools)     │   │
 │  └─────────────────────────────────────────────────────────────────┘   │
 │  ┌─────────────────────────────────────────────────────────────────┐   │
 │  │                      STORAGE LAYER                               │   │
@@ -315,7 +315,6 @@ This is the highest-risk component. If I were attacking this system, I'd focus h
 | `icp_auth.py` | 88% | Signature verification, timestamp validation, header handling |
 | `validation.py` | 87% | SSRF patterns, path traversal, input sanitization |
 | `storage.py` | 95% | Directory creation, path validation, concurrent access |
-| `complexity.py` | 95% | Query classification, pattern matching |
 | `caching.py` | 97% | Cache operations, TTL, LRU eviction |
 
 ### Under-Tested (Needs Attention)
@@ -470,7 +469,6 @@ Unit tests are comprehensive, but integration tests for the full auth flow (fron
 
 ### Can Skip (Low Risk)
 
-- [ ] `backend/services/complexity.py` — Query classification
 - [ ] `backend/services/loading_messages.py` — UI strings
 - [ ] `backend/services/prompts.py` — LLM prompts
 - [ ] `backend/services/agent_prompts.py` — More prompts
@@ -530,5 +528,5 @@ Good luck with the audit. The system was built with security in mind, but fresh 
 ---
 
 *Document version: 1.0*  
-*Last updated: February 6, 2026*  
-*Test results: 436 passed, 0 failed*
+*Last updated: February 2026*  
+*Test results: 615 passed, 0 failed*

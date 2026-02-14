@@ -150,17 +150,54 @@ export function restoreMath(
 // ===== Tool Call Preprocessing =====
 
 /**
- * Convert XML tool call tags to fenced code blocks.
- * Single implementation — replaces 3+ duplicate preprocessToolCalls().
+ * Convert <tool_call> XML blocks to renderable markdown.
+ * - code_display → fenced code block with correct language
+ * - all others (calculator, web_search, etc.) → stripped entirely
+ * Ported from ui/editMessage.js with full streaming support.
  */
 export function preprocessToolCalls(content: string): string {
-  // Handle <tool_call>...</tool_call> XML tags
-  return content.replace(
-    /<tool_call>([\s\S]*?)<\/tool_call>/g,
-    (_match, inner: string) => {
-      return `\n\`\`\`json\n${inner.trim()}\n\`\`\`\n`;
+  if (!content || !content.includes('<tool_call')) return content;
+
+  let text = content;
+
+  // code_display (complete) → fenced code block
+  // Handles proper </tool_call>, malformed <tool_call> closing, AND missing closing tag
+  text = text.replace(
+    /<tool_call\s+name="code_display"[^>]*>\s*<language>([^<]*)<\/language>\s*<code>([\s\S]*?)<\/code>(?:\s*<execute>[^<]*<\/execute>)?(?:\s*<\/?tool_call\s*>)?/gi,
+    (_, lang: string, code: string) =>
+      '\n```' + (lang || 'text') + '\n' + code.trim() + '\n```\n'
+  );
+
+  // In-progress code_display (no </code> yet, genuinely still streaming)
+  text = text.replace(
+    /<tool_call\s+name="code_display"[^>]*>\s*<language>([^<]*)<\/language>\s*<code>([\s\S]*)$/gi,
+    (_match: string, lang: string, rest: string) => {
+      const codeEndIdx = rest.indexOf('</code>');
+      if (codeEndIdx >= 0) {
+        const code = rest.substring(0, codeEndIdx);
+        const after = rest.substring(codeEndIdx + 7);
+        return (
+          '\n```' + (lang || 'text') + '\n' + code.trim() + '\n```\n' +
+          after.replace(/^\s*(?:<\/?tool_call[^>]*>)?\s*/, '')
+        );
+      }
+      return '\n```' + (lang || 'text') + '\n' + rest.trim() + '\n';
     }
   );
+
+  // Strip other complete tool_call blocks (calculator, web_search, etc.)
+  text = text.replace(/<tool_call[^>]*>[\s\S]*?<\/tool_call>/gi, '');
+
+  // Strip orphaned non-code tool_call tags and their immediate XML children
+  text = text.replace(
+    /<tool_call\s+name="(?!code_display)[^"]*"[^>]*>(?:\s*<[a-z_]+>[^<]*<\/[a-z_]+>)*\s*/gi,
+    ''
+  );
+
+  // Strip any remaining bare <tool_call> or </tool_call> tags
+  text = text.replace(/<\/?\s*tool_call[^>]*>/gi, '');
+
+  return text;
 }
 
 // ===== Main Pipeline =====

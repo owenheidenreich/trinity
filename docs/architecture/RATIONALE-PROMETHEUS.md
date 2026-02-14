@@ -1,4 +1,6 @@
-# ADR-003: Self-Hosted Prometheus vs SaaS Observability
+# Rationale: Self-Hosted Prometheus vs SaaS Observability
+
+> **ADR:** [decisions/003-prometheus-over-saas.md](decisions/003-prometheus-over-saas.md)
 
 ## Status
 Accepted

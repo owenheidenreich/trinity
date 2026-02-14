@@ -45,7 +45,7 @@ export interface ExportKeyResult {
 export interface ICPAuthBundle {
   Ed25519KeyIdentity: {
     generate: () => Ed25519Identity;
-    fromSecretKey: (key: ArrayBuffer) => Ed25519Identity;
+    fromSecretKey: (key: Uint8Array | ArrayBuffer) => Ed25519Identity;
   };
   Principal: {
     selfAuthenticating: (publicKey: Uint8Array) => { toText: () => string };
@@ -56,11 +56,11 @@ export interface ICPAuthBundle {
 /** Ed25519 identity instance */
 export interface Ed25519Identity {
   getKeyPair: () => {
-    secretKey: ArrayBuffer;
+    secretKey: Uint8Array | ArrayBuffer;
     publicKey: {
       toDer: () => ArrayBuffer;
     };
   };
   getPrincipal: () => { toText: () => string };
-  sign: (data: ArrayBuffer) => Promise<ArrayBuffer>;
+  sign: (data: Uint8Array | ArrayBuffer) => Promise<Uint8Array | ArrayBuffer>;
 }

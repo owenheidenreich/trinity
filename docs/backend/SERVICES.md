@@ -141,7 +141,7 @@ MemGPT pattern: `save_memory`, `recall_memory`, `search_memory` with 384-dim emb
 |--------|---------|
 | `config.py` | All env vars and constants |
 | `icp_auth.py` | `@require_auth`, `@require_admin` decorators |
-| `encryption.py` | AES-256-GCM with PBKDF2 (100k iterations) |
+| `encryption.py` | AES-256-GCM with Argon2id (primary) / PBKDF2 (100k iterations, fallback) |
 | `storage.py` | Chat file I/O, user directory management |
 | `validation.py` | Input sanitization, SSRF protection |
 | `lighthouse.py` | IPFS upload/download via Lighthouse |

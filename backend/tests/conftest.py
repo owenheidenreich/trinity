@@ -60,9 +60,9 @@ def app():
 
     yield flask_app
 
-    # Cleanup after tests (optional - leave for debugging)
-    # import shutil
-    # shutil.rmtree(test_chats_dir, ignore_errors=True)
+    # Cleanup temp test data
+    import shutil
+    shutil.rmtree(test_chats_dir, ignore_errors=True)
 
 
 @pytest.fixture

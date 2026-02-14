@@ -224,10 +224,11 @@ ask_deposit() {
     echo "  Current wallet balance: $CURRENT_AKT AKT"
     echo "  Selected tier: ${TIER_DESC[$SELECTED_TIER]}"
     echo ""
-    echo "  How many AKT would you like to deposit to this deployment?"
-    echo "  (Enter 0 or press Enter to skip)"
+    echo "  Base deployment escrow: 0.5 AKT (Akash minimum)"
+    echo "  How many ADDITIONAL AKT to add to the escrow?"
+    echo "  (Enter 0 or press Enter for base only)"
     echo ""
-    printf "  AKT to deposit: "
+    printf "  Additional AKT to deposit: "
     read -r FUNDING_AKT_AMOUNT </dev/tty
     
     # Default to 0 if empty
@@ -235,14 +236,15 @@ ask_deposit() {
     
     # Validate it's a number
     if ! [[ "$FUNDING_AKT_AMOUNT" =~ ^[0-9]+\.?[0-9]*$ ]]; then
-        log_warning "Invalid amount '$FUNDING_AKT_AMOUNT' - skipping deposit"
+        log_warning "Invalid amount '$FUNDING_AKT_AMOUNT' - skipping extra deposit"
         FUNDING_AKT_AMOUNT="0"
     fi
     
     if [ "$FUNDING_AKT_AMOUNT" != "0" ]; then
-        log_info "Will deposit ${FUNDING_AKT_AMOUNT} AKT after deployment completes"
+        TOTAL_DEPOSIT=$(echo "0.5 + $FUNDING_AKT_AMOUNT" | bc)
+        log_info "Total escrow deposit: ${TOTAL_DEPOSIT} AKT (0.5 base + ${FUNDING_AKT_AMOUNT} additional)"
     else
-        log_info "No additional deposit requested"
+        log_info "Using base escrow deposit: 0.5 AKT"
     fi
     echo ""
 }
@@ -259,7 +261,8 @@ deploy_to_akash() {
     DEPLOY_OUTPUT_FILE=$(mktemp)
     
     # Run Python script with tee to show progress and capture output
-    python3 "$SCRIPT_DIR/akash_deploy.py" "$DEPLOY_DIR" "$DEPLOY_TAG" "$SELECTED_TIER" 2>&1 | tee "$DEPLOY_OUTPUT_FILE"
+    # Pass deposit amount as 4th arg so create uses --deposit flag
+    python3 "$SCRIPT_DIR/akash_deploy.py" "$DEPLOY_DIR" "$DEPLOY_TAG" "$SELECTED_TIER" "${FUNDING_AKT_AMOUNT:-0}" 2>&1 | tee "$DEPLOY_OUTPUT_FILE"
     DEPLOY_RESULT=${pipestatus[1]}
     
     DEPLOY_OUTPUT=$(cat "$DEPLOY_OUTPUT_FILE")
@@ -586,36 +589,35 @@ print_summary() {
     echo ""
     echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     
-    # Process funding if user specified an amount earlier
-    if [ -n "$FUNDING_AKT_AMOUNT" ] && [ "$FUNDING_AKT_AMOUNT" != "0" ]; then
+    # Verify escrow balance and show wallet status
+    if [ -n "$DEPLOYED_DSEQ" ]; then
         echo ""
         echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        echo -e "${CYAN}                      PROCESSING DEPOSIT                                  ${NC}"
+        echo -e "${CYAN}                      DEPLOYMENT ESCROW STATUS                            ${NC}"
         echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        
-        # Convert to uakt (1 AKT = 1,000,000 uakt)
-        UAKT_AMOUNT=$(echo "$FUNDING_AKT_AMOUNT * 1000000" | bc | cut -d'.' -f1)
-        
         echo ""
-        echo "  Depositing ${FUNDING_AKT_AMOUNT} AKT (${UAKT_AMOUNT} uakt) to deployment $DEPLOYED_DSEQ..."
         
-        DEPOSIT_RESULT=$(provider-services tx deployment deposit ${UAKT_AMOUNT}uakt \
-            --dseq $DEPLOYED_DSEQ \
-            --from $WALLET_NAME \
-            --keyring-backend os \
-            --node $AKASH_NODE \
-            --chain-id $AKASH_CHAIN_ID \
-            --gas-prices 0.025uakt \
-            --gas auto \
-            --gas-adjustment 1.5 \
-            -y 2>&1)
+        # Query escrow balance
+        ESCROW_JSON=$(provider-services query deployment get \
+            --dseq $DEPLOYED_DSEQ --owner $WALLET_ADDR \
+            --node $AKASH_NODE -o json 2>/dev/null || echo "{}")
+        ESCROW_UAKT=$(echo "$ESCROW_JSON" | grep -o '"amount":"[0-9]*"' | head -1 | grep -o '[0-9]*' 2>/dev/null || echo "0")
+        ESCROW_AKT=$(echo "scale=2; $ESCROW_UAKT / 1000000" | bc 2>/dev/null || echo "unknown")
         
-        if echo "$DEPOSIT_RESULT" | grep -q 'txhash'; then
-            log_success "Deposited ${FUNDING_AKT_AMOUNT} AKT to deployment"
+        if [ "$FUNDING_AKT_AMOUNT" != "0" ] && [ -n "$FUNDING_AKT_AMOUNT" ]; then
+            TOTAL_DEPOSIT=$(echo "0.5 + $FUNDING_AKT_AMOUNT" | bc)
+            log_success "Deposited ${TOTAL_DEPOSIT} AKT to escrow at creation (0.5 base + ${FUNDING_AKT_AMOUNT} additional)"
         else
-            log_warning "Deposit may have failed - check manually"
-            echo "  $DEPOSIT_RESULT"
+            log_info "Base escrow deposit: 0.5 AKT"
         fi
+        echo "  Current escrow balance: ${ESCROW_AKT} AKT"
+        
+        # Show post-deploy wallet balance
+        POST_BALANCE=$(provider-services query bank balances $WALLET_ADDR --node $AKASH_NODE -o json 2>/dev/null | grep -o '"amount":"[0-9]*"' | head -1 | grep -o '[0-9]*' || echo "0")
+        POST_AKT=$(echo "scale=2; $POST_BALANCE / 1000000" | bc 2>/dev/null || echo "unknown")
+        echo "  Wallet balance after deploy: ${POST_AKT} AKT"
+        echo ""
+        echo "  💡 To add more funds later, use Akash Console: https://console.akash.network"
     fi
     
     echo ""

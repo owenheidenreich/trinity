@@ -18,6 +18,11 @@ export interface HealthCheckResponse {
   model?: string;
   uptime?: number;
   version?: string;
+  gpu_type?: string;
+  provider_id?: string;
+  ollama_connected?: boolean;
+  features?: Record<string, boolean>;
+  build_timestamp?: string;
 }
 
 /** Request body for /chat/autosave */

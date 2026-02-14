@@ -6,28 +6,8 @@
 
 ---
 
-## What Is Trinity
-
-Trinity is a **fully decentralized AI chat application** with self-custody authentication, encrypted storage, and live KaTeX math rendering. The frontend is hosted on ICP (Internet Computer Protocol), the backend runs on Akash Network (decentralized cloud) with Ollama for LLM inference, and chat data is encrypted with AES-256-GCM and backed up to IPFS via Lighthouse.
-
----
-
-## Architecture
-
-```
-Browser → ICP Canister (Frontend) → Cloudflare Worker (SSL) → Akash Backend (Flask) → Ollama (LLM)
-                                                                      ↓
-                                                              Encrypted JSON on Akash disk
-                                                                      ↓
-                                                              IPFS Backup (Lighthouse)
-```
-
-| Layer | Technology | URL |
-|-------|-----------|-----|
-| Frontend | Vanilla JS on ICP | https://dubya.ai |
-| SSL Proxy | Cloudflare Worker | https://api.dubya.ai |
-| Backend | Python Flask on Akash | Port 8000 |
-| LLM | Ollama (qwen2.5-coder:32b) | Port 11434 (internal) |
+> For stack overview, architecture diagram, and critical rules, see [CLAUDE.md](CLAUDE.md).
+> This file is a **lookup reference** — file paths, API routes, constants, auth headers.
 
 ---
 
@@ -99,51 +79,44 @@ backend/
     └── e2e/                 # End-to-end tests
 ```
 
-### Frontend — Vanilla JS (`trinity-icp/src/` — ACTIVE, deployed)
+### Frontend — React 19 (`trinity-icp/src-react/` — ACTIVE, deployed)
+
+TypeScript rewrite with hooks-first architecture. Zustand store, 4 custom hooks, 137 unit tests via Vitest.
+
+```
+trinity-icp/src-react/
+├── App.tsx, main.tsx, config.ts
+├── components/
+│   ├── chat/           # CodeBlock, Message, MessageInput, MessageList,
+│   │                   # StreamingMessage, MarkdownRenderer, MathBlock,
+│   │                   # CopyAllButton, ContinueButton, DownloadCards
+│   ├── layout/         # AppShell, EmptyState
+│   ├── modals/         # AuthModal, ConfirmModal, InfoModal, KeyExportModal
+│   ├── notifications/  # AutosaveIndicator, ToastProvider
+│   └── sidebar/        # Sidebar
+├── hooks/              # useAuth, useChat, useAutosave, useConnection
+├── store/              # Zustand store (index.ts, types.ts)
+├── types/              # api.ts, auth.ts, message.ts
+├── utils/              # crypto, markdown, sse, indexedDB, lighthouse, logger
+└── styles/             # CSS Modules + tokens.css + global.css
+```
+
+### Frontend — Vanilla JS (`trinity-icp/src/` — LEGACY, still buildable)
+
+Imperative DOM manipulation app. Buildable via `npm run build:legacy` but no longer the default.
 
 ```
 trinity-icp/src/
 ├── app.js                   # Orchestrator: imports modules, composes Actions, init()
 ├── config.js                # API endpoints, feature flags
-├── tools.js                 # Tool registry
-├── core/
-│   ├── api.js               # HTTP client, signed requests, streaming
-│   ├── sse.js               # Server-Sent Events parser
-│   ├── environment.js       # Endpoint detection, version check
-│   └── logger.js            # Structured logging
-├── features/
-│   ├── generate.js          # Agentic streaming (3-part DOM, code blocks, Continue button)
-│   ├── auth.js              # Login/logout UI
-│   ├── chatManagement.js    # Load/delete/new chat, sidebar
-│   └── memory.js            # User memory CRUD modal
-├── auth/
-│   ├── authManager.js       # Ed25519 keypair management
-│   ├── icp-auth.js          # Bundled ICP auth library (don't edit)
-│   └── keyExportModal.js    # Key export/import UI
-├── state/
-│   └── store.js             # Zustand store (CONTEXT_WINDOW_SIZE=20)
-├── storage/
-│   ├── autosave.js          # Rate-limited autosave
-│   ├── indexedDB.js         # Local IndexedDB persistence
-│   └── lighthouse.js        # IPFS backup
-├── ui/
-│   ├── messages.js          # Message rendering, markdown, KaTeX
-│   ├── sidebar.js           # Chat list
-│   ├── modals.js            # Modal dialogs
-│   ├── editMessage.js       # Inline message editing
-│   ├── codePanel.js         # Code display
-│   ├── loadingMessages.js   # Loading indicators
-│   ├── notifications.js     # Toast notifications
-│   └── rainbowBorder.js     # Visual effects
-└── utils/
-    ├── crypto.js            # AES-GCM encryption
-    ├── math.js              # KaTeX rendering
-    └── validation.js        # Client-side validation
+├── core/                    # api.js, sse.js, environment.js, logger.js
+├── features/                # generate.js, auth.js, chatManagement.js, memory.js
+├── auth/                    # authManager.js, icp-auth.js, keyExportModal.js
+├── state/                   # store.js (Zustand, CONTEXT_WINDOW_SIZE=20)
+├── storage/                 # autosave.js, indexedDB.js, lighthouse.js
+├── ui/                      # messages.js, sidebar.js, modals.js, etc.
+└── utils/                   # crypto.js, math.js, validation.js
 ```
-
-### Frontend — React 19 (`trinity-icp/src-react/` — NEW, not yet deployed)
-
-TypeScript rewrite with hooks-first architecture. Same Zustand store shape for compatibility. 62 files, 137 unit tests via Vitest.
 
 ### Deploy (`deploy/`)
 
@@ -242,8 +215,10 @@ Every `/chat/*`, `/tools/*`, and `/v4/*` request must include:
 ### Signed Message Format
 
 ```
-{timestamp}.{HTTP_METHOD}.{path}.{sha256(body)}
+{principal}:{timestamp}:{endpoint}:{nonce}
 ```
+
+Nonce is optional for backward compatibility. Without nonce: `{principal}:{timestamp}:{endpoint}`.
 
 ### Timestamp Window
 
@@ -299,17 +274,9 @@ Note: `config.py` defines `AUTH_TIMESTAMP_WINDOW_MS = 300000` (5 min) but this c
 
 ## State Management (Zustand)
 
-**CRITICAL:** Zustand getters are read-only. Direct assignment fails **silently**.
+Store: `trinity-icp/src-react/store/index.ts` · Types: `trinity-icp/src-react/store/types.ts`
 
-```javascript
-// ❌ WRONG — fails silently
-State.isAuthenticated = true;
-
-// ✅ CORRECT — use setter methods
-State.setAuthenticated(principal, timestamp);
-```
-
-All state lives in `trinity-icp/src/state/store.js`. Key constants: `CONTEXT_WINDOW_SIZE = 20`.
+**CRITICAL:** Direct state assignment fails silently. Use setters only. See [CLAUDE.md](CLAUDE.md) → Critical Rules.
 
 ---
 
@@ -318,7 +285,7 @@ All state lives in `trinity-icp/src/state/store.js`. Key constants: `CONTEXT_WIN
 | Feature | Implementation |
 |---------|---------------|
 | Encryption | AES-256-GCM, random salt + nonce per operation |
-| Key Derivation | PBKDF2 with 100k iterations, principal as password |
+| Key Derivation | Argon2id (primary) / PBKDF2 100k iterations (fallback), principal as password |
 | Auth | Ed25519 signatures with 60s timestamp window |
 | Replay Protection | Nonce TTLCache (65s expiry, 10k max) |
 | Rate Limiting | Per-principal, configurable per-route |
@@ -326,25 +293,6 @@ All state lives in `trinity-icp/src/state/store.js`. Key constants: `CONTEXT_WIN
 | Container | Non-root `trinity` user in Docker |
 | Input Validation | Sanitized prompts, max length enforcement |
 | Admin | Principal-based access control for /admin/* |
-
----
-
-## How To...
-
-### Deploy to Production
-```bash
-./scripts/trinity-deploy-production.sh [tier]   # Handles everything
-```
-
-### Run Tests
-```bash
-cd backend && python -m pytest tests/ -x -q
-```
-
-### Check Health
-```bash
-curl https://api.dubya.ai/health
-```
 
 ---
 
@@ -358,9 +306,9 @@ curl https://api.dubya.ai/health
 | Fix auth | `backend/icp_auth.py` |
 | Change rate limits | `backend/middleware/rate_limit.py` |
 | Fix metrics | `backend/middleware/observability.py` |
-| Change state shape | `trinity-icp/src/state/store.js` |
-| Fix autosave | `trinity-icp/src/storage/autosave.js` |
-| Fix streaming | `trinity-icp/src/features/generate.js` |
+| Change state shape | `trinity-icp/src-react/store/index.ts` |
+| Fix autosave | `trinity-icp/src-react/hooks/useAutosave.ts` |
+| Fix streaming | `trinity-icp/src-react/hooks/useChat.ts` |
 | Modify Docker | `deploy/docker/Dockerfile` |
 | Change Akash deploy | `deploy/akash/deploy-tier*.yaml` |
 
@@ -381,5 +329,5 @@ curl https://api.dubya.ai/health
 |-------|---------|
 | `AUTH_TIMESTAMP_WINDOW_MS` unused | config.py defines 5min, icp_auth.py hardcodes 60s |
 | `database.py` not integrated | 298-line ORM exists but unused |
-| React frontend not deployed | `src-react/` ready but `src/` (vanilla JS) is active |
+
 | Cold start delay | First request after Akash deploy takes 20-30s (LLM loading) |

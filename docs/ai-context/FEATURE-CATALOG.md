@@ -14,7 +14,7 @@
 
 ### AES-256-GCM Encryption
 - **Where**: `backend/encryption.py`
-- **How**: PBKDF2 key derivation (100k iterations), random salt + nonce per encryption
+- **How**: Argon2id key derivation (primary) / PBKDF2 100k iterations (fallback), random salt + nonce per encryption
 - **Status**: Production
 
 ### Input Validation & SSRF Protection
@@ -98,7 +98,7 @@
 - **Where**: `backend/services/caching.py` (`TokenTracker`)
 - **How**: Per-user token counting with hourly quotas
 - **Admin endpoints**: `/admin/cache/stats`, `/admin/cache/clear`, `/admin/tokens/usage`, `/admin/quota/usage`
-- **ADR**: `docs/architecture/decisions/005-in-memory-caching.md`
+- **Rationale**: `docs/architecture/RATIONALE-CACHING.md`
 - **Status**: Production
 
 ---
@@ -109,30 +109,16 @@
 - **Where**: `backend/tests/`
 - **Count**: 615 tests, 91.30% coverage
 - **Run**: `cd backend && python -m pytest tests/ -x -q`
-- **ADR**: `docs/architecture/decisions/002-tiered-test-coverage.md`
+- **Rationale**: `docs/architecture/RATIONALE-TEST-COVERAGE.md`
 - **Status**: All passing
-
----
-
-## Architecture Decisions
-
-| ADR | Status | Description |
-|-----|--------|-------------|
-| 002-tiered-test-coverage | Active | Coverage targets by risk level |
-| 003-prometheus-over-saas | Active | Self-hosted Prometheus ($500+/mo savings) |
-| 005-in-memory-caching | Active | LRU cache with future Redis path |
-| 001-complexity-routing | **Archived** | Superseded by single-pass pipeline |
-| 004-hash-based-experiments | **Archived** | Experiments framework deleted |
 
 ---
 
 ## Deleted Systems (Feb 2026 Overhaul)
 
-The following were removed during the Intelligence Overhaul:
-- **LangGraph multi-agent** (`services/graph/` — 7 files)
-- **Complexity router** (`services/complexity.py`)
-- **Self-consistency voting** (`services/voting.py`)
-- **A/B experiment framework** (`services/experiments.py`, `middleware/ab_test.py`)
-- **Parallel pipeline** (`services/parallel.py`)
-
-See `docs/ai-context/OVERHAUL-PROGRESS.md` for detailed deletion history.
+Removed during the Intelligence Overhaul — do **not** re-implement:
+- **LangGraph multi-agent** (`services/graph/` — 7 files, deleted)
+- **Complexity router** (deleted)
+- **Self-consistency voting** (deleted)
+- **A/B experiment framework** (deleted)
+- **Parallel pipeline** (deleted)

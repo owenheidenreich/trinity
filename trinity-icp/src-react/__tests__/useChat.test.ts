@@ -11,24 +11,28 @@ import { useChat } from '../hooks/useChat';
 const mockSetGenerating = vi.fn();
 
 // Mock zustand store
-vi.mock('../store', () => ({
-  useStore: (selector: (s: Record<string, unknown>) => unknown) => {
-    const state: Record<string, unknown> = {
-      principal: 'test-principal',
-      contextMemory: [
-        { role: 'user', content: 'Hello' },
-        { role: 'assistant', content: 'Hi there' },
-      ],
-      currentChatId: 'chat-123',
-      chatHistory: [
-        { role: 'user', content: 'Hello' },
-        { role: 'assistant', content: 'Hi there' },
-      ],
-      setGenerating: mockSetGenerating,
-    };
-    return selector(state);
-  },
-}));
+const mockState: Record<string, unknown> = {
+  principal: 'test-principal',
+  contextMemory: [
+    { role: 'user', content: 'Hello' },
+    { role: 'assistant', content: 'Hi there' },
+  ],
+  currentChatId: 'chat-123',
+  chatHistory: [
+    { role: 'user', content: 'Hello' },
+    { role: 'assistant', content: 'Hi there' },
+  ],
+  setGenerating: mockSetGenerating,
+  userMemory: { name: 'Test User' },
+};
+
+vi.mock('../store', () => {
+  const store = Object.assign(
+    (selector: (s: Record<string, unknown>) => unknown) => selector(mockState),
+    { getState: () => mockState }
+  );
+  return { useStore: store };
+});
 
 // Mock logger to suppress output
 vi.mock('../utils/logger', () => ({

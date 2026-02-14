@@ -1,4 +1,6 @@
-# ADR-002: Tiered Test Coverage Targets
+# Rationale: Tiered Test Coverage Targets
+
+> **ADR:** [decisions/002-tiered-test-coverage.md](decisions/002-tiered-test-coverage.md)
 
 ## Status
 Accepted

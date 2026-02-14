@@ -15,7 +15,10 @@ import { EmptyState } from './EmptyState';
 import { AuthModal } from '../modals/AuthModal';
 import { ConfirmModal } from '../modals/ConfirmModal';
 import { KeyExportModal } from '../modals/KeyExportModal';
+import { InfoModal } from '../modals/InfoModal';
+import type { InfoVariant } from '../modals/InfoModal';
 import { toastManager } from '../notifications/ToastProvider';
+import { AutosaveIndicator } from '../notifications/AutosaveIndicator';
 import CONFIG from '../../config';
 import Logger from '../../utils/logger';
 import styles from '../../styles/components/AppShell.module.css';
@@ -24,6 +27,7 @@ export function AppShell() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [showKeyExport, setShowKeyExport] = useState(false);
+  const [infoVariant, setInfoVariant] = useState<InfoVariant | null>(null);
 
   // Store
   const chatHistory = useStore((s) => s.chatHistory);
@@ -323,6 +327,7 @@ export function AppShell() {
             onExportChat={handleExportChat}
             onExportKey={handleExportKey}
             onLogout={auth.logout}
+            onShowInfo={setInfoVariant}
           />
         </div>
       )}
@@ -400,6 +405,22 @@ export function AppShell() {
           />
         ) : null;
       })()}
+
+      {/* Info modal */}
+      {infoVariant && (
+        <InfoModal
+          variant={infoVariant}
+          data={{
+            model: connectionStatus.model,
+            gpu_type: connectionStatus.gpuType,
+            provider: connectionStatus.provider,
+          }}
+          onClose={() => setInfoVariant(null)}
+        />
+      )}
+
+      {/* Autosave indicator */}
+      <AutosaveIndicator />
     </div>
   );
 }

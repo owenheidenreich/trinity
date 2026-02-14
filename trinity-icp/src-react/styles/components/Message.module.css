@@ -83,3 +83,69 @@
   background: var(--color-bg-hover);
   color: var(--color-text-primary);
 }
+
+/* Inline edit UI */
+.editContainer {
+  width: 100%;
+}
+
+.editTextarea {
+  width: 100%;
+  min-height: 80px;
+  max-height: 300px;
+  padding: var(--space-md);
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: var(--font-size-base);
+  line-height: var(--line-height-relaxed);
+  resize: vertical;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.editTextarea:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px rgba(90, 200, 250, 0.2);
+}
+
+.editActions {
+  display: flex;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+  justify-content: flex-end;
+}
+
+.editCancelBtn {
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  padding: var(--space-xs) var(--space-md);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--font-size-xs);
+  transition: all var(--transition-fast);
+}
+
+.editCancelBtn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.editSaveBtn {
+  background: var(--color-accent);
+  border: none;
+  color: #000;
+  padding: var(--space-xs) var(--space-md);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  transition: all var(--transition-fast);
+}
+
+.editSaveBtn:hover {
+  opacity: 0.9;
+}

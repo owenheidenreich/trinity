@@ -107,23 +107,24 @@ Every saved chat is encrypted with **AES-256-GCM** before leaving your browser:
 
 The backend stores only ciphertext. Even if the server is compromised, attackers get encrypted blobs they cannot decrypt without your private key.
 
-### 🧠 Dual-Pipeline Intelligence
+### 🧠 Single-Pass Agent Intelligence
 
-Trinity doesn't just respond—it *thinks*. Two agent systems work together, automatically routed by query complexity:
+Trinity doesn't just respond—it *thinks*. A single-pass agent pipeline with heuristic tool detection routes queries through a ReAct reasoning loop:
 
-| Complexity | Pipeline | How It Works |
-|------------|----------|--------------|
-| **Simple/Medium** (80%) | Legacy Agent | 1/3/5-pass reasoning: Understand → Plan → Execute → Critique → Refine |
-| **Complex** (20%) | LangGraph Multi-Agent | Supervisor → Research/Code/Synthesis specialists with iterative refinement |
+| Stage | What Happens |
+|-------|-------------|
+| **Heuristic Detection** | Pattern-match query to determine if tools are needed |
+| **ReAct Loop** | Iterative Thought → Action → Observation cycle (max 15 iterations) |
+| **Reflexion** | Self-correction when tool results don't satisfy the query |
+| **13 Tools** | Web search, code execution, math, file operations, and more |
 
-A complexity classifier (0-10 score) automatically routes each query to the optimal pipeline. For current information, Trinity searches the web via Brave Search.
+For current information, Trinity searches the web via Brave Search. Complex queries trigger multi-step reasoning with tool chaining.
 
-### 💾 Smart Memory
+### 💾 Three-Tier Memory
 
-- **6-message sliding window** for immediate context
-- **Automatic summarization** every 15 messages (compress, don't lose)
-- **Semantic memory** — retrieves relevant past conversations using vector embeddings
-- **User memory** that persists across all chats (facts, preferences, context)
+- **Working memory** — last 3 messages for immediate context
+- **Semantic memory** — retrieves top 5 relevant past conversations using vector embeddings
+- **User memory** — persistent facts across all chats (stored encrypted on IPFS)
 - **Autosave** with 2-second debounce (never lose a message)
 
 ### 📊 LaTeX Mathematics
@@ -139,12 +140,10 @@ Full support for mathematical notation with **live rendering** as you chat:
 | Feature | Description |
 |---------|-------------|
 | **Prometheus Observability** | RED-method metrics (Rate, Errors, Duration) at `/metrics` |
-| **A/B Testing Framework** | Hash-based deterministic experiment assignment, no database needed |
 | **Semantic Caching** | Two-tier cache (embedding + response) — 40-60% reduction in LLM calls |
 | **Token Tracking & Quotas** | Per-user token counting with hourly quotas |
-| **461 Automated Tests** | pytest suite with tiered coverage (90%+ security, 75%+ overall) |
-| **Benchmark Suite** | Legacy vs LangGraph performance comparison |
-| **5 ADRs** | Architecture Decision Records documenting every major design choice |
+| **615 Automated Tests** | pytest suite with tiered coverage (90%+ security, 91% overall) |
+| **3 ADRs** | Architecture Decision Records documenting every major design choice |
 
 ---
 
@@ -179,18 +178,16 @@ Request → ICP Auth → Middleware Chain
                          │
               ┌──────────┴──────────┐
               │   Rate Limit        │
-              │   A/B Test Assign   │
               │   Cache Check       │
               └──────────┬──────────┘
                          │
-                  Complexity Router
+              Heuristic Tool Detection
               ┌──────────┴──────────┐
-         Simple/Medium          Complex
-         (80% traffic)        (20% traffic)
+         No Tools             Tools Needed
               │                     │
-         Legacy Agent          LangGraph
-         1/3/5-pass            Multi-Agent
-         (services/agent)      (services/graph/)
+         Direct LLM            ReAct Loop
+         Response           (max 15 iters)
+              │               13 tools
               └──────────┬──────────┘
                          │
               Response → Prometheus Metrics → Return
@@ -209,7 +206,7 @@ cd Trinity/backend
 # Install dependencies
 pip install -r requirements.txt
 
-# Run tests (461 tests, ~7 seconds)
+# Run tests (615 tests, ~7 seconds)
 pytest tests/ --no-cov -q
 
 # Start the server (requires Ollama running)
@@ -319,8 +316,8 @@ Browser                           Backend
 
 ```
 Trinity/
-├── backend/                     # Python Flask backend (~3400-line server)
-│   ├── inference_server.py      # Main API server (15+ endpoints)
+├── backend/                     # Python Flask backend
+│   ├── inference_server.py      # App factory + blueprint registration
 │   ├── icp_auth.py              # Ed25519 signature verification
 │   ├── config.py                # Environment configuration
 │   ├── encryption.py            # AES-256-GCM encryption
@@ -328,51 +325,38 @@ Trinity/
 │   ├── storage.py               # Encrypted file storage
 │   ├── lighthouse.py            # IPFS/Filecoin uploads
 │   ├── middleware/              # Request middleware
-│   │   ├── observability.py     # Prometheus metrics (single source of truth)
-│   │   ├── rate_limit.py        # Per-IP rate limiting
-│   │   ├── ab_test.py           # A/B testing middleware
+│   │   ├── observability.py     # Prometheus metrics
+│   │   ├── rate_limit.py        # Per-principal rate limiting
 │   │   └── icp_cache.py         # ICP idempotency cache
-│   ├── services/                # Business logic
-│   │   ├── agent.py             # Legacy agentic pipeline (80% traffic)
-│   │   ├── complexity.py        # Complexity classifier (0-10 scoring)
-│   │   ├── experiments.py       # A/B experiment framework
+│   ├── services/                # Business logic (17 modules)
+│   │   ├── agent.py             # Single-pass agent orchestrator
+│   │   ├── react_loop.py        # ReAct agentic loop (tool calling)
+│   │   ├── tools.py             # 13 tool definitions
+│   │   ├── code_executor.py     # Tool dispatcher
 │   │   ├── caching.py           # Embedding + semantic caching
 │   │   ├── memory.py            # Semantic memory retrieval
-│   │   ├── tools.py             # Tool registry + code execution
-│   │   └── graph/               # LangGraph multi-agent (20% traffic)
-│   │       ├── agents.py        # Specialized agents
-│   │       ├── nodes.py         # Graph nodes
-│   │       ├── edges.py         # Conditional routing
-│   │       └── graph.py         # StateGraph assembly
-│   ├── eval/                    # Benchmarking tools
-│   │   └── benchmark_legacy_vs_langgraph.py
-│   └── tests/                   # 461 automated tests
-│       ├── unit/                # 10 unit test files
-│       ├── e2e/                 # End-to-end tests
-│       └── fixtures/            # Auth test fixtures
+│   │   └── ...                  # embeddings, search, ollama, etc.
+│   └── tests/                   # 615 automated tests
+│       ├── unit/                # Unit tests
+│       ├── integration/         # Integration tests
+│       └── e2e/                 # End-to-end tests
 │
 ├── trinity-icp/                 # Frontend (ICP-hosted)
-│   └── src/
-│       ├── app.js               # Main application
-│       ├── auth/                # Ed25519 keypair management
-│       ├── state/               # Zustand + context memory
-│       ├── storage/             # Autosave + Lighthouse
-│       └── ui/                  # Modular components
+│   ├── src-react/               # Active: React 19 + TypeScript (v3.0.0)
+│   └── src/                     # Legacy: Vanilla JS (v2.8.0, still buildable)
 │
 ├── deploy/                      # Deployment configs
-│   ├── akash/                   # Tier 1/2/3 SDL manifests
-│   ├── docker/                  # Container builds
+│   ├── akash/                   # SDL manifests for model tiers
+│   ├── docker/                  # Dockerfile (CUDA 12.2 + Ollama)
 │   └── cloudflare-worker/       # SSL termination proxy
 │
 ├── scripts/                     # Automation
 │   └── trinity-deploy-production.sh  # One-command deployment
 │
 └── docs/                        # Documentation
-    ├── CLAUDE.md                # AI assistant reference (2000+ lines)
-    ├── FEATURE_CATALOG.md       # Complete feature inventory
-    ├── decisions/               # 5 Architecture Decision Records
-    ├── onboarding/              # 3 developer guides
-    └── plans/                   # Implementation plans
+    ├── architecture/            # 6 system architecture docs + 3 design rationale docs
+    ├── ai-context/              # AI assistant references
+    └── getting-started/         # Developer guides
 ```
 
 ---
@@ -383,18 +367,16 @@ Trinity/
 |----------|--------|------|-------------|
 | `/health` | GET | No | Health check + system metrics |
 | `/generate` | POST | No | LLM text generation |
-| `/generate/stream` | POST | No | Streaming generation (SSE) |
-| `/generate/agent` | POST | No | Legacy agentic pipeline |
-| `/generate/langgraph` | POST | No | LangGraph multi-agent |
+| `/generate/agent` | POST | No | Agentic pipeline (ReAct + tools) |
 | `/metrics` | GET | No | Prometheus metrics scrape |
 | `/chat/autosave` | POST | Yes | Save encrypted chat |
 | `/chat/list` | GET | Yes | List user's chats |
 | `/chat/<id>` | GET/DELETE | Yes | Load or delete chat |
 | `/user/memory` | GET/POST | Yes | User semantic memory |
-| `/admin/experiments` | GET | No | List A/B experiments |
 | `/admin/cache/stats` | GET | No | Cache statistics |
+| `/tools/*` | Various | No | Tool execution endpoints |
 
-See [docs/FEATURE_CATALOG.md](docs/FEATURE_CATALOG.md) for the complete feature inventory with code locations.
+See [docs/ai-context/FEATURE-CATALOG.md](docs/ai-context/FEATURE-CATALOG.md) for the complete feature inventory with code locations.
 
 ---
 
@@ -403,17 +385,17 @@ See [docs/FEATURE_CATALOG.md](docs/FEATURE_CATALOG.md) for the complete feature 
 ```bash
 cd backend
 
-# Full suite (461 tests, ~7 seconds)
+# Full suite (615 tests, ~7 seconds)
 pytest tests/ --no-cov -q
 
 # Specific module
-pytest tests/unit/test_langgraph.py -v
+pytest tests/unit/test_encryption.py -v
 
 # With coverage report
 pytest tests/ --cov=. --cov-report=html
 ```
 
-**Coverage Tiers**: Critical 90%+ (auth, encryption) | High 80%+ (caching, LangGraph) | Overall 75%+
+**Coverage Tiers**: Critical 90%+ (auth, encryption) | Overall 91%+
 
 ---
 
@@ -421,16 +403,15 @@ pytest tests/ --cov=. --cov-report=html
 
 | Document | Purpose |
 |----------|---------|
-| [CLAUDE.md](docs/CLAUDE.md) | AI assistant reference (full technical context) |
-| [FEATURE_CATALOG.md](docs/FEATURE_CATALOG.md) | Every feature with code locations |
-| [ADR-001: Complexity Routing](docs/decisions/001-complexity-routing.md) | Why 80/20 split |
-| [ADR-002: Tiered Test Coverage](docs/decisions/002-tiered-test-coverage.md) | Coverage targets |
-| [ADR-003: Prometheus over SaaS](docs/decisions/003-prometheus-over-saas.md) | Metrics architecture |
-| [ADR-004: Hash-Based Experiments](docs/decisions/004-hash-based-experiments.md) | A/B testing design |
-| [ADR-005: In-Memory Caching](docs/decisions/005-in-memory-caching.md) | Caching strategy |
-| [Developer Setup](docs/onboarding/developer-setup.md) | 5-minute quick start |
-| [Architecture Walkthrough](docs/onboarding/architecture-walkthrough.md) | System overview |
-| [Common Tasks](docs/onboarding/common-tasks.md) | How-to guides |
+| [docs/README.md](docs/README.md) | Documentation navigation hub |
+| [Architecture Docs](docs/architecture/SYSTEM-OVERVIEW.md) | 6-part system architecture |
+| [CLAUDE.md](docs/ai-context/CLAUDE.md) | AI assistant reference (full technical context) |
+| [FEATURE-CATALOG.md](docs/ai-context/FEATURE-CATALOG.md) | Every feature with code locations |
+| [Rationale: Test Coverage](docs/architecture/RATIONALE-TEST-COVERAGE.md) | Coverage targets |
+| [Rationale: Prometheus](docs/architecture/RATIONALE-PROMETHEUS.md) | Metrics architecture |
+| [Rationale: Caching](docs/architecture/RATIONALE-CACHING.md) | Caching strategy |
+| [Developer Setup](docs/getting-started/developer-setup.md) | 5-minute quick start |
+| [Common Tasks](docs/getting-started/common-tasks.md) | How-to guides |
 
 ---
 
@@ -438,15 +419,13 @@ pytest tests/ --cov=. --cov-report=html
 
 ### Production Upgrade Phases (Completed)
 
-- [x] **Phase 1:** Security tests + core test coverage (203 tests)
+- [x] **Phase 1:** Security tests + core test coverage
 - [x] **Phase 2:** Prometheus observability + Grafana dashboards
-- [x] **Phase 3:** LangGraph multi-agent system + complexity routing
-- [x] **Phase 4A:** A/B testing framework (hash-based experiments)
-- [x] **Phase 4B:** Cost optimization (semantic caching + token tracking)
-- [x] **Phase 5:** Documentation (5 ADRs, 3 onboarding guides, 25 E2E tests)
-- [x] **Phase 5.5A:** Prometheus-only metrics migration
-- [x] **Phase 5.5B:** Automated code cleanup (black/isort/autoflake)
-- [x] **Phase 5.5C:** Legacy vs LangGraph benchmark suite
+- [x] **Phase 3:** Agentic pipeline with ReAct reasoning + 13 tools
+- [x] **Phase 4:** Cost optimization (semantic caching + token tracking)
+- [x] **Phase 5:** Documentation (3 ADRs, developer guides, E2E tests)
+- [x] **Phase 6:** React 19 frontend migration (TypeScript + Zustand)
+- [x] **Phase 7:** Intelligence overhaul (single-pass agent, Reflexion, 615 tests)
 
 ### Product Roadmap
 
@@ -482,8 +461,8 @@ Running decentralized infrastructure costs real money:
 Trinity is built for transparency. Every line of code is visible. Every decision is documented.
 
 1. Fork the repository
-2. Read [docs/CLAUDE.md](docs/CLAUDE.md) for technical context
-3. Browse [docs/FEATURE_CATALOG.md](docs/FEATURE_CATALOG.md) for feature overview
+2. Read [docs/ai-context/CLAUDE.md](docs/ai-context/CLAUDE.md) for technical context
+3. Browse [docs/ai-context/FEATURE-CATALOG.md](docs/ai-context/FEATURE-CATALOG.md) for feature overview
 4. Create a feature branch
 5. Submit a pull request
 
@@ -493,8 +472,8 @@ Trinity is built for transparency. Every line of code is visible. Every decision
 
 - **Live App:** [dubya.ai](https://dubya.ai)
 - **ICP Canister:** [zc67k-kiaaa-aaaal-qtmiq-cai.icp0.io](https://zc67k-kiaaa-aaaal-qtmiq-cai.icp0.io)
-- **Documentation:** [docs/CLAUDE.md](docs/CLAUDE.md)
-- **Feature Catalog:** [docs/FEATURE_CATALOG.md](docs/FEATURE_CATALOG.md)
+- **Documentation:** [docs/ai-context/CLAUDE.md](docs/ai-context/CLAUDE.md)
+- **Feature Catalog:** [docs/ai-context/FEATURE-CATALOG.md](docs/ai-context/FEATURE-CATALOG.md)
 - **Docker Hub:** [gdubx/trinity-inference](https://hub.docker.com/r/gdubx/trinity-inference)
 
 ---

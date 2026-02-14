@@ -43,7 +43,7 @@ export function useAuth() {
     const identity = identityRef.current;
     if (!identity) throw new Error('Not authenticated');
     const encoder = new TextEncoder();
-    const signature = await identity.sign(encoder.encode(message).buffer);
+    const signature = await identity.sign(encoder.encode(message));
     return Array.from(new Uint8Array(signature))
       .map((b) => b.toString(16).padStart(2, '0'))
       .join('');
@@ -100,7 +100,7 @@ export function useAuth() {
       const keyBytes = Uint8Array.from(
         keyHex.match(/.{2}/g)!.map((byte) => parseInt(byte, 16))
       );
-      const identity = ICPAuth.Ed25519KeyIdentity.fromSecretKey(keyBytes.buffer);
+      const identity = ICPAuth.Ed25519KeyIdentity.fromSecretKey(keyBytes);
       const principal = identity.getPrincipal().toText();
 
       if (principal !== savedPrincipal) {
@@ -190,7 +190,7 @@ export function useAuth() {
         const keyBytes = Uint8Array.from(
           privateKeyHex.match(/.{2}/g)!.map((byte) => parseInt(byte, 16))
         );
-        const identity = ICPAuth.Ed25519KeyIdentity.fromSecretKey(keyBytes.buffer);
+        const identity = ICPAuth.Ed25519KeyIdentity.fromSecretKey(keyBytes);
         const principal = identity.getPrincipal().toText();
 
         const encrypted = await encryptForStorage(privateKeyHex);

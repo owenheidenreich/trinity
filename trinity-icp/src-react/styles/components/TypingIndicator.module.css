@@ -47,3 +47,9 @@
   color: var(--color-accent);
   text-transform: capitalize;
 }
+
+.message {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  font-style: italic;
+}

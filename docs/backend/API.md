@@ -10,8 +10,8 @@
 Trinity exposes API endpoints organized into 8 blueprints. Auth uses Ed25519 signatures on all `/chat/*`, `/user/*`, and `/tools/*` routes.
 
 **Auth headers:** `ICP-Principal`, `ICP-Timestamp`, `ICP-Signature`, `ICP-PublicKey`, `ICP-Nonce`
-**Signed message:** `{timestamp}.{METHOD}.{path}.{sha256(body)}`
-**Timestamp window:** 60 seconds
+**Signed message:** `{principal}:{timestamp}:{endpoint}:{nonce}` (nonce optional for backward compatibility)
+**Timestamp window:** 60 seconds (hardcoded in `icp_auth.py`; `config.py` defines 5 minutes but is not currently referenced)
 
 ---
 
@@ -160,4 +160,4 @@ data: {"done": true, "response": {"complexity": "medium"}}
 |----------|-------|
 | `/generate/*` | 30 req/min per principal |
 | `/chat/*` | 10 req/min per principal |
-| `/tools/*` | 20 req/min per principal |
+| `/tools/*` | 30 req/min per principal |

@@ -20,7 +20,7 @@ version: "2.0"
 
 services:
   trinity:
-    image: gdubx/trinity-inference:v2-20260213-154107
+    image: gdubx/trinity-inference:v2-20260213-210750
     env:
       - PROVIDER_ID=trinity-tier1-qwen3
       - MODEL_NAME=qwen3:1.7b

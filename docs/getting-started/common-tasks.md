@@ -23,17 +23,22 @@ open htmlcov/index.html
 # Security tests only (highest priority)
 pytest tests/unit/test_encryption.py tests/unit/test_icp_auth.py tests/unit/test_validation.py -v
 
-# Agent/LangGraph tests
-pytest tests/unit/test_langgraph.py tests/unit/test_complexity.py -v
+# Agent/ReAct tests
+pytest tests/unit/test_react_loop.py tests/unit/test_tools_real.py -v
 
 # Observability tests
 pytest tests/unit/test_observability.py -v
 
-# Experiment/A/B tests
-pytest tests/unit/test_experiments.py -v
-
 # Caching tests
 pytest tests/unit/test_caching.py -v
+
+# Memory tests
+pytest tests/unit/test_memory_tools.py tests/unit/test_memory_phase3.py -v
+
+# Phase tests (architecture, stability, quality, agentic)
+pytest tests/unit/test_phase1_security.py tests/unit/test_phase2_stability.py \
+  tests/unit/test_phase3_architecture.py tests/unit/test_phase4_quality.py \
+  tests/unit/test_phase5_agentic.py -v
 ```
 
 ### Run Single Test
@@ -65,15 +70,28 @@ pytest tests/unit/test_encryption.py -s
 
 ### Adding a New Endpoint
 
-1. **Add the route in `inference_server.py`**:
+1. **Create or add to a route blueprint** in `backend/routes/`:
 ```python
-@app.route('/my-endpoint', methods=['POST'])
+# routes/my_routes.py
+from flask import Blueprint, request, jsonify
+from middleware.rate_limit import rate_limit
+from icp_auth import require_auth
+
+my_bp = Blueprint('my', __name__)
+
+@my_bp.route('/my-endpoint', methods=['POST'])
 @require_auth  # If authentication needed
 @rate_limit    # If rate limiting needed
 def my_endpoint():
     data = request.get_json()
     # ... implementation
     return jsonify({'result': 'success'})
+```
+
+2. **Register the blueprint** in `inference_server.py`:
+```python
+from routes.my_routes import my_bp
+app.register_blueprint(my_bp)
 ```
 
 2. **Add tests in `tests/unit/`**:
@@ -180,86 +198,6 @@ curl http://localhost:5000/admin/cache/stats | jq
 
 ---
 
-## A/B Testing
-
-### Adding a New Experiment
-
-1. **Define in `services/experiments.py`**:
-```python
-EXPERIMENTS['my_experiment'] = Experiment(
-    name='my_experiment',
-    description='Test feature X vs feature Y',
-    variants=[
-        Variant('control', 0.5, {'feature': 'old'}),
-        Variant('treatment', 0.5, {'feature': 'new'})
-    ],
-    enabled=True
-)
-```
-
-2. **Use in endpoint**:
-```python
-from middleware.ab_test import experiment, get_experiment_config
-
-@app.route('/my-endpoint')
-@experiment('my_experiment')
-def my_endpoint():
-    feature = get_experiment_config('my_experiment', 'feature', 'old')
-    if feature == 'new':
-        return new_implementation()
-    return old_implementation()
-```
-
-3. **Test assignment**:
-```bash
-curl http://localhost:5000/admin/experiments/assignment/test-user-123 | jq
-```
-
-### Enable/Disable Experiments
-
-```bash
-# Disable
-curl -X POST http://localhost:5000/admin/experiments/my_experiment/disable
-
-# Enable
-curl -X POST http://localhost:5000/admin/experiments/my_experiment/enable
-
-# List all
-curl http://localhost:5000/admin/experiments | jq
-```
-
----
-
-## Caching
-
-### Clear Caches
-
-```bash
-# Clear all caches (embedding, semantic, resets stats)
-curl -X POST http://localhost:5000/admin/cache/clear
-
-# View cache statistics
-curl http://localhost:5000/admin/cache/stats | jq
-```
-
-### Debug Cache Behavior
-
-```python
-# In code or Python shell
-from services.caching import get_embedding_cache, get_semantic_cache
-
-# Check embedding cache
-cache = get_embedding_cache()
-stats = cache.get_stats()
-print(f"Hit rate: {stats['hit_rate']}")
-print(f"Size: {stats['size']}/{stats['max_size']}")
-
-# Invalidate specific entry
-cache.invalidate("specific text to remove")
-```
-
----
-
 ## Debugging Production Issues
 
 ### Check Health
@@ -292,11 +230,14 @@ curl http://localhost:5000/admin/tokens/usage | jq
 curl http://localhost:5000/admin/quota/usage | jq
 ```
 
-### Reproduce User's Experiment Assignment
+### Reproduce a User's Issue
 
 ```bash
-# Get what variant a specific user would see
-curl http://localhost:5000/admin/experiments/assignment/{user-session-id} | jq
+# Check their token usage
+curl http://localhost:5000/admin/tokens/usage | jq
+
+# Check their quota
+curl http://localhost:5000/admin/quota/usage | jq
 ```
 
 ---
@@ -319,7 +260,7 @@ docker run -p 5000:5000 trinity-backend:latest
 # Full production deployment (interactive)
 ./scripts/trinity-deploy-production.sh
 
-# Auto-select tier 2 (Llama 8B)
+# Auto-select tier 2 (Qwen2.5 14B)
 ./scripts/trinity-deploy-production.sh 2
 ```
 
@@ -385,5 +326,4 @@ feat: Add semantic response caching
 | Start dev server | `python inference_server.py` |
 | View metrics | `curl localhost:5000/metrics` |
 | Clear caches | `curl -X POST localhost:5000/admin/cache/clear` |
-| List experiments | `curl localhost:5000/admin/experiments` |
 | Check health | `curl localhost:5000/health` |

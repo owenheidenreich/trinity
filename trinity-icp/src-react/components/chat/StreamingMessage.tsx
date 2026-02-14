@@ -1,14 +1,18 @@
 /**
  * StreamingMessage — AI message during active streaming.
  * Splits tokens into stable (completed code blocks, memoized) and tail (re-renders each token).
+ * Includes smooth typing animation for natural feel.
  */
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect, useRef } from 'react';
 import { splitAtCompletedBlocks } from '../../utils/markdown';
 import { MarkdownRenderer, MemoizedMarkdown } from './MarkdownRenderer';
 import { StreamingCodeCard } from './CodeBlock';
 import { TypingIndicator } from './TypingIndicator';
 import type { AgentPhase } from '../../types';
 import styles from '../../styles/components/Message.module.css';
+
+const TYPE_SPEED_MS = 12; // ms per character reveal
+const CHARS_PER_TICK = 4; // characters revealed per tick
 
 interface StreamingMessageProps {
   tokens: string;
@@ -17,9 +21,34 @@ interface StreamingMessageProps {
 }
 
 export function StreamingMessage({ tokens, isStreaming, phase }: StreamingMessageProps) {
+  const [displayedLength, setDisplayedLength] = useState(0);
+  const rafRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Typing animation: gradually reveal characters
+  useEffect(() => {
+    if (displayedLength < tokens.length) {
+      rafRef.current = setTimeout(() => {
+        setDisplayedLength((prev) => Math.min(prev + CHARS_PER_TICK, tokens.length));
+      }, TYPE_SPEED_MS);
+      return () => {
+        if (rafRef.current) clearTimeout(rafRef.current);
+      };
+    }
+  }, [displayedLength, tokens.length]);
+
+  // When tokens grow, the animation continues naturally
+  // When streaming stops, instantly show any remaining
+  useEffect(() => {
+    if (!isStreaming && displayedLength < tokens.length) {
+      setDisplayedLength(tokens.length);
+    }
+  }, [isStreaming, tokens.length, displayedLength]);
+
+  const displayedTokens = tokens.substring(0, displayedLength);
+
   const { stableText, tailText, streamingBlock } = useMemo(
-    () => splitAtCompletedBlocks(tokens),
-    [tokens]
+    () => splitAtCompletedBlocks(displayedTokens),
+    [displayedTokens]
   );
 
   if (isStreaming && !tokens) {

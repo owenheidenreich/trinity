@@ -1,4 +1,4 @@
-# ADR-005: In-Memory Caching vs Redis
+# Rationale: In-Memory Caching vs Redis
 
 ## Status
 Accepted

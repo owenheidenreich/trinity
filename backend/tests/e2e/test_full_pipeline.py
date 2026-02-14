@@ -89,10 +89,10 @@ def auth_headers():
     signature = signing_key.sign(message.encode()).signature
 
     return {
-        "X-ICP-Principal": principal,
-        "X-ICP-Signature": signature.hex(),
-        "X-ICP-Public-Key": public_key_bytes.hex(),
-        "X-ICP-Timestamp": str(timestamp),
+        "ICP-Principal": principal,
+        "ICP-Signature": signature.hex(),
+        "ICP-PublicKey": public_key_bytes.hex(),
+        "ICP-Timestamp": str(timestamp),
         "Content-Type": "application/json",
     }
 
@@ -185,8 +185,8 @@ class TestGenerationPipeline:
         """Empty prompt should be rejected."""
         response = client.post("/generate", json={"prompt": ""}, content_type="application/json")
 
-        # Should either reject or handle gracefully
-        assert response.status_code in [200, 400, 500]
+        # Empty prompt must be rejected with 400
+        assert response.status_code == 400, f"Expected 400 for empty prompt, got {response.status_code}"
 
     def test_generate_missing_prompt_rejected(self, client):
         """Missing prompt field should be rejected."""
@@ -206,7 +206,7 @@ class TestAuthentication:
     def test_auth_required_endpoint_without_headers(self, client):
         """Protected endpoints should reject unauthenticated requests."""
         response = client.post(
-            "/chat/autosave", json={"chat_id": "test", "data": {}}, content_type="application/json"
+            "/chat/autosave", json={"chatId": "test", "data": {}}, content_type="application/json"
         )
 
         assert response.status_code == 401
@@ -214,35 +214,34 @@ class TestAuthentication:
     def test_auth_required_endpoint_with_mock_auth(self, client, mock_auth):
         """Protected endpoints should accept valid auth when mocked."""
         headers = {
-            "X-ICP-Principal": "test-principal-123",
-            "X-ICP-Signature": "fake-sig",
-            "X-ICP-Public-Key": "fake-key",
-            "X-ICP-Timestamp": str(int(time.time() * 1000)),
+            "ICP-Principal": "test-principal-123",
+            "ICP-Signature": "fake-sig",
+            "ICP-PublicKey": "fake-key",
+            "ICP-Timestamp": str(int(time.time() * 1000)),
             "Content-Type": "application/json",
         }
 
         response = client.post(
             "/chat/autosave",
-            json={"chat_id": "test-chat-123", "title": "Test Chat", "messages": []},
+            json={"chatId": "test-chat-123", "title": "Test Chat", "messages": []},
             headers=headers,
         )
 
-        # Should succeed (200) or have storage issue (500)
-        # 401 would mean mock didn't work
-        assert response.status_code != 401 or not mock_auth.called
+        # Mock bypasses signature verification, so 401 should never happen
+        assert response.status_code in [200, 400, 500], f"Unexpected {response.status_code}"
 
     def test_invalid_signature_rejected(self, client):
         """Invalid signatures should be rejected."""
         headers = {
-            "X-ICP-Principal": "fake-principal",
-            "X-ICP-Signature": "invalid-signature",
-            "X-ICP-Public-Key": "invalid-key",
-            "X-ICP-Timestamp": str(int(time.time() * 1000)),
+            "ICP-Principal": "fake-principal",
+            "ICP-Signature": "invalid-signature",
+            "ICP-PublicKey": "invalid-key",
+            "ICP-Timestamp": str(int(time.time() * 1000)),
             "Content-Type": "application/json",
         }
 
         response = client.post(
-            "/chat/autosave", json={"chat_id": "test", "data": {}}, headers=headers
+            "/chat/autosave", json={"chatId": "test", "data": {}}, headers=headers
         )
 
         assert response.status_code in [400, 401]
@@ -359,10 +358,10 @@ class TestFullPipelineIntegration:
         chat_id = f"e2e-test-{int(time.time())}"
 
         headers = {
-            "X-ICP-Principal": "e2e-test-principal",
-            "X-ICP-Signature": "mock-sig",
-            "X-ICP-Public-Key": "mock-key",
-            "X-ICP-Timestamp": str(int(time.time() * 1000)),
+            "ICP-Principal": "e2e-test-principal",
+            "ICP-Signature": "mock-sig",
+            "ICP-PublicKey": "mock-key",
+            "ICP-Timestamp": str(int(time.time() * 1000)),
             "Content-Type": "application/json",
         }
 
@@ -370,7 +369,7 @@ class TestFullPipelineIntegration:
         save_response = client.post(
             "/chat/autosave",
             json={
-                "chat_id": chat_id,
+                "chatId": chat_id,
                 "title": "E2E Test Chat",
                 "messages": [
                     {"role": "user", "content": "Hello"},
@@ -380,8 +379,8 @@ class TestFullPipelineIntegration:
             headers=headers,
         )
 
-        # Should save, return 401 (mock not applied properly), or have storage issue
-        assert save_response.status_code in [200, 401, 500]
+        # Mock bypasses signature verification; 401 should never happen
+        assert save_response.status_code in [200, 500], f"Unexpected {save_response.status_code}"
 
         if save_response.status_code == 200:
             # Try to list chats
@@ -396,15 +395,17 @@ class TestErrorHandling:
         """Should handle malformed JSON gracefully."""
         response = client.post("/generate", data="not valid json", content_type="application/json")
 
-        # Should return 400 or handle gracefully
-        assert response.status_code in [400, 415, 500]
+        # Malformed JSON — route catches BadRequest as generic Exception, returns 500
+        # TODO: Generate route should catch werkzeug.exceptions.BadRequest → 400
+        assert response.status_code in [400, 500], f"Expected 400 or 500 for malformed JSON, got {response.status_code}"
 
     def test_missing_content_type(self, client):
         """Should handle missing content type."""
         response = client.post("/generate", data='{"prompt": "test"}')
 
-        # Should either work or return clear error
-        assert response.status_code in [200, 400, 415, 500]
+        # Without application/json, werkzeug raises UnsupportedMediaType (415)
+        # but the route's generic except block may return 500
+        assert response.status_code in [400, 415, 500], f"Expected 400/415/500 for missing content type, got {response.status_code}"
 
     def test_very_long_prompt(self, client, mock_ollama_generate):
         """Should handle very long prompts."""
@@ -414,5 +415,5 @@ class TestErrorHandling:
             "/generate", json={"prompt": long_prompt}, content_type="application/json"
         )
 
-        # Should either process, reject with clear error, or 500 if Ollama unavailable
-        assert response.status_code in [200, 400, 413, 500]
+        # Should reject with 400 for length limit, or 500 if Ollama unreachable
+        assert response.status_code in [200, 400, 413, 500], f"Unexpected {response.status_code}"

@@ -11,6 +11,8 @@ export interface ConnectionStatus {
   model: string | null;
   lastChecked: number | null;
   error: string | null;
+  gpuType: string | null;
+  provider: string | null;
 }
 
 export function useConnection() {
@@ -19,6 +21,8 @@ export function useConnection() {
     model: null,
     lastChecked: null,
     error: null,
+    gpuType: null,
+    provider: null,
   });
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -37,6 +41,8 @@ export function useConnection() {
         model: data.model ?? null,
         lastChecked: Date.now(),
         error: null,
+        gpuType: data.gpu_type ?? null,
+        provider: data.provider_id ?? null,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error';

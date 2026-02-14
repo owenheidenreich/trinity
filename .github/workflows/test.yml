@@ -41,14 +41,14 @@ jobs:
           cd backend
           python -c "
           from middleware import rate_limit, icp_idempotent
-          from services import metrics, TRINITY_SYSTEM_PROMPT, check_ollama_connection
-          print('✅ All modules import successfully')
+          from services import TRINITY_SYSTEM_PROMPT, check_ollama_connection
+          print('All modules import successfully')
           "
       
       - name: Run unit tests
         run: |
           cd backend
-          python -m pytest test/ -v --tb=short || echo "No tests found - skipping"
+          python -m pytest tests/ -v --tb=short
 
   # Frontend JavaScript tests
   frontend-tests:
@@ -72,12 +72,12 @@ jobs:
       - name: Run linting
         run: |
           cd trinity-icp
-          npm run lint || echo "Linting not configured - skipping"
+          npm run lint
       
       - name: Run unit tests
         run: |
           cd trinity-icp
-          npm test || echo "Tests not configured - skipping"
+          npm test
       
       - name: Build frontend
         run: |
@@ -105,8 +105,8 @@ jobs:
       
       - name: Run integration tests
         run: |
-          cd test/integration
-          python -m pytest test_signature_verification.py -v --tb=short || echo "Auth tests passed or skipped"
+          cd backend
+          python -m pytest tests/integration/ -v --tb=short
 
   # Security checks
   security:
@@ -135,4 +135,29 @@ jobs:
             exit 1
           else
             echo "✅ No sensitive files found"
+          fi
+
+      - name: Check docs for staleness
+        run: |
+          STALE=0
+          # Deleted systems referenced as active (not in archive/ or "Deleted" context)
+          if grep -rn "complexity\.py\|voting\.py\|experiments\.py\|parallel\.py" \
+             docs/ --include="*.md" | grep -v "archive/" | grep -v -i "deleted\|removed\|overhaul"; then
+            echo "⚠️ Deleted system referenced in active docs"
+            STALE=1
+          fi
+          # Old model names in active docs
+          if grep -rn "TinyLlama\|Llama 3\.1\|Llama 8B" \
+             docs/ --include="*.md" | grep -v "archive/"; then
+            echo "⚠️ Stale model name in active docs"
+            STALE=1
+          fi
+          # Service count drift
+          ACTUAL=$(find backend/services -name "*.py" ! -name "__init__.py" | wc -l | tr -d ' ')
+          if grep -rn "17 modules\|17 service" docs/ --include="*.md"; then
+            echo "⚠️ Service count stale (actual: $ACTUAL)"
+            STALE=1
+          fi
+          if [ $STALE -eq 0 ]; then
+            echo "✅ No documentation staleness detected"
           fi

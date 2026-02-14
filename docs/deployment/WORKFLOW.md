@@ -32,7 +32,8 @@ Trinity deploys to a fully decentralized stack:
 ./scripts/trinity-deploy-production.sh
 
 # Auto-select specific tier
-./scripts/trinity-deploy-production.sh 2   # Tier 2 (Qwen 14B, ~$180/mo)
+./scripts/trinity-deploy-production.sh 2   # Tier 2 (Qwen2.5 14B, ~$50/mo)
+./scripts/trinity-deploy-production.sh 3   # Tier 3 (Qwen2.5-Coder 32B, ~$200/mo)
 ```
 
 This script handles everything:
@@ -51,11 +52,11 @@ This script handles everything:
 
 | Tier | Model | GPU | Monthly Cost | Use Case |
 |------|-------|-----|--------------|----------|
-| 1 | TinyLlama 1.1B | Any NVIDIA | ~$65 | Development/Testing |
-| 2 | Qwen 2.5 14B | P40/RTX 3090 | ~$180 | **Production (recommended)** |
-| 3 | Qwen 2.5 72B | A100 80GB | ~$2,800 | Premium/Enterprise |
+| 1 | Qwen3 1.7B | Any NVIDIA | ~$65 | Development/Testing |
+| 2 | Qwen2.5 14B | P40/RTX 3090 | ~$50 | Budget Production |
+| 3 | qwen2.5-coder:32b | A100 80GB | ~$200 | **Production (current)** |
 
-**Current Production:** Tier 2 (qwen2.5:14b)
+**Current Production:** Tier 3 (qwen2.5-coder:32b)
 
 ---
 
@@ -170,11 +171,11 @@ dfx deploy --network ic
 ```yaml
 env:
   - name: MODEL_NAME
-    value: "qwen2.5:14b"
+    value: "qwen2.5-coder:32b"
   - name: OLLAMA_HOST
     value: "http://localhost:11434"
   - name: DEPLOYMENT_TIER
-    value: "2"
+    value: "3"
   - name: BRAVE_SEARCH_API_KEY
     value: "BSA..."
   - name: LIGHTHOUSE_API_KEY
@@ -204,8 +205,8 @@ curl https://api.dubya.ai/health
 {
   "status": "healthy",
   "version": "4.0.2",
-  "model": "qwen2.5:14b",
-  "tier": 2
+  "model": "qwen2.5-coder:32b",
+  "tier": 3
 }
 ```
 

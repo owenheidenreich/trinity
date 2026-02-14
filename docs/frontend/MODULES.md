@@ -1,128 +1,105 @@
 # Trinity Frontend Modules
 
-> **Last Updated:** February 13, 2026
-> **Active Frontend:** Vanilla JS in `trinity-icp/src/`
-> **New Frontend:** React 19 + TypeScript in `trinity-icp/src-react/` (not yet deployed)
+> **Last Updated:** February 2026
+> **Active Frontend:** React 19 + TypeScript in `trinity-icp/src-react/` (v3.0.0)
+> **Legacy Frontend:** Vanilla JS in `trinity-icp/src/` (v2.8.0, still buildable via `npm run build:legacy`)
+>
+> For the complete frontend architecture, see [architecture/01-FRONTEND.md](../architecture/01-FRONTEND.md).
 
 ---
 
-## Vanilla JS Frontend (`trinity-icp/src/` — ACTIVE)
+## React Frontend (`trinity-icp/src-react/` — ACTIVE)
 
-Single-page application deployed to ICP. `app.js` is a thin orchestrator that imports modular code.
+Fully typed TypeScript rewrite using React 19, Zustand, Vite, and CSS Modules.
 
-### State Management (`state/store.js`)
+### Component Tree
 
-Zustand store. **CRITICAL:** Direct assignments fail silently — use setter methods.
-
-```javascript
-// ❌ WRONG
-State.isAuthenticated = true;
-
-// ✅ CORRECT
-State.setAuthenticated(principal, timestamp);
+```
+App
+├── ToastProvider                       ← Global toast notification stack
+└── AppShell                            ← Main layout orchestrator
+    ├── AuthModal → KeyExportModal      ← Identity gate
+    ├── Sidebar                         ← Chat list, connection, identity
+    ├── EmptyState                      ← Welcome screen
+    ├── MessageList                     ← Message container
+    │   ├── Message → MarkdownRenderer → CodeBlock
+    │   ├── StreamingMessage (live typing, MemoizedMarkdown)
+    │   └── ContinueButton
+    ├── MessageInput                    ← Text input + send/stop
+    ├── ConfirmModal, InfoModal         ← Dialogs
+    └── AutosaveIndicator               ← Save status badge
 ```
 
-**Key state:**
-- `chatHistory`, `currentChatId`, `allChats`
-- `isAuthenticated`, `principal`
-- `contextMemory` (sliding window, `CONTEXT_WINDOW_SIZE = 20`)
-- `userMemory: { facts: [] }`
-- `isGenerating`, `isLoadingChat`, `autosaveStatus`
+### Custom Hooks
 
-### Streaming Pipeline (`features/generate.js`)
+| Hook | Purpose |
+|------|---------|
+| `useAuth` | Ed25519 identity: generate, import, export, sign, build auth headers |
+| `useChat` | SSE streaming: send, continue, stop, phase tracking |
+| `useAutosave` | Debounced 2s save → IndexedDB (local-first) + cloud sync |
+| `useConnection` | `/health` polling every 30s, connection status |
 
-Three-part DOM strategy during streaming:
-1. **stableDiv**: Completed code blocks (updated only when new block finishes)
-2. **tailDiv**: Trailing prose + cursor (updated every tick)
-3. **streamDiv**: In-progress code block (collapsible `<details>`)
+### State Management (Zustand)
 
-If `done_reason === 'length'` → Continue button appears (chains requests).
+```typescript
+// CRITICAL: Use setter methods, not direct assignment
+State.setAuthenticated(principal, timestamp);  // ✅
+State.isAuthenticated = true;                  // ❌ Fails silently
+```
 
-### Auth (`auth/authManager.js`)
+**Key state:** `chatHistory`, `contextMemory` (window: 20), `isAuthenticated`, `principal`, `userMemory`, `allChats`, `autosaveStatus`, `isGenerating`
 
-Ed25519 keypair management. Every API request signed with: Principal + Timestamp + Nonce + Signature. Keys stored in `localStorage`.
+### File Structure
 
-### Autosave (`storage/autosave.js`)
+```
+src-react/
+├── App.tsx, main.tsx, config.ts
+├── components/
+│   ├── chat/          # CodeBlock, Message, MessageInput, MessageList,
+│   │                  # StreamingMessage, MarkdownRenderer, MathBlock,
+│   │                  # CopyAllButton, ContinueButton, DownloadCards
+│   ├── layout/        # AppShell, EmptyState
+│   ├── modals/        # AuthModal, ConfirmModal, InfoModal, KeyExportModal
+│   ├── notifications/ # AutosaveIndicator, ToastProvider
+│   └── sidebar/       # Sidebar
+├── hooks/             # useAuth, useChat, useAutosave, useConnection
+├── store/             # Zustand store (index.ts, types.ts)
+├── types/             # api.ts, auth.ts, message.ts
+├── utils/             # crypto, markdown, sse, indexedDB, lighthouse, codeParser, logger
+└── styles/            # CSS Modules + tokens.css + global.css
+```
 
-Rate-limited (debounce 5s). Sends `POST /chat/autosave` with `chatId` (camelCase). IndexedDB for local-first, server for durability.
+---
+
+## Legacy Vanilla JS Frontend (`trinity-icp/src/`)
+
+Imperative DOM manipulation app. Still buildable but no longer the default.
+
+### Key Differences from React
+
+| Aspect | Legacy | React |
+|--------|--------|-------|
+| State access | `State.chatHistory` (proxy) | `useStore((s) => s.chatHistory)` |
+| Auth | Singleton `AuthManager` | `useAuth()` hook |
+| Streaming | `setInterval` typing + DOM construction | `useChat()` hook + `StreamingMessage` |
+| Rendering | `marked.parse()` → `innerHTML` | `parseMarkdownWithMath()` → components |
+| Sidebar | HTML string template | `<Sidebar>` component |
+| Styling | Single `styles.css` | CSS Modules |
+| Types | None | Full TypeScript |
 
 ### File Structure
 
 ```
 src/
-├── app.js                   # Orchestrator (imports modules, event delegation)
+├── app.js                   # Orchestrator (event delegation)
 ├── config.js                # API endpoints, feature flags
-├── core/
-│   ├── api.js               # HTTP client, signed requests, streaming
-│   ├── sse.js               # SSE parser
-│   ├── environment.js       # Endpoint detection
-│   └── logger.js            # Structured logging
-├── features/
-│   ├── generate.js          # Streaming (3-part DOM, code blocks, Continue)
-│   ├── auth.js              # Login/logout UI
-│   ├── chatManagement.js    # Chat CRUD, sidebar
-│   └── memory.js            # User memory modal
-├── auth/
-│   ├── authManager.js       # Ed25519 keypair management
-│   ├── icp-auth.js          # Bundled ICP auth (don't edit)
-│   └── keyExportModal.js    # Key export/import
-├── state/
-│   └── store.js             # Zustand store (CONTEXT_WINDOW_SIZE=20)
-├── storage/
-│   ├── autosave.js          # Rate-limited autosave
-│   ├── indexedDB.js         # Local persistence
-│   └── lighthouse.js        # IPFS backup
-├── ui/
-│   ├── messages.js          # Message rendering, markdown, KaTeX
-│   ├── sidebar.js           # Chat list
-│   ├── modals.js            # Modal dialogs
-│   ├── editMessage.js       # Inline editing
-│   ├── codePanel.js         # Code display
-│   ├── loadingMessages.js   # Loading indicators
-│   ├── notifications.js     # Toast notifications
-│   └── rainbowBorder.js     # Visual effects
-└── utils/
-    ├── crypto.js            # AES-GCM encryption
-    ├── math.js              # KaTeX rendering
-    └── validation.js        # Input validation
-```
-
----
-
-## React 19 Frontend (`trinity-icp/src-react/` — NEW)
-
-Fully typed TypeScript rewrite. Same Zustand store shape for API compatibility.
-
-### Key Differences from Vanilla
-- Hooks-first: `useChat`, `useAuth`, `useConnection`, `useAutosave`
-- Component-based: `MessageList`, `StreamingMessage`, `CodeBlock`, `MarkdownRenderer`
-- Context-based toasts (`ToastProvider`)
-- 137 unit tests via Vitest
-
-### Structure
-
-```
-src-react/
-├── App.tsx                  # Root (AppShell + ToastProvider)
-├── main.tsx                 # React 19 entry
-├── store/
-│   ├── index.ts             # Zustand store (same shape as vanilla)
-│   └── types.ts             # TypeScript interfaces
-├── components/
-│   ├── layout/              # AppShell, EmptyState
-│   ├── chat/                # MessageList, MessageInput, StreamingMessage, CodeBlock
-│   ├── sidebar/             # Sidebar
-│   ├── modals/              # AuthModal, KeyExportModal, ConfirmModal
-│   └── notifications/       # ToastProvider
-├── hooks/
-│   ├── useChat.ts           # Main chat logic (generate, stream)
-│   ├── useAuth.ts           # Auth state + signing
-│   ├── useConnection.ts     # Health check
-│   └── useAutosave.ts       # Rate-limited autosave
-├── utils/
-│   ├── api.ts, sse.ts, crypto.ts, markdown.ts, logger.ts
-│   └── indexedDB.ts, lighthouse.ts
-└── __tests__/               # 137 tests
+├── core/                    # api.js, sse.js, environment.js, logger.js
+├── features/                # generate.js, auth.js, chatManagement.js, memory.js
+├── auth/                    # authManager.js, icp-auth.js, keyExportModal.js
+├── state/                   # store.js (Zustand, same shape as React)
+├── storage/                 # autosave.js, indexedDB.js, lighthouse.js
+├── ui/                      # messages.js, sidebar.js, modals.js, codePanel.js, etc.
+└── styles.css               # Single global stylesheet
 ```
 
 ---
@@ -130,32 +107,16 @@ src-react/
 ## Build & Deploy
 
 ```bash
-# Vanilla JS (active)
-cd trinity-icp && npm run build:legacy
+# React (active)
+cd trinity-icp && npm run dev         # Dev server (port 5173)
+cd trinity-icp && npm run build       # Production build → dist/
 
-# React (new)
-cd trinity-icp && npm run build
+# Legacy vanilla JS
+cd trinity-icp && npm run dev:legacy
+cd trinity-icp && npm run build:legacy
 
 # Deploy to ICP
 dfx deploy trinity_frontend --network ic
-
-# Local dev
-npm run dev:legacy    # Vanilla JS
-npm run dev           # React
 ```
 
----
-
-## API Contract
-
-Both frontends use the same backend endpoints:
-
-| Action | Endpoint | Method |
-|--------|----------|--------|
-| Generate | `/generate/agent` | POST (SSE stream) |
-| Autosave | `/chat/autosave` | POST (`chatId` field) |
-| Load chats | `/chat/list` | GET |
-| Load chat | `/chat/<id>` | GET |
-| Delete chat | `/chat/<id>` | DELETE |
-| User memory | `/user/memory` | GET/POST |
-| Health | `/health` | GET |
+Both builds output to `dist/` and deploy to the same ICP canister.

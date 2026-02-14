@@ -36,6 +36,10 @@ deployment/test-data/
 deployment/chats-local/
 tests/__pycache__/
 
+# Coverage reports
+htmlcov/
+*.bak
+
 # Logs
 *.log
 /tmp/
