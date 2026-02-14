@@ -1,7 +1,7 @@
 # Trinity Documentation
 
-> **Last Updated:** February 10, 2026  
-> Comprehensive documentation for Trinity - a decentralized AI chat application.
+> **Last Updated:** February 13, 2026
+> Comprehensive documentation for Trinity — a decentralized AI chat application.
 
 ---
 
@@ -9,29 +9,23 @@
 
 | Document | Audience | Description |
 |----------|----------|-------------|
-| [CLAUDE.md](ai-context/CLAUDE.md) | **AI/LLMs** | Primary AI context document (2000+ lines) |
-| [CODEBASE-MAP.md](ai-context/CODEBASE-MAP.md) | **AI/LLMs** | Quick-reference: all files, routes, constants |
-| [backend/API.md](backend/API.md) | **Developers** | All 49 API endpoints with examples |
-| [backend/SERVICES.md](backend/SERVICES.md) | **Developers** | Backend services documentation |
-| [frontend/MODULES.md](frontend/MODULES.md) | **Developers** | Frontend module documentation |
+| [CLAUDE.md](ai-context/CLAUDE.md) | **AI/LLMs** | Concise project reference |
+| [CODEBASE-MAP.md](ai-context/CODEBASE-MAP.md) | **AI/LLMs** | All files, routes, constants |
+| [backend/API.md](backend/API.md) | **Developers** | API endpoint reference |
+| [backend/SERVICES.md](backend/SERVICES.md) | **Developers** | Backend services |
+| [frontend/MODULES.md](frontend/MODULES.md) | **Developers** | Frontend modules (vanilla JS + React) |
 | [deployment/WORKFLOW.md](deployment/WORKFLOW.md) | **DevOps** | Deployment procedures |
 
 ---
 
 ## For AI Assistants
 
-**Start here:** [ai-context/CLAUDE.md](ai-context/CLAUDE.md)
-
-This 2000+ line document contains everything you need:
-- Architecture overview
-- State management (Zustand patterns)
-- Authentication (Ed25519 flow)
-- All deployment workflows
-- Common pitfalls and fixes
+**Start here:** [ai-context/CLAUDE.md](ai-context/CLAUDE.md) — Concise reference covering architecture, key files, config, and deployment.
 
 **Also useful:**
-- [ai-context/CODEBASE-MAP.md](ai-context/CODEBASE-MAP.md) — Quick-reference map of all files, routes, and constants
+- [ai-context/CODEBASE-MAP.md](ai-context/CODEBASE-MAP.md) — File-level map with all routes and constants
 - [ai-context/FEATURE_CATALOG.md](ai-context/FEATURE_CATALOG.md) — Feature inventory
+- [QA-HANDOFF.md](QA-HANDOFF.md) — Post-overhaul QA audit and verification matrix
 
 ---
 
@@ -40,16 +34,15 @@ This 2000+ line document contains everything you need:
 ### Getting Started
 1. [getting-started/developer-setup.md](getting-started/developer-setup.md) — Local development setup
 2. [getting-started/common-tasks.md](getting-started/common-tasks.md) — Day-to-day workflows
-3. [getting-started/setup.md](getting-started/setup.md) — Production environment setup
 
 ### Technical Reference
-- [backend/API.md](backend/API.md) — Complete API documentation (49 endpoints)
-- [backend/SERVICES.md](backend/SERVICES.md) — Backend services (20+ modules)
-- [frontend/MODULES.md](frontend/MODULES.md) — Frontend modules (32 files across 8 directories)
+- [backend/API.md](backend/API.md) — API endpoints (8 blueprints)
+- [backend/SERVICES.md](backend/SERVICES.md) — Backend services
+- [frontend/MODULES.md](frontend/MODULES.md) — Frontend modules
 
 ### Architecture
 - [architecture/trinity-storage-architecture.md](architecture/trinity-storage-architecture.md) — Storage layer design
-- [architecture/decisions/](architecture/decisions/) — Architecture Decision Records (5 ADRs)
+- [architecture/decisions/](architecture/decisions/) — Architecture Decision Records (3 active ADRs)
 
 ---
 
@@ -72,23 +65,18 @@ This 2000+ line document contains everything you need:
 ```
 Trinity/
 ├── backend/                    # Flask + Ollama backend
-│   ├── inference_server.py     # App factory (349 lines)
-│   ├── routes/                 # 7 route blueprints (49 endpoints)
-│   ├── middleware/             # Rate limiting, caching, observability
-│   └── services/               # 20+ service modules
-├── trinity-icp/src/            # ICP frontend
-│   ├── app.js                  # Application orchestrator (266 lines)
-│   ├── core/                   # Infrastructure (api.js, environment.js, logger.js)
-│   ├── features/               # Feature modules (auth, generate, chat, memory)
-│   ├── auth/                   # Ed25519 authentication
-│   ├── state/                  # Zustand state management
-│   ├── storage/                # Autosave, IPFS
-│   └── ui/                     # UI components
-├── deploy/                     # Deployment configs
-│   ├── akash/                  # Akash YAML manifests
-│   ├── docker/                 # Dockerfile
+│   ├── inference_server.py     # App factory
+│   ├── routes/                 # 8 blueprints
+│   ├── middleware/             # Rate limiting, Prometheus, caching
+│   └── services/               # Agent pipeline, tools, RAG, MCP
+├── trinity-icp/
+│   ├── src/                    # Vanilla JS frontend (active, deployed)
+│   └── src-react/              # React 19 + TypeScript (new, not yet deployed)
+├── deploy/
+│   ├── akash/                  # Akash YAML manifests (3 tiers)
+│   ├── docker/                 # Dockerfile + startup
 │   └── cloudflare-worker/      # SSL proxy
-├── scripts/                    # Automation scripts
+├── scripts/                    # Automation (deploy, provider switching)
 └── docs/                       # This documentation
 ```
 
@@ -106,13 +94,13 @@ Trinity/
 
 ---
 
-## Document Versions
+## Historical / Archive
 
-| Document | Last Updated |
-|----------|--------------|
-| CLAUDE.md | February 10, 2026 |
-| CODEBASE-MAP.md | February 10, 2026 |
-| FEATURE_CATALOG.md | February 6, 2026 |
-| MODULES.md | February 10, 2026 |
-| B2B Pivot Strategy | February 10, 2026 |
-| This README | February 10, 2026 |
+| Document | Description |
+|----------|-------------|
+| [ai-context/OVERHAUL-PROGRESS.md](ai-context/OVERHAUL-PROGRESS.md) | Phase-by-phase overhaul audit trail |
+| [QA-HANDOFF.md](QA-HANDOFF.md) | Post-overhaul QA verification matrix |
+| [plans/INTELLIGENCE-OVERHAUL.md](plans/INTELLIGENCE-OVERHAUL.md) | Backend overhaul spec (completed) |
+| [plans/FRONTEND-OVERHAUL-PROPOSAL.md](plans/FRONTEND-OVERHAUL-PROPOSAL.md) | Frontend overhaul spec (completed) |
+| [architecture/decisions/001-complexity-routing.md](architecture/decisions/001-complexity-routing.md) | Archived — superseded by single-pass |
+| [architecture/decisions/004-hash-based-experiments.md](architecture/decisions/004-hash-based-experiments.md) | Archived — experiments deleted |

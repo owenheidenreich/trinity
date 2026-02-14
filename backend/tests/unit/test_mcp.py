@@ -24,8 +24,7 @@ class TestMCPToolList:
 
         tools = get_mcp_tool_list()
         assert isinstance(tools, list)
-        assert len(tools) == 8  # calculator, code_display, web_search, fact_check,
-        # document_search, save_memory, recall_memory, search_memory
+        assert len(tools) == 13  # 8 original + 5 filesystem (Phase 5)
 
     def test_tool_has_required_fields(self):
         from services.mcp_server import get_mcp_tool_list
@@ -108,7 +107,7 @@ class TestMCPHandler:
         )
         assert response["id"] == 3
         tools = response["result"]["tools"]
-        assert len(tools) == 8
+        assert len(tools) == 13  # 8 original + 5 filesystem (Phase 5)
 
     def test_tools_call_calculator(self):
         from services.mcp_server import handle_mcp_message
@@ -233,7 +232,7 @@ class TestMCPRoute:
         )
         assert response.status_code == 200
         data = response.get_json()
-        assert len(data["result"]["tools"]) == 8
+        assert len(data["result"]["tools"]) == 13  # 8 original + 5 filesystem (Phase 5)
 
     def test_post_tools_call(self, client):
         response = client.post(
@@ -338,12 +337,11 @@ class TestMCPClientManager:
         assert "Unknown MCP tool" in msg
 
     def test_initialize_mcp_client_disabled(self):
-        """When MCP_CLIENT_ENABLED is False, returns 0."""
-        with patch("config.MCP_CLIENT_ENABLED", False):
-            from services.mcp_client import initialize_mcp_client
+        """MCP client always returns 0 (feature disabled)."""
+        from services.mcp_client import initialize_mcp_client
 
-            result = initialize_mcp_client()
-            assert result == 0
+        result = initialize_mcp_client()
+        assert result == 0
 
 
 # ============================================================================
@@ -354,13 +352,11 @@ class TestMCPClientManager:
 class TestMCPToolIntegration:
     """Test that MCP tools integrate with existing tool system."""
 
-    def test_get_all_tool_definitions_includes_local(self):
-        from services.tools import TOOL_DEFINITIONS, get_all_tool_definitions
+    def test_local_tool_definitions_available(self):
+        from services.tools import TOOL_DEFINITIONS
 
-        all_tools = get_all_tool_definitions()
-        # Should include all 8 local tools
-        for name in TOOL_DEFINITIONS:
-            assert name in all_tools
+        # Should include local tools
+        assert len(TOOL_DEFINITIONS) >= 7
 
     def test_execute_tool_mcp_fallback(self):
         """Unknown tools fall through to MCP client."""

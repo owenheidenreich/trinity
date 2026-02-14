@@ -5,6 +5,7 @@
 // ============================================================================
 
 import AuthManager from '../auth/authManager.js';
+import Logger from '../core/logger.js';
 import State from '../state/store.js';
 import UI from '../ui/index.js';
 import { loadUserDataInBackground } from './chatManagement.js';
@@ -14,24 +15,24 @@ import { loadUserDataInBackground } from './chatManagement.js';
  * Restores cached credentials or forces login.
  */
 export async function initAuth() {
-    console.log('🔐 Starting authentication initialization...');
+    Logger.debug('Starting authentication initialization...');
 
     try {
         const result = await AuthManager.initialize();
 
         if (result && result.isAuthenticated) {
             State.setAuthenticated(result.principal, result.authenticatedSince);
-            console.log('✅ Identity restored from cache:', result.principal);
+            Logger.debug('Identity restored from cache:', result.principal?.slice(0, 10));
 
             UI.renderSidebar(State);
             loadUserDataInBackground();
         } else {
-            console.log('🚫 No cached session - authentication required');
+            Logger.debug('No cached session - authentication required');
             UI.renderSidebar(State);
             await requireAuthentication();
         }
     } catch (err) {
-        console.error('❌ Auth initialization error:', err);
+        Logger.error('Auth initialization error:', err);
         UI.renderSidebar(State);
         await requireAuthentication();
     }
@@ -41,23 +42,23 @@ export async function initAuth() {
  * Require authentication (loops until successful).
  */
 export async function requireAuthentication() {
-    console.log('🔒 Authentication required - showing modal...');
+    Logger.debug('Authentication required - showing modal...');
 
     while (!State.isAuthenticated) {
         try {
             await handleAuthenticationFlow();
 
             if (!State.isAuthenticated) {
-                console.log('⚠️ Authentication incomplete, retrying...');
+                Logger.debug('Authentication incomplete, retrying...');
                 await new Promise(resolve => setTimeout(resolve, 500));
             }
         } catch (error) {
-            console.error('❌ Authentication flow error:', error);
+            Logger.error('Authentication flow error:', error);
             await new Promise(resolve => setTimeout(resolve, 500));
         }
     }
 
-    console.log('✅ Authentication successful!');
+    Logger.debug('Authentication successful');
 }
 
 /**
@@ -81,10 +82,10 @@ async function handleAuthenticationFlow() {
 async function createNewIdentity() {
     try {
         const result = await AuthManager.login();
-        console.log('🔑 New identity created:', result.principal?.substring(0, 20) + '...');
+        Logger.debug('New identity created');
 
         if (!result.success) {
-            console.error('❌ Identity creation failed');
+            Logger.error('Identity creation failed');
             return;
         }
 
@@ -95,21 +96,21 @@ async function createNewIdentity() {
 
         // Set auth state
         State.setAuthenticated(result.principal, result.authenticatedSince);
-        console.log('🔐 Auth state set. isAuthenticated:', State.isAuthenticated, 'principal:', State.principal?.substring(0, 15) + '...');
+        Logger.debug('Auth state set. isAuthenticated:', State.isAuthenticated);
 
         if (!State.isAuthenticated) {
-            console.error('❌ CRITICAL: State.setAuthenticated failed to update state!');
+            Logger.error('CRITICAL: State.setAuthenticated failed to update state!');
             State.setAuthenticated(result.principal, result.authenticatedSince);
         }
 
         Modals.removeAllModals();
         UI.renderSidebar(State);
-        console.log('✅ New user authenticated! Final check - isAuthenticated:', State.isAuthenticated);
+        Logger.debug('New user authenticated');
 
         loadUserDataInBackground();
 
     } catch (error) {
-        console.error('❌ Create identity error:', error);
+        Logger.error('Create identity error:', error);
     }
 }
 
@@ -122,7 +123,7 @@ export async function loginWithCredentials() {
     try {
         const credentials = await Modals.showLoginModal();
         if (!credentials) {
-            console.log('🚫 Login cancelled by user');
+            Logger.debug('Login cancelled by user');
             return;
         }
 
@@ -139,15 +140,15 @@ export async function loginWithCredentials() {
         State.setAuthenticated(result.principal, result.authenticatedSince);
         Modals.removeAllModals();
 
-        console.log('✅ Identity restored:', result.principal);
-        UI.showNotification('✅ Welcome back!', 'success');
+        Logger.debug('Identity restored');
+        UI.showNotification('Welcome back!', 'success');
         UI.renderSidebar(State);
 
         loadUserDataInBackground();
 
     } catch (error) {
-        console.error('❌ Login failed:', error);
-        UI.showNotification('❌ Invalid credentials. Please try again.', 'error');
+        Logger.error('Login failed:', error);
+        UI.showNotification('Invalid credentials. Please try again.', 'error');
     }
 }
 

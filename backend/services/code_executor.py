@@ -3,13 +3,26 @@ Trinity Backend - Code Executor
 Sandboxed Python execution using RestrictedPython
 """
 
+import fnmatch
 import logging
 import math
+import os
+import subprocess
 import threading
 from io import StringIO
+from pathlib import Path
 from typing import Dict, Tuple
 
-from config import CODE_EXECUTION_ENABLED, CODE_EXECUTION_TIMEOUT
+from config import (
+    CODE_EXECUTION_ENABLED,
+    CODE_EXECUTION_TIMEOUT,
+    WORKSPACE_ALLOWED_COMMANDS,
+    WORKSPACE_COMMAND_TIMEOUT,
+    WORKSPACE_MAX_DEPTH,
+    WORKSPACE_MAX_FILE_SIZE,
+    WORKSPACE_MAX_SEARCH_RESULTS,
+    WORKSPACE_ROOT,
+)
 
 # Observability (Phase 2B)
 try:
@@ -318,6 +331,21 @@ def execute_tool(tool_name: str, params: Dict, context: Dict = None) -> Tuple[bo
         elif tool_name in ("save_memory", "recall_memory", "search_memory"):
             return _execute_memory_tool(tool_name, params, context, tracker)
 
+        elif tool_name == "read_file":
+            return _execute_read_file(params, tracker)
+
+        elif tool_name == "write_file":
+            return _execute_write_file(params, tracker)
+
+        elif tool_name == "list_directory":
+            return _execute_list_directory(params, tracker)
+
+        elif tool_name == "search_codebase":
+            return _execute_search_codebase(params, tracker)
+
+        elif tool_name == "run_command":
+            return _execute_run_command(params, tracker)
+
         else:
             # Fall through to MCP client for external tools
             return _execute_mcp_tool(tool_name, params, tracker)
@@ -438,6 +466,308 @@ def _execute_memory_tool(tool_name: str, params: Dict, context: Dict, tracker) -
     except Exception as e:
         tracker.set_status("error")
         return False, f"Memory tool failed: {e}"
+
+
+# ── Filesystem sandbox ─────────────────────────────────────────────
+
+
+def _resolve_sandbox_path(user_path: str) -> Tuple[bool, str]:
+    """
+    Resolve a user-provided path within the workspace sandbox.
+
+    Prevents path traversal attacks by resolving to absolute path
+    and verifying it stays within WORKSPACE_ROOT.
+
+    Returns:
+        Tuple of (valid, resolved_path_or_error)
+    """
+    try:
+        workspace = Path(WORKSPACE_ROOT).resolve()
+        # Ensure workspace exists
+        if not workspace.exists():
+            workspace.mkdir(parents=True, exist_ok=True)
+
+        # Resolve the user path relative to workspace
+        target = (workspace / user_path).resolve()
+
+        # Security check: must be within workspace
+        if not str(target).startswith(str(workspace)):
+            return False, f"Access denied: path traversal blocked ('{user_path}' resolves outside workspace)"
+
+        return True, str(target)
+    except Exception as e:
+        return False, f"Invalid path: {e}"
+
+
+def _execute_read_file(params: Dict, tracker) -> Tuple[bool, str]:
+    """Read a file from the sandboxed workspace."""
+    path = params.get("path", "")
+    if not path.strip():
+        return False, "No file path provided"
+
+    valid, resolved = _resolve_sandbox_path(path)
+    if not valid:
+        tracker.set_status("error")
+        return False, resolved
+
+    try:
+        target = Path(resolved)
+        if not target.exists():
+            return False, f"File not found: {path}"
+        if not target.is_file():
+            return False, f"Not a file: {path}"
+        if target.stat().st_size > WORKSPACE_MAX_FILE_SIZE:
+            return False, f"File too large (max {WORKSPACE_MAX_FILE_SIZE // 1024 // 1024}MB): {path}"
+
+        content = target.read_text(encoding="utf-8", errors="replace")
+        lines = content.splitlines()
+
+        # Handle optional line ranges
+        start_line = params.get("start_line")
+        end_line = params.get("end_line")
+
+        if start_line or end_line:
+            try:
+                start = int(start_line) - 1 if start_line else 0  # 1-based to 0-based
+                end = int(end_line) if end_line else len(lines)
+                start = max(0, start)
+                end = min(len(lines), end)
+                selected = lines[start:end]
+                header = f"File: {path} (lines {start + 1}-{end} of {len(lines)})"
+                numbered = [f"{start + i + 1:4d} | {line}" for i, line in enumerate(selected)]
+                return True, f"{header}\n" + "\n".join(numbered)
+            except ValueError:
+                pass  # Fall through to full file
+
+        # Return full file with line numbers
+        if len(lines) > 500:
+            # Truncate very large files
+            numbered = [f"{i + 1:4d} | {line}" for i, line in enumerate(lines[:500])]
+            return True, (
+                f"File: {path} ({len(lines)} lines, showing first 500)\n"
+                + "\n".join(numbered)
+                + f"\n\n... truncated ({len(lines) - 500} more lines)"
+            )
+
+        numbered = [f"{i + 1:4d} | {line}" for i, line in enumerate(lines)]
+        return True, f"File: {path} ({len(lines)} lines)\n" + "\n".join(numbered)
+
+    except UnicodeDecodeError:
+        return False, f"Cannot read binary file: {path}"
+    except Exception as e:
+        tracker.set_status("error")
+        return False, f"Failed to read file: {e}"
+
+
+def _execute_write_file(params: Dict, tracker) -> Tuple[bool, str]:
+    """Write content to a file in the sandboxed workspace."""
+    path = params.get("path", "")
+    content = params.get("content", "")
+
+    if not path.strip():
+        return False, "No file path provided"
+
+    valid, resolved = _resolve_sandbox_path(path)
+    if not valid:
+        tracker.set_status("error")
+        return False, resolved
+
+    # Size check
+    if len(content.encode("utf-8")) > WORKSPACE_MAX_FILE_SIZE:
+        return False, f"Content too large (max {WORKSPACE_MAX_FILE_SIZE // 1024 // 1024}MB)"
+
+    try:
+        target = Path(resolved)
+        # Create parent directories
+        target.parent.mkdir(parents=True, exist_ok=True)
+
+        existed = target.exists()
+        target.write_text(content, encoding="utf-8")
+
+        line_count = len(content.splitlines())
+        action = "Updated" if existed else "Created"
+        return True, f"{action} {path} ({line_count} lines, {len(content)} bytes)"
+
+    except Exception as e:
+        tracker.set_status("error")
+        return False, f"Failed to write file: {e}"
+
+
+def _execute_list_directory(params: Dict, tracker) -> Tuple[bool, str]:
+    """List files and directories in the sandboxed workspace."""
+    path = params.get("path", ".")
+    recursive = params.get("recursive", "").lower() == "true"
+
+    valid, resolved = _resolve_sandbox_path(path)
+    if not valid:
+        tracker.set_status("error")
+        return False, resolved
+
+    try:
+        target = Path(resolved)
+        if not target.exists():
+            return False, f"Directory not found: {path}"
+        if not target.is_dir():
+            return False, f"Not a directory: {path}"
+
+        entries = []
+        workspace = Path(WORKSPACE_ROOT).resolve()
+
+        if recursive:
+            _list_recursive(target, workspace, entries, depth=0, max_depth=WORKSPACE_MAX_DEPTH)
+        else:
+            for item in sorted(target.iterdir()):
+                rel = item.relative_to(workspace)
+                suffix = "/" if item.is_dir() else ""
+                entries.append(f"  {rel}{suffix}")
+
+        if not entries:
+            return True, f"Directory is empty: {path}"
+
+        return True, f"Contents of {path} ({len(entries)} items):\n" + "\n".join(entries)
+
+    except PermissionError:
+        return False, f"Permission denied: {path}"
+    except Exception as e:
+        tracker.set_status("error")
+        return False, f"Failed to list directory: {e}"
+
+
+def _list_recursive(directory: Path, workspace: Path, entries: list, depth: int, max_depth: int):
+    """Recursively list directory contents with indentation."""
+    if depth > max_depth:
+        return
+    try:
+        for item in sorted(directory.iterdir()):
+            # Skip hidden files and common noise
+            if item.name.startswith(".") or item.name in ("__pycache__", "node_modules", ".git"):
+                continue
+            rel = item.relative_to(workspace)
+            indent = "  " * (depth + 1)
+            suffix = "/" if item.is_dir() else ""
+            entries.append(f"{indent}{rel}{suffix}")
+            if item.is_dir() and depth < max_depth:
+                _list_recursive(item, workspace, entries, depth + 1, max_depth)
+    except PermissionError:
+        pass
+
+
+def _execute_search_codebase(params: Dict, tracker) -> Tuple[bool, str]:
+    """Search for text patterns in workspace files."""
+    query = params.get("query", "")
+    file_pattern = params.get("file_pattern", "")
+
+    if not query.strip():
+        return False, "No search query provided"
+
+    try:
+        workspace = Path(WORKSPACE_ROOT).resolve()
+        if not workspace.exists():
+            return False, "Workspace directory not found"
+
+        matches = []
+        max_results = WORKSPACE_MAX_SEARCH_RESULTS
+
+        for root, dirs, files in os.walk(str(workspace)):
+            # Skip hidden/noisy directories
+            dirs[:] = [
+                d for d in dirs
+                if not d.startswith(".") and d not in ("__pycache__", "node_modules", ".git")
+            ]
+
+            for filename in files:
+                if file_pattern and not fnmatch.fnmatch(filename, file_pattern):
+                    continue
+
+                filepath = Path(root) / filename
+                rel_path = filepath.relative_to(workspace)
+
+                # Skip binary/large files
+                try:
+                    if filepath.stat().st_size > 1024 * 1024:  # 1MB max per file
+                        continue
+                except OSError:
+                    continue
+
+                try:
+                    content = filepath.read_text(encoding="utf-8", errors="strict")
+                except (UnicodeDecodeError, PermissionError):
+                    continue
+
+                for line_num, line in enumerate(content.splitlines(), 1):
+                    if query.lower() in line.lower():
+                        matches.append(f"  {rel_path}:{line_num}: {line.strip()[:120]}")
+                        if len(matches) >= max_results:
+                            break
+                if len(matches) >= max_results:
+                    break
+            if len(matches) >= max_results:
+                break
+
+        if not matches:
+            pattern_info = f" (pattern: {file_pattern})" if file_pattern else ""
+            return True, f"No matches found for '{query}'{pattern_info}"
+
+        truncated = f" (showing first {max_results})" if len(matches) >= max_results else ""
+        return True, f"Found {len(matches)} matches for '{query}'{truncated}:\n" + "\n".join(matches)
+
+    except Exception as e:
+        tracker.set_status("error")
+        return False, f"Search failed: {e}"
+
+
+def _execute_run_command(params: Dict, tracker) -> Tuple[bool, str]:
+    """Run an allowed command in the sandboxed workspace."""
+    command = params.get("command", "")
+    if not command.strip():
+        return False, "No command provided"
+
+    # Parse the command to check the executable
+    parts = command.strip().split()
+    executable = parts[0]
+
+    # Security: only allowed executables
+    if executable not in WORKSPACE_ALLOWED_COMMANDS:
+        allowed = ", ".join(WORKSPACE_ALLOWED_COMMANDS)
+        return False, f"Command '{executable}' not allowed. Allowed commands: {allowed}"
+
+    try:
+        workspace = Path(WORKSPACE_ROOT).resolve()
+        if not workspace.exists():
+            workspace.mkdir(parents=True, exist_ok=True)
+
+        result = subprocess.run(
+            command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=WORKSPACE_COMMAND_TIMEOUT,
+            cwd=str(workspace),
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        )
+
+        output_parts = []
+        if result.stdout:
+            output_parts.append(result.stdout)
+        if result.stderr:
+            output_parts.append(f"STDERR:\n{result.stderr}")
+
+        output = "\n".join(output_parts) if output_parts else "(no output)"
+
+        # Truncate long output
+        if len(output) > 10000:
+            output = output[:10000] + f"\n\n... output truncated ({len(output)} total chars)"
+
+        if result.returncode == 0:
+            return True, f"Command completed (exit code 0):\n{output}"
+        else:
+            return False, f"Command failed (exit code {result.returncode}):\n{output}"
+
+    except subprocess.TimeoutExpired:
+        return False, f"Command timed out after {WORKSPACE_COMMAND_TIMEOUT} seconds"
+    except Exception as e:
+        tracker.set_status("error")
+        return False, f"Command execution failed: {e}"
 
 
 def _execute_mcp_tool(tool_name: str, params: Dict, tracker) -> Tuple[bool, str]:

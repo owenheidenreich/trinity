@@ -195,46 +195,6 @@ class TestGenerationPipeline:
         assert response.status_code == 400
 
 
-class TestLangGraphPipeline:
-    """Test LangGraph-specific endpoints."""
-
-    def test_langgraph_endpoint_exists(self, client, mock_ollama_generate, mock_auth):
-        """LangGraph endpoint should be accessible."""
-        headers = {
-            "X-ICP-Principal": "test-principal",
-            "X-ICP-Signature": "test-sig",
-            "X-ICP-Public-Key": "test-key",
-            "X-ICP-Timestamp": str(int(time.time() * 1000)),
-            "Content-Type": "application/json",
-        }
-
-        response = client.post(
-            "/generate/langgraph", json={"prompt": "Test query"}, headers=headers
-        )
-
-        # Should work, return 404 (no endpoint), or indicate experiments not enabled
-        assert response.status_code in [200, 400, 404, 500, 503]
-
-    @patch("services.agent.get_agent_pipeline")
-    def test_langgraph_with_mock_agent(self, mock_pipeline, client, mock_auth):
-        """LangGraph should process with mocked agent."""
-        # Mock the agent pipeline
-        mock_agent = MagicMock()
-        mock_agent.process.return_value = MagicMock(
-            response="Test response", passes=2, used_langgraph=True
-        )
-        mock_pipeline.return_value = mock_agent
-
-        headers = {"X-ICP-Principal": "test-principal", "Content-Type": "application/json"}
-
-        response = client.post(
-            "/generate/langgraph", json={"prompt": "Complex analysis question"}, headers=headers
-        )
-
-        # Should succeed, return 404, or experiment not enabled
-        assert response.status_code in [200, 400, 404, 500, 503]
-
-
 # =============================================================================
 # AUTHENTICATION TESTS
 # =============================================================================
@@ -313,49 +273,6 @@ class TestCachingIntegration:
         assert response.status_code == 200
         data = response.get_json()
         assert data["status"] == "cleared"
-
-
-# =============================================================================
-# EXPERIMENT TESTS
-# =============================================================================
-
-
-class TestExperimentsIntegration:
-    """Test A/B experiment integration."""
-
-    def test_experiments_list_endpoint(self, client, mock_admin_auth):
-        """Should list all experiments."""
-        response = client.get("/admin/experiments", headers=mock_admin_auth)
-
-        assert response.status_code == 200
-        data = response.get_json()
-        # Should have experiment definitions
-        assert isinstance(data, dict)
-
-    def test_experiment_assignment(self, client, mock_admin_auth):
-        """Should return consistent assignment for session."""
-        session_id = "test-session-12345"
-
-        response1 = client.get(f"/admin/experiments/assignment/{session_id}", headers=mock_admin_auth)
-        response2 = client.get(f"/admin/experiments/assignment/{session_id}", headers=mock_admin_auth)
-
-        assert response1.status_code == 200
-        assert response2.status_code == 200
-
-        # Same session should get same assignments
-        data1 = response1.get_json()
-        data2 = response2.get_json()
-        assert data1["assignments"] == data2["assignments"]
-
-    def test_experiment_enable_disable(self, client, mock_admin_auth):
-        """Should be able to enable/disable experiments."""
-        # Try to disable
-        response = client.post("/admin/experiments/agent_mode/disable", headers=mock_admin_auth)
-        assert response.status_code in [200, 404]
-
-        # Try to re-enable
-        response = client.post("/admin/experiments/agent_mode/enable", headers=mock_admin_auth)
-        assert response.status_code in [200, 404]
 
 
 # =============================================================================

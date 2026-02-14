@@ -1,7 +1,9 @@
 # ADR-004: Hash-Based Experiment Assignment
 
 ## Status
-Accepted
+**Archived** — Experiments framework deleted (Feb 2026 Intelligence Overhaul).
+
+`services/experiments.py`, `middleware/ab_test.py`, and all experiment tests were removed. The A/B testing infrastructure is no longer needed since the system uses a single agent pipeline.
 
 ## Date
 February 2026

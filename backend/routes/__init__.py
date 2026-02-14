@@ -6,7 +6,7 @@ Extracted from inference_server.py (Phase 3.1)
 Blueprints:
   - health_bp:   /health, /health/icp, /metrics, /stats
   - admin_bp:    /admin/*
-  - generate_bp: /generate, /generate/stream, /generate/agent, /generate/langgraph
+  - generate_bp: /generate, /generate/agent
   - chat_bp:     /chat/*, /user/status, /user/memory*
   - tools_bp:    /tools/*
   - v4_bp:       /v4/*

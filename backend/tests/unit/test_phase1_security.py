@@ -86,7 +86,6 @@ class TestAdminEndpointAuth:
     """Verify all /admin/* endpoints require admin authentication."""
 
     ADMIN_ENDPOINTS = [
-        ("/admin/experiments", "GET"),
         ("/admin/cache/stats", "GET"),
         ("/admin/tokens/usage", "GET"),
         ("/admin/quota/usage", "GET"),
@@ -127,11 +126,11 @@ class TestAdminEndpointAuth:
     @pytest.mark.security
     def test_admin_endpoint_allows_admin_user(self, client, admin_keypair):
         """Admin endpoints must allow requests from admin principals."""
-        endpoint = "/admin/experiments"
+        endpoint = "/admin/cache/stats"
         headers = make_auth_headers(admin_keypair, endpoint)
         with patch("icp_auth.ADMIN_PRINCIPALS", [admin_keypair["principal"]]):
             response = client.get(endpoint, headers=headers)
-        # Should not be 401 or 403 - may be 503 if experiments module not available
+        # Should not be 401 or 403
         assert response.status_code not in (401, 403), (
             f"Admin was rejected with status {response.status_code}"
         )
@@ -140,7 +139,7 @@ class TestAdminEndpointAuth:
     @pytest.mark.security
     def test_admin_returns_403_when_no_admins_configured(self, client, admin_keypair):
         """If ADMIN_PRINCIPALS is empty, all admin access should be denied."""
-        endpoint = "/admin/experiments"
+        endpoint = "/admin/cache/stats"
         headers = make_auth_headers(admin_keypair, endpoint)
         with patch("icp_auth.ADMIN_PRINCIPALS", []):
             response = client.get(endpoint, headers=headers)
@@ -214,7 +213,10 @@ class TestEncryptedUserMemory:
             save_user_memory(principal, original_memory)
             loaded = load_user_memory(principal)
 
-            assert loaded["facts"] == ["Secret fact A", "Secret fact B"]
+            # String facts are normalized to dicts on load
+            assert len(loaded["facts"]) == 2
+            assert loaded["facts"][0]["text"] == "Secret fact A"
+            assert loaded["facts"][1]["text"] == "Secret fact B"
             assert loaded["preferences"]["lang"] == "en"
 
     @pytest.mark.p1
@@ -239,7 +241,9 @@ class TestEncryptedUserMemory:
             (user_dir / "user_memory.json").write_text(json.dumps(legacy_data))
 
             loaded = load_user_memory(principal)
-            assert loaded["facts"] == ["Legacy fact"]
+            # Legacy string facts normalized to dicts
+            assert len(loaded["facts"]) == 1
+            assert loaded["facts"][0]["text"] == "Legacy fact"
 
     @pytest.mark.p0
     @pytest.mark.security

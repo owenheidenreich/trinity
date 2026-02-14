@@ -1,16 +1,14 @@
 """
-Trinity Agentic Pipeline - Pass Prompts
+Trinity Agentic Pipeline - Prompts
 
-Prompts for each pass of the multi-pass reasoning pipeline.
-Uses XML tags for reliable parsing.
+Single-pass prompt system. Two prompts:
+  1. SYSTEM_PROMPT — direct Q&A (no tools)
+  2. SYSTEM_PROMPT + TOOL_PROMPT_SECTION — when tools are needed (ReAct handles turn-taking)
 
-v4.0 Enhancements:
-- Tool calling support with XML format
-- Enhanced context from semantic memory
+Plus REACT_SYSTEM_PROMPT for the ReAct loop's own system message.
 """
 
 import re
-from dataclasses import dataclass
 from typing import Dict, List, Optional
 
 # ============================================================================
@@ -46,17 +44,40 @@ You have access to these tools. Call them when you need external information or 
 **search_memory** — Search through all saved memories (exact, semantic, or hybrid).
   <tool_call name="search_memory"><query>Python</query><search_type>hybrid</search_type></tool_call>
 
+**read_file** — Read a file from the workspace (sandboxed to /workspace).
+  <tool_call name="read_file"><path>src/main.py</path></tool_call>
+  <tool_call name="read_file"><path>src/main.py</path><start_line>10</start_line><end_line>50</end_line></tool_call>
+
+**write_file** — Write content to a file in the workspace (sandboxed, max 5MB).
+  <tool_call name="write_file"><path>output.py</path><content>print("hello")</content></tool_call>
+
+**list_directory** — List files and directories in the workspace (max depth 3).
+  <tool_call name="list_directory"><path>.</path></tool_call>
+  <tool_call name="list_directory"><path>src</path><recursive>true</recursive></tool_call>
+
+**search_codebase** — Search for text patterns in workspace files (max 50 matches).
+  <tool_call name="search_codebase"><query>def main</query><file_pattern>*.py</file_pattern></tool_call>
+
+**run_command** — Run an allowed command (python, pytest, node only).
+  <tool_call name="run_command"><command>pytest tests/ -x</command></tool_call>
+
 ## Rules
 1. Output EXACTLY ONE tool call per turn, then STOP — do not write anything after it.
 2. Tool results will appear in the next message. Then decide: call another tool or give your final answer.
 3. Do NOT guess answers you can look up. Use web_search for current events, prices, news.
 4. Do NOT include tool_call tags in your final answer.
+5. For file operations: paths are relative to /workspace. Path traversal (../) is blocked.
 
 ## Memory Guidelines
 - Save important user facts (name, job, preferences, goals) with save_memory when shared
 - Before answering personal questions ("what do you know about me?", "do you remember...?"), call recall_memory first
 - Do NOT save trivial or session-specific details (e.g., "user asked about weather")
 - Use search_memory when looking for a specific saved fact by keyword
+
+## Code Execution Guidelines
+- When code has errors, examine the error message and fix the code, then try again
+- Use run_command for running tests or scripts
+- Use code_display with execute=true for quick Python snippets
 """
 
 # ============================================================================
@@ -87,80 +108,10 @@ You solve problems by reasoning step-by-step and using tools when needed.
 
 
 # ============================================================================
-# PASS 1: UNDERSTAND
+# SYSTEM PROMPT (single-pass, used for all queries)
 # ============================================================================
 
-UNDERSTAND_PROMPT = """Analyze this question. Be precise and brief.
-{context}
-Question: {question}
-
-Respond in EXACTLY this XML format (no other text):
-<type>factual|analytical|creative|code|design|debug|explanation</type>
-<domains>comma-separated knowledge domains</domains>
-<complexity>1-10 integer</complexity>
-<tools_needed>calculator|web_search|fact_check|document_search|code_display|save_memory|recall_memory|search_memory (comma-separated, or "none")</tools_needed>
-<summary>One sentence: what is the user really asking?</summary>
-<key_challenges>What makes this hard to answer well?</key_challenges>"""
-
-
-# ============================================================================
-# PASS 2: PLAN
-# ============================================================================
-
-PLAN_PROMPT = """Based on this analysis:
-{understanding}
-
-Create a plan to thoroughly answer this question:
-{question}
-
-Respond in EXACTLY this format:
-<plan>
-1. [First concrete step]
-2. [Second step]
-3. [Third step]
-4. [Fourth step if needed]
-5. [Fifth step if needed]
-</plan>
-<approach>Brief description of your overall strategy</approach>
-<pitfalls>What could go wrong? What should you avoid?</pitfalls>"""
-
-
-# ============================================================================
-# PASS 3: EXECUTE
-# ============================================================================
-
-EXECUTE_PROMPT_WITH_PLAN = """You are Trinity, a sharp and knowledgeable AI assistant.
-
-Context about the user:
-{user_memory}
-
-Previous conversation:
-{context}
-{search_context}
-Your analysis:
-{understanding}
-
-Your plan:
-{plan}
-{tools_section}
-Now answer this question by executing your plan:
-{question}
-
-## Guidelines
-- Write COMPLETE code — never use "..." or "# rest of code". Include imports and error handling.
-- When showing code: briefly explain your approach first, then show the full code, then highlight key design decisions.
-- For explanations: cover all key aspects, use concrete examples.
-- For complex problems: show your reasoning step by step.
-- Be direct and substantive — skip filler phrases like "Great question!" or "Sure, I'd be happy to help!"
-
-## Formatting
-- Use Markdown for structure (headers, lists, bold).
-- Math: always use LaTeX — $x^2$ inline, $$\\sum_{{i=1}}^n i$$ for blocks.
-- Code: use fenced blocks with language tags (```python).
-- NEVER use <tool_call> or <code_display> XML tags. Always write code in ```language markdown blocks."""
-
-
-EXECUTE_PROMPT_SIMPLE = """You are Trinity, a sharp and knowledgeable AI assistant.
+SYSTEM_PROMPT = """You are Trinity, a sharp and knowledgeable AI assistant.
 
 Context about the user:
 {user_memory}
@@ -182,91 +133,7 @@ Question: {question}
 
 
 # ============================================================================
-# PASS 4: CRITIQUE
-# ============================================================================
-
-CRITIQUE_PROMPT = """You are a fair quality reviewer. Evaluate this response honestly.
-
-Question: {question}
-
-Response:
-{response}
-
-Scoring guidelines:
-- 9-10: Correct, clear, well-organized answer
-- 7-8: Good answer with minor gaps or formatting issues
-- 5-6: Has notable errors, missing key info, or poor organization
-- 3-4: Mostly wrong, incoherent, or severely incomplete
-- 1-2: Completely wrong or off-topic
-
-IMPORTANT: For simple factual questions, a short correct answer IS a high-quality answer.
-Do NOT penalize brevity when the question is simple. Only find real weaknesses that exist.
-
-Respond in EXACTLY this XML format (no other text):
-<weakness1>First weakness (or 'None' if answer is good)</weakness1>
-<weakness2>Second weakness (or 'None')</weakness2>
-<weakness3>Third weakness (or 'None')</weakness3>
-<score>1-10 integer (7+ means acceptable quality)</score>
-<verdict>One sentence overall assessment</verdict>"""
-
-
-# ============================================================================
-# PASS 5: REFINE
-# ============================================================================
-
-REFINE_PROMPT = """Improve this response by fixing the weaknesses identified below.
-
-Question: {question}
-
-Original Response:
-{response}
-
-Weaknesses to fix:
-1. {weakness1}
-2. {weakness2}
-3. {weakness3}
-Score: {score}/10 — Verdict: {verdict}
-
-Write the improved response. Keep what was good, fix what was weak.
-Start directly with the answer — do NOT mention the refinement process."""
-
-
-# ============================================================================
-# DATA CLASSES
-# ============================================================================
-
-
-@dataclass
-class UnderstandingResult:
-    question_type: str
-    domains: List[str]
-    complexity: int
-    summary: str
-    key_challenges: str
-    raw: str
-    tools_needed: List[str] = None  # v4.0: tools detected as needed
-
-
-@dataclass
-class PlanResult:
-    steps: List[str]
-    approach: str
-    pitfalls: str
-    raw: str
-
-
-@dataclass
-class CritiqueResult:
-    weakness1: str
-    weakness2: str
-    weakness3: str
-    score: int
-    verdict: str
-    raw: str
-
-
-# ============================================================================
-# XML PARSING (with fallbacks)
+# XML PARSING
 # ============================================================================
 
 
@@ -305,208 +172,64 @@ def parse_xml_tag(text: str, tag: str, default: str = "") -> str:
     return default
 
 
-def parse_numbered_list(text: str) -> List[str]:
-    """Extract numbered list items from text"""
-    # Match lines starting with number, period/paren, then content
-    matches = re.findall(r"^\s*\d+[\.\)]\s*(.+)$", text, re.MULTILINE)
-    return [m.strip() for m in matches if m.strip()]
-
-
 # ============================================================================
-# PARSING FUNCTIONS
+# PROMPT BUILDER
 # ============================================================================
 
 
-def parse_understanding(response: str) -> UnderstandingResult:
-    """Parse Pass 1 (Understand) response"""
-    # Extract complexity - model may return "8/10" or "8 (hard)" so extract just the number
-    complexity_str = parse_xml_tag(response, "complexity", "5")
-    complexity_match = re.search(r"\d+", complexity_str)
-    complexity = int(complexity_match.group()) if complexity_match else 5
-    complexity = min(10, max(1, complexity))  # Clamp to 1-10
-
-    # Extract tools_needed (v4.0)
-    tools_str = parse_xml_tag(response, "tools_needed", "none")
-    if tools_str.lower() == "none":
-        tools_needed = []
-    else:
-        tools_needed = [t.strip().lower() for t in tools_str.split(",") if t.strip()]
-
-    return UnderstandingResult(
-        question_type=parse_xml_tag(response, "type", "unknown"),
-        domains=[d.strip() for d in parse_xml_tag(response, "domains", "").split(",") if d.strip()],
-        complexity=complexity,
-        summary=parse_xml_tag(response, "summary", "Question analysis unavailable"),
-        key_challenges=parse_xml_tag(response, "key_challenges", ""),
-        raw=response,
-        tools_needed=tools_needed,
-    )
-
-
-def parse_plan(response: str) -> PlanResult:
-    """Parse Pass 2 (Plan) response"""
-    plan_text = parse_xml_tag(response, "plan", "")
-    steps = parse_numbered_list(plan_text) if plan_text else []
-
-    return PlanResult(
-        steps=steps,
-        approach=parse_xml_tag(response, "approach", ""),
-        pitfalls=parse_xml_tag(response, "pitfalls", ""),
-        raw=response,
-    )
-
-
-def parse_critique(response: str) -> CritiqueResult:
-    """Parse Pass 4 (Critique) response"""
-    score_str = parse_xml_tag(response, "score", "5")
-    # Extract just the number
-    score_match = re.search(r"\d+", score_str)
-    score = int(score_match.group()) if score_match else 5
-
-    return CritiqueResult(
-        weakness1=parse_xml_tag(response, "weakness1", "No weakness identified"),
-        weakness2=parse_xml_tag(response, "weakness2", "No weakness identified"),
-        weakness3=parse_xml_tag(response, "weakness3", "No weakness identified"),
-        score=min(10, max(1, score)),  # Clamp to 1-10
-        verdict=parse_xml_tag(response, "verdict", ""),
-        raw=response,
-    )
-
-
-# ============================================================================
-# PROMPT BUILDERS
-# ============================================================================
-
-
-def build_understand_prompt(question: str, context_messages: List[Dict] = None) -> str:
-    """Build the understanding pass prompt with optional conversation context."""
-    if context_messages:
-        context_parts = []
-        for msg in context_messages[-4:]:  # Last 4 messages for context
-            role = msg.get("role", "unknown")
-            content = msg.get("content", "")[:500]
-            context_parts.append(f"{role.title()}: {content}")
-        context = "\nRecent conversation:\n" + "\n".join(context_parts)
-    else:
-        context = ""
-    return UNDERSTAND_PROMPT.format(question=question, context=context)
-
-
-def build_plan_prompt(question: str, understanding: UnderstandingResult) -> str:
-    """Build the planning pass prompt"""
-    understanding_summary = f"""Type: {understanding.question_type}
-Domains: {', '.join(understanding.domains)}
-Complexity: {understanding.complexity}/10
-Summary: {understanding.summary}
-Challenges: {understanding.key_challenges}"""
-
-    return PLAN_PROMPT.format(understanding=understanding_summary, question=question)
-
-
-def build_execute_prompt(
+def build_system_prompt(
     question: str,
-    understanding: Optional[UnderstandingResult],
-    plan: Optional[PlanResult],
-    context_messages: List[Dict],
-    user_memory: Optional[Dict],
+    context_messages: List[Dict] = None,
+    user_memory: Optional[Dict] = None,
     search_context: str = "",
     include_tools: bool = False,
 ) -> str:
-    """Build the execute pass prompt.
+    """Build the single-pass system prompt.
 
-    NOTE: include_tools defaults to False. Tool instructions are harmful in
-    one-shot /api/generate prompts because the model is told to "STOP after
-    one tool call" but there's no turn-taking mechanism. Tools are handled
-    by the ReAct loop which has its own prompt pipeline.
+    Args:
+        question: The user's question.
+        context_messages: Recent conversation history.
+        user_memory: Dict with 'facts' list.
+        search_context: Formatted web search results (if any).
+        include_tools: Whether to inject tool definitions.
+
+    Returns:
+        Fully formatted prompt string.
     """
-
     # Format context
     if context_messages:
         context_parts = []
-        for msg in context_messages[-6:]:  # Last 6 messages
+        for msg in context_messages[-20:]:
             role = msg.get("role", "unknown")
-            content = msg.get("content", "")[:2000]  # Preserve enough context for follow-ups
+            content = msg.get("content", "")[:2000]
             context_parts.append(f"{role.title()}: {content}")
         context = "\n".join(context_parts)
     else:
         context = "No previous conversation."
 
     # Format user memory
-    if user_memory and user_memory.get("facts"):
-        memory_parts = [f"- {fact}" for fact in user_memory["facts"][:10]]
+    if isinstance(user_memory, str):
+        # Pre-formatted memory string (from _format_user_memory)
+        memory = user_memory if user_memory else "No stored information about this user."
+    elif user_memory and user_memory.get("facts"):
+        memory_parts = [
+            f"- {fact.get('text', str(fact)) if isinstance(fact, dict) else fact}"
+            for fact in user_memory["facts"][:10]
+        ]
         memory = "\n".join(memory_parts)
     else:
         memory = "No stored information about this user."
 
-    # Format search context (if we did a web search)
-    if search_context:
-        formatted_search = f"\nWeb research results:\n{search_context}\n"
-    else:
-        formatted_search = ""
+    # Format search context
+    formatted_search = f"\nWeb research results:\n{search_context}\n" if search_context else ""
 
-    # Tools section (v4.0)
-    tools_section = ""
-    if include_tools:
-        # Only include tools if they might be needed
-        needs_tools = False
-        if understanding and understanding.tools_needed:
-            needs_tools = True
-        # Also check for math/code keywords
-        if any(
-            kw in question.lower() for kw in ["calculate", "compute", "code", "python", "function"]
-        ):
-            needs_tools = True
+    # Tools section
+    tools_section = TOOL_PROMPT_SECTION if include_tools else ""
 
-        if needs_tools:
-            tools_section = TOOL_PROMPT_SECTION
-
-    # Use simple prompt for simple questions
-    if not understanding and not plan:
-        return EXECUTE_PROMPT_SIMPLE.format(
-            user_memory=memory,
-            context=context,
-            search_context=formatted_search,
-            tools_section=tools_section,
-            question=question,
-        )
-
-    # Full prompt with understanding and plan
-    understanding_text = ""
-    if understanding:
-        understanding_text = f"""Type: {understanding.question_type}
-Complexity: {understanding.complexity}/10
-Summary: {understanding.summary}"""
-
-    plan_text = ""
-    if plan:
-        plan_text = "\n".join(f"{i+1}. {step}" for i, step in enumerate(plan.steps))
-
-    return EXECUTE_PROMPT_WITH_PLAN.format(
+    return SYSTEM_PROMPT.format(
         user_memory=memory,
         context=context,
         search_context=formatted_search,
-        understanding=understanding_text or "Quick question - no deep analysis needed.",
-        plan=plan_text or "Direct response - no complex plan needed.",
         tools_section=tools_section,
         question=question,
-    )
-
-
-def build_critique_prompt(question: str, response: str) -> str:
-    """Build the critique pass prompt"""
-    return CRITIQUE_PROMPT.format(
-        question=question, response=response[:4000]  # Truncate if too long
-    )
-
-
-def build_refine_prompt(question: str, response: str, critique: CritiqueResult) -> str:
-    """Build the refine pass prompt"""
-    return REFINE_PROMPT.format(
-        question=question,
-        response=response[:4000],
-        weakness1=critique.weakness1,
-        weakness2=critique.weakness2,
-        weakness3=critique.weakness3,
-        score=critique.score,
-        verdict=critique.verdict,
     )

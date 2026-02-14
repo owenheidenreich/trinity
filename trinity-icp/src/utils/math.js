@@ -7,6 +7,8 @@
  * - Block math: $$expression$$ or \[expression\]
  */
 
+import Logger from '../core/logger.js';
+
 /**
  * Render math expressions in an HTML element
  * Uses KaTeX's auto-render extension
@@ -15,7 +17,7 @@
  */
 export function renderMath(element) {
     if (!window.renderMathInElement) {
-        console.warn('⚠️ KaTeX auto-render not loaded yet');
+        Logger.warn('KaTeX auto-render not loaded yet');
         return;
     }
 
@@ -26,7 +28,7 @@ export function renderMath(element) {
         const hasBackslash = textContent.includes('\\');
         
         if (hasDollarSign || hasBackslash) {
-            console.log('📐 renderMath called - found potential math:', 
+            Logger.debug('renderMath called - found potential math:', 
                 hasDollarSign ? '$ found' : '',
                 hasBackslash ? '\\ found' : '',
                 'First 100 chars:', textContent.substring(0, 100)
@@ -62,12 +64,12 @@ export function renderMath(element) {
         // Check if any KaTeX spans were created
         const katexElements = element.querySelectorAll('.katex');
         if (katexElements.length > 0) {
-            console.log('✅ KaTeX rendered', katexElements.length, 'math expressions');
+            Logger.debug('KaTeX rendered', katexElements.length, 'math expressions');
         } else if (hasDollarSign) {
-            console.log('⚠️ $ found but no KaTeX elements created - raw text:', textContent.substring(0, 200));
+            Logger.debug('$ found but no KaTeX elements created - raw text:', textContent.substring(0, 200));
         }
     } catch (error) {
-        console.warn('Math rendering error:', error);
+        Logger.warn('Math rendering error:', error);
     }
 }
 

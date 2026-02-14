@@ -2,53 +2,11 @@
 // Responsible for displaying messages, typing animations, and chat history
 
 import CONFIG from '../config.js';
+import Logger from '../core/logger.js';
 import { renderMath, protectMath, restoreMath } from '../utils/math.js';
 import { copyToClipboard, downloadCode, getFileIcon, LANG_EXTENSIONS } from '../utils/codeUtils.js';
 import { extractCodeBlocks } from '../utils/codeBlockParser.js';
-
-/**
- * Convert <tool_call> XML blocks to renderable markdown.
- * - code_display → fenced code block
- * - all others → stripped entirely
- */
-function preprocessToolCalls(text) {
-    if (!text || !text.includes('<tool_call')) return text;
-
-    // code_display (complete) → fenced code block
-    // Handles proper </tool_call>, malformed <tool_call> closing, AND missing closing tag
-    text = text.replace(
-        /<tool_call\s+name="code_display"[^>]*>\s*<language>([^<]*)<\/language>\s*<code>([\s\S]*?)<\/code>(?:\s*<execute>[^<]*<\/execute>)?(?:\s*<\/?tool_call\s*>)?/gi,
-        (_, lang, code) => '\n```' + (lang || 'text') + '\n' + code.trim() + '\n```\n'
-    );
-
-    // In-progress code_display (no </code> yet, genuinely still streaming)
-    text = text.replace(
-        /<tool_call\s+name="code_display"[^>]*>\s*<language>([^<]*)<\/language>\s*<code>([\s\S]*)$/gi,
-        (match, lang, rest) => {
-            // Safety: if </code> exists, block is complete but was missed above
-            const codeEndIdx = rest.indexOf('</code>');
-            if (codeEndIdx >= 0) {
-                const code = rest.substring(0, codeEndIdx);
-                const after = rest.substring(codeEndIdx + 7);
-                return '\n```' + (lang || 'text') + '\n' + code.trim() + '\n```\n' +
-                       after.replace(/^\s*(?:<\/?tool_call[^>]*>)?\s*/, '');
-            }
-            return '\n```' + (lang || 'text') + '\n' + rest.trim() + '\n';
-        }
-    );
-
-    // Strip other complete tool_call blocks
-    text = text.replace(/<tool_call[^>]*>[\s\S]*?<\/tool_call>/gi, '');
-
-    // Strip orphaned non-code tool_call tags and their immediate XML children
-    // (e.g. <tool_call name="web_search"><query>...</query>) without eating prose after them
-    text = text.replace(/<tool_call\s+name="(?!code_display)[^"]*"[^>]*>(?:\s*<[a-z_]+>[^<]*<\/[a-z_]+>)*\s*/gi, '');
-
-    // Strip any remaining bare <tool_call> or </tool_call> tags (malformed remnants)
-    text = text.replace(/<\/?\s*tool_call[^>]*>/gi, '');
-
-    return text;
-}
+import { preprocessToolCalls } from './editMessage.js';
 
 /**
  * Parse markdown content with math protection
@@ -154,7 +112,7 @@ const Messages = {
         // CRITICAL: Remove ui-disabled class if present (it blocks pointer events with pointer-events: none)
         const appContainer = document.querySelector('.app-container');
         if (appContainer && appContainer.classList.contains('ui-disabled')) {
-            console.warn('⚠️ Removing stale ui-disabled class during generation');
+            Logger.warn('Removing stale ui-disabled class during generation');
             appContainer.classList.remove('ui-disabled');
         }
 
@@ -197,7 +155,7 @@ const Messages = {
             // Extract code blocks from raw markdown
             const codeBlocks = extractCodeBlocks(content);
             // Replace inline code with collapsible sections
-            try { enhanceCodeBlocks(messageDiv, codeBlocks); } catch (e) { console.error('Code enhancement failed:', e); }
+            try { enhanceCodeBlocks(messageDiv, codeBlocks); } catch (e) { Logger.error('Code enhancement failed:', e); }
             // Store raw text
             messageDiv.dataset.rawText = content;
             // Add download section if code blocks exist
@@ -245,7 +203,7 @@ const Messages = {
         renderMath(messageDiv);
         // Enhance code blocks with collapsible sections
         const codeBlocks = extractCodeBlocks(text);
-        try { enhanceCodeBlocks(messageDiv, codeBlocks); } catch (e) { console.error('Code enhancement failed:', e); }
+        try { enhanceCodeBlocks(messageDiv, codeBlocks); } catch (e) { Logger.error('Code enhancement failed:', e); }
         if (codeBlocks.length > 0) {
             addDownloadSection(messageDiv, codeBlocks);
         }
@@ -352,7 +310,7 @@ const Messages = {
         } = this.elements;
 
         if (!statusDot || !statusText) {
-            console.warn('Status elements not found');
+            Logger.warn('Status elements not found');
             return;
         }
 
@@ -425,7 +383,7 @@ const Messages = {
                 if (modelInfo) modelInfo.textContent = `Model: ${model}`;
             }
             
-            console.log('✅ Status updated: Connected to', healthData.provider_id, healthData.model);
+            Logger.debug('Status updated: Connected to', healthData.provider_id, healthData.model);
         } else {
             statusDot.classList.remove('connected');
             statusDot.classList.add('disconnected');
@@ -441,7 +399,7 @@ const Messages = {
             // Legacy support
             if (providerInfo) providerInfo.textContent = errorDetail || 'Check Akash deployment';
             if (modelInfo) modelInfo.textContent = `URL: ${CONFIG.API_URL}`;
-            console.warn('⚠️ Status updated: Disconnected');
+            Logger.warn('Status updated: Disconnected');
         }
     },
     
@@ -490,12 +448,12 @@ const Messages = {
         switcher.appendChild(prodBtn);
         statusInfo.appendChild(switcher);
         
-        console.log('✅ Environment switcher added');
+        Logger.debug('Environment switcher added');
     },
     
     // Switch to different environment
     async switchToEnvironment(env, activeBtn, inactiveBtn, Actions) {
-        console.log(`🔄 Switching to ${env} environment...`);
+        Logger.debug(`Switching to ${env} environment...`);
         
         if (!CONFIG.switchEnvironment(env)) {
             alert(`${env} environment not available`);
@@ -514,7 +472,7 @@ const Messages = {
         // Reconnect to new environment
         await Actions.checkConnection();
         
-        console.log(`✅ Switched to ${env} environment`);
+        Logger.debug(`Switched to ${env} environment`);
     },
 
     // Set loading state (alias for setGenerating)

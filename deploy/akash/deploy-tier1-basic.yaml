@@ -20,7 +20,7 @@ version: "2.0"
 
 services:
   trinity:
-    image: gdubx/trinity-inference:v2-20260212-211828
+    image: gdubx/trinity-inference:v2-20260213-154107
     env:
       - PROVIDER_ID=trinity-tier1-qwen3
       - MODEL_NAME=qwen3:1.7b
@@ -28,9 +28,7 @@ services:
       - GPU_TYPE=NVIDIA-GPU
       - MAX_QUEUE_SIZE=10
       - OLLAMA_HOST=http://localhost:11434
-      # Multi-Model DISABLED for Tier 1 (single Qwen3 model)
-      - MULTI_MODEL_ENABLED=false
-      # RAG & Semantic Memory (v4.0) - still enabled for Tier 1
+      # RAG & Semantic Memory
       - EMBEDDING_MODEL=BAAI/bge-small-en-v1.5
       - RAG_TOP_K=5
       - RAG_CHUNK_SIZE=512
@@ -38,11 +36,9 @@ services:
       - WORKING_MEMORY_SIZE=3
       - SEMANTIC_MEMORY_SIZE=5
       - RECENCY_WEIGHT=0.3
-      # Tool Use & Code Execution (v4.0)
+      # Tool Use & Code Execution
       - CODE_EXECUTION_ENABLED=false
       - CODE_EXECUTION_TIMEOUT=5
-      # Voting DISABLED for Tier 1 (too slow with small model)
-      - VOTING_ENABLED=false
       # API Keys - Injected from .env at deployment time
       - LIGHTHOUSE_API_KEY=${LIGHTHOUSE_API_KEY}
       - BRAVE_SEARCH_API_KEY=${BRAVE_SEARCH_API_KEY}

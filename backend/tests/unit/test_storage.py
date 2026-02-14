@@ -211,14 +211,14 @@ class TestUserMemoryOperations:
             assert "lastUpdated" in memory
 
     def test_load_user_memory_reads_existing(self, tmp_path):
-        """Reads existing memory file."""
+        """Reads existing memory file and normalizes legacy string facts."""
         with patch("storage.CHATS_DIR", str(tmp_path)):
             from storage import get_user_dir, load_user_memory
 
             principal = "memory-user"
             user_dir = get_user_dir(principal)
 
-            # Create memory file
+            # Create memory file with legacy string facts
             existing_memory = {
                 "principalId": principal,
                 "version": "1.0",
@@ -233,6 +233,9 @@ class TestUserMemoryOperations:
             memory = load_user_memory(principal)
 
             assert len(memory["facts"]) == 2
+            # String facts are normalized to dicts with "text" key
+            assert memory["facts"][0]["text"] == "User prefers dark mode"
+            assert memory["facts"][1]["text"] == "User is a developer"
             assert memory["preferences"]["theme"] == "dark"
 
     def test_save_user_memory_updates_timestamp(self, tmp_path):
@@ -259,7 +262,7 @@ class TestUserMemoryOperations:
             assert loaded["lastUpdated"] <= after_save + 1000
 
     def test_save_and_load_roundtrip(self, tmp_path):
-        """Data survives save and load cycle."""
+        """Data survives save and load cycle (canonical fact format)."""
         with patch("storage.CHATS_DIR", str(tmp_path)):
             from storage import load_user_memory, save_user_memory
 
@@ -267,7 +270,11 @@ class TestUserMemoryOperations:
             memory = {
                 "principalId": principal,
                 "version": "1.0",
-                "facts": ["Fact 1", "Fact 2", 'Fact with "quotes"'],
+                "facts": [
+                    {"text": "Fact 1", "category": "general", "importance": 3, "embedding": None, "created_at": 1700000000000},
+                    {"text": "Fact 2", "category": "preferences", "importance": 4, "embedding": None, "created_at": 1700000000000},
+                    {"text": 'Fact with "quotes"', "category": "general", "importance": 3, "embedding": None, "created_at": 1700000000000},
+                ],
                 "preferences": {"nested": {"key": "value"}},
                 "createdAt": 1700000000000,
                 "lastUpdated": 1700000000000,
@@ -276,7 +283,10 @@ class TestUserMemoryOperations:
             save_user_memory(principal, memory)
             loaded = load_user_memory(principal)
 
-            assert loaded["facts"] == memory["facts"]
+            assert len(loaded["facts"]) == 3
+            assert loaded["facts"][0]["text"] == "Fact 1"
+            assert loaded["facts"][1]["category"] == "preferences"
+            assert loaded["facts"][2]["text"] == 'Fact with "quotes"'
             assert loaded["preferences"] == memory["preferences"]
 
 

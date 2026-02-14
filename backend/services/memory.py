@@ -225,7 +225,8 @@ def build_enhanced_context(
     chat_id: str = None,
     context_messages: List[Dict] = None,
     user_memory: Dict = None,
-) -> str:
+    recent_messages: List[Dict] = None,
+) -> tuple:
     """
     Build enhanced context for LLM prompt using semantic retrieval.
 
@@ -238,47 +239,27 @@ def build_enhanced_context(
         chat_id: Current chat ID
         context_messages: Fallback messages if semantic retrieval fails
         user_memory: User's persistent memory (facts, preferences)
+        recent_messages: Alias for context_messages (backward compat)
 
     Returns:
-        Formatted context string for prompt
+        Tuple of (enhanced_context_messages, semantic_summary_or_None)
     """
-    parts = []
+    # Support both param names for backward compatibility
+    fallback_messages = context_messages or recent_messages or []
+    semantic_items = None
 
     try:
-        # Try semantic retrieval
         memory = get_semantic_memory(principal_id)
         context = memory.retrieve_context(query, chat_id)
 
-        if context["combined"]:
-            parts.append(memory.format_context_for_prompt(context))
-        elif context_messages:
-            # Fallback to provided messages
-            parts.append("[Recent Conversation]")
-            for msg in context_messages[-6:]:
-                role = "User" if msg.get("role") == "user" else "Assistant"
-                content = msg.get("content", "")[:500]
-                parts.append(f"{role}: {content}")
+        if context["semantic_memory"]:
+            semantic_items = context["semantic_memory"]
+            logger.info(f"📚 Semantic retrieval: {len(semantic_items)} items")
 
     except Exception as e:
         logger.warning(f"Semantic memory retrieval failed, using fallback: {e}")
-        # Fallback to simple recent messages
-        if context_messages:
-            parts.append("[Recent Conversation]")
-            for msg in context_messages[-6:]:
-                role = "User" if msg.get("role") == "user" else "Assistant"
-                content = msg.get("content", "")[:500]
-                parts.append(f"{role}: {content}")
 
-    # Add user memory (facts about the user)
-    if user_memory and user_memory.get("facts"):
-        parts.append("\n[User Background - Remember these facts]")
-        for fact in user_memory["facts"][:10]:
-            if isinstance(fact, dict):
-                parts.append(f"- {fact.get('fact', str(fact))}")
-            else:
-                parts.append(f"- {fact}")
-
-    return "\n".join(parts)
+    return fallback_messages, semantic_items
 
 
 # Module availability flag for graceful degradation

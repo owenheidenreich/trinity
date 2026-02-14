@@ -6,6 +6,7 @@
 // ============================================================================
 
 import CONFIG from '../config.js';
+import Logger from './logger.js';
 
 /**
  * Detect runtime environment and configure API URL.
@@ -13,7 +14,7 @@ import CONFIG from '../config.js';
  * - Production: dubya.ai, icp0.io, ic0.app
  */
 export async function detectEnvironment() {
-    console.log('🔍 Detecting environment...');
+    Logger.debug('Detecting environment...');
 
     const hostname = window.location.hostname;
     const protocol = window.location.protocol;
@@ -28,14 +29,14 @@ export async function detectEnvironment() {
                                hostname.includes('icp0.io') ||
                                hostname.includes('ic0.app');
 
-    console.log('📍 Location:', { hostname, protocol, isDevelopment, isProductionDomain });
+    Logger.debug('Location:', { hostname, protocol, isDevelopment, isProductionDomain });
 
     const preferredEnv = CONFIG.getPreferredEnvironment();
     let localAvailable = false;
 
     // Only check for localhost backend in development mode
     if (isDevelopment) {
-        console.log('🔧 Development mode - checking for local backend');
+        Logger.debug('Development mode - checking for local backend');
         try {
             const testResponse = await fetch('http://localhost:8000/health', {
                 method: 'GET',
@@ -48,39 +49,39 @@ export async function detectEnvironment() {
                 const health = await testResponse.json();
                 localAvailable = true;
                 CONFIG._availableEnvironments.local = 'http://localhost:8000';
-                console.log('✅ Local backend available:', health.model);
+                Logger.debug('Local backend available:', health.model);
             }
         } catch (err) {
-            console.log('ℹ️ Local backend not available:', err.message);
+            Logger.debug('Local backend not available:', err.message);
         }
     } else {
-        console.log('🌐 Production domain - local backend disabled');
+        Logger.debug('Production domain - local backend disabled');
     }
 
     // Set production URL (always available as fallback)
     const prodURL = CONFIG.API_URL;
     CONFIG._availableEnvironments.production = prodURL;
-    console.log('✅ Production backend:', prodURL);
+    Logger.debug('Production backend:', prodURL);
 
     // Determine which environment to use
     if (isProductionDomain) {
-        console.log('🔒 Production domain - using Akash backend');
+        Logger.debug('Production domain - using Akash backend');
         CONFIG.setAPIURL(prodURL);
     } else if (preferredEnv === 'local' && localAvailable) {
-        console.log('🔧 Using preferred LOCAL environment');
+        Logger.debug('Using preferred LOCAL environment');
         CONFIG.setAPIURL('http://localhost:8000');
     } else if (preferredEnv === 'production') {
-        console.log('🔧 Using preferred PRODUCTION environment');
+        Logger.debug('Using preferred PRODUCTION environment');
         CONFIG.setAPIURL(prodURL);
     } else if (localAvailable) {
-        console.log('🔧 Defaulting to LOCAL environment');
+        Logger.debug('Defaulting to LOCAL environment');
         CONFIG.setAPIURL('http://localhost:8000');
     } else {
-        console.log('🔧 Using PRODUCTION environment');
+        Logger.debug('Using PRODUCTION environment');
         CONFIG.setAPIURL(prodURL);
     }
 
-    console.log('🎯 Final API URL:', CONFIG.API_URL);
+    Logger.debug('Final API URL:', CONFIG.API_URL);
 
     return isDevelopment;
 }

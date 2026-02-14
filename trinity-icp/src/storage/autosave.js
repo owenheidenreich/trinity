@@ -10,6 +10,7 @@
  */
 
 import IndexedDBStorage from './indexedDB.js';
+import Logger from '../core/logger.js';
 
 const AutosaveManager = {
     // Configuration
@@ -38,15 +39,11 @@ const AutosaveManager = {
      */
     scheduleAutosave(chatData, currentChatId, isAuthenticated, showIndicator, executeCallback) {
         if (!isAuthenticated) {
-            console.log('⏭️ Autosave skipped - user not authenticated');
+            Logger.debug('Autosave skipped - user not authenticated');
             return false;
         }
 
-        console.log('📅 Autosave scheduled:', {
-            chatId: currentChatId,
-            messageCount: chatData?.messages?.length || 0,
-            hasData: !!chatData
-        });
+        Logger.debug('Autosave scheduled:', currentChatId?.slice(0, 8), 'msgs:', chatData?.messages?.length || 0);
 
         // Cancel pending timeout
         if (this.timeoutId) {
@@ -102,16 +99,11 @@ const AutosaveManager = {
         } = options;
         
         if (!this.pendingData) {
-            console.log('⏭️ Autosave skipped - no pending data');
+            Logger.debug('Autosave skipped - no pending data');
             return { success: false, error: 'No pending data' };
         }
 
-        console.log('💾 Executing autosave...', {
-            chatId: currentChatId,
-            messageCount: chatHistory?.length || 0,
-            isAuthenticated,
-            testMode
-        });
+        Logger.debug('Executing autosave...', currentChatId?.slice(0, 8), 'msgs:', chatHistory?.length || 0);
 
         try {
             if (showIndicator) {
@@ -129,7 +121,7 @@ const AutosaveManager = {
                     principal
                 );
             } catch (localError) {
-                console.warn('⚠️ IndexedDB save failed (continuing to cloud):', localError.message);
+                Logger.warn('IndexedDB save failed (continuing to cloud):', localError.message);
             }
             
             // STEP 2: Attempt cloud sync
@@ -148,16 +140,16 @@ const AutosaveManager = {
                 throw new Error('No save function provided');
             }
 
-            console.log('💾 Autosave response:', response);
+            Logger.debug('Autosave response:', response);
 
             if (response.success) {
-                console.log('✅ Chat autosaved successfully:', currentChatId);
+                Logger.debug('Chat autosaved successfully:', currentChatId?.slice(0, 8));
                 
                 // STEP 3: Mark as synced (remove from pending queue)
                 try {
                     await IndexedDBStorage.markSynced(currentChatId);
                 } catch (syncError) {
-                    console.warn('⚠️ Could not mark as synced:', syncError.message);
+                    Logger.warn('Could not mark as synced:', syncError.message);
                 }
                 
                 // Reset state
@@ -166,9 +158,9 @@ const AutosaveManager = {
                 
                 // Call success callback to reload chats
                 if (this.onSaveSuccess) {
-                    console.log('🔄 Reloading chat list after successful autosave...');
+                    Logger.debug('Reloading chat list after successful autosave...');
                     await this.onSaveSuccess();
-                    console.log('✅ Chat list reloaded');
+                    Logger.debug('Chat list reloaded');
                 }
                 
                 if (hideIndicator) {
@@ -182,11 +174,11 @@ const AutosaveManager = {
                     lastActivityTime: Date.now()
                 };
             } else {
-                console.error('❌ Autosave returned success=false:', response);
+                Logger.error('Autosave returned success=false:', response);
                 throw new Error(response.error || 'Unknown error');
             }
         } catch (error) {
-            console.error('❌ Autosave exception:', {
+            Logger.error('Autosave exception:', {
                 message: error.message,
                 stack: error.stack,
                 chatId: currentChatId
@@ -221,7 +213,7 @@ const AutosaveManager = {
                 this.MAX_RETRY_INTERVAL_MS
             );
 
-            console.warn(`⚠️ Autosave retry ${this.retryCount}/${this.MAX_RETRIES} in ${delay}ms`);
+            Logger.warn(`Autosave retry ${this.retryCount}/${this.MAX_RETRIES} in ${delay}ms`);
             
             if (showIndicator) {
                 showIndicator('error');
@@ -249,7 +241,7 @@ const AutosaveManager = {
                 retryCount: this.retryCount
             };
         } else {
-            console.error('❌ Autosave failed after max retries - queued for sync');
+            Logger.error('Autosave failed after max retries - queued for sync');
             
             if (showIndicator) {
                 showIndicator('error');
@@ -269,7 +261,7 @@ const AutosaveManager = {
             try {
                 await IndexedDBStorage.queueForSync(this.pendingData?.chatId, this.pendingData);
             } catch (queueError) {
-                console.warn('⚠️ Could not queue for sync:', queueError.message);
+                Logger.warn('Could not queue for sync:', queueError.message);
             }
             
             return {
@@ -306,18 +298,18 @@ const AutosaveManager = {
      */
     async retryPendingSync(apiSave) {
         if (!apiSave) {
-            console.warn('⚠️ No API save function provided for sync retry');
+            Logger.warn('No API save function provided for sync retry');
             return { synced: 0, failed: 0 };
         }
 
         const pending = await IndexedDBStorage.getPendingSync();
         
         if (pending.length === 0) {
-            console.log('✅ No pending syncs');
+            Logger.debug('No pending syncs');
             return { synced: 0, failed: 0 };
         }
 
-        console.log(`🔄 Retrying ${pending.length} pending sync(s)...`);
+        Logger.debug(`Retrying ${pending.length} pending sync(s)...`);
         
         let synced = 0;
         let failed = 0;
@@ -325,7 +317,7 @@ const AutosaveManager = {
         for (const item of pending) {
             // Skip items with too many attempts
             if (item.attempts >= 10) {
-                console.warn(`⏭️ Skipping ${item.chatId.slice(0, 8)}... - too many attempts`);
+                Logger.warn(`Skipping ${item.chatId.slice(0, 8)}... - too many attempts`);
                 failed++;
                 continue;
             }
@@ -335,19 +327,19 @@ const AutosaveManager = {
                 
                 if (response.success) {
                     await IndexedDBStorage.markSynced(item.chatId);
-                    console.log(`✅ Synced: ${item.chatId.slice(0, 8)}...`);
+                    Logger.debug(`Synced: ${item.chatId.slice(0, 8)}...`);
                     synced++;
                 } else {
-                    console.warn(`❌ Sync failed: ${item.chatId.slice(0, 8)}...`);
+                    Logger.warn(`Sync failed: ${item.chatId.slice(0, 8)}...`);
                     failed++;
                 }
             } catch (error) {
-                console.error(`❌ Sync error: ${item.chatId.slice(0, 8)}...`, error.message);
+                Logger.error(`Sync error: ${item.chatId.slice(0, 8)}...`, error.message);
                 failed++;
             }
         }
 
-        console.log(`🔄 Sync complete: ${synced} synced, ${failed} failed`);
+        Logger.debug(`Sync complete: ${synced} synced, ${failed} failed`);
         return { synced, failed };
     }
 };

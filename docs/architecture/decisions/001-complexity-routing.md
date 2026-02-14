@@ -1,7 +1,9 @@
 # ADR-001: Complexity-Based LangGraph Routing
 
 ## Status
-Accepted
+**Archived** — Superseded by single-pass agent pipeline (Feb 2026 Intelligence Overhaul).
+
+The complexity router (`services/complexity.py`), LangGraph multi-agent system (`services/graph/`), voting (`services/voting.py`), and parallel pipeline (`services/parallel.py`) were all deleted. All queries now flow through a single-pass agent with ReAct tool calling. See `services/agent.py`.
 
 ## Date
 February 2026

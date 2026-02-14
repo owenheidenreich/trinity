@@ -24,12 +24,7 @@ const useStore = create((set, get) => ({
     
     // ========== Context Memory ==========
     contextMemory: [],
-    CONTEXT_WINDOW_SIZE: 6,
-    
-    // ========== Conversation Summarization ==========
-    conversationSummary: null,
-    lastSummaryAt: 0,
-    SUMMARY_INTERVAL: 15,
+    CONTEXT_WINDOW_SIZE: 20,
     
     // ========== Autosave Tracking ==========
     autosaveStatus: 'idle',
@@ -61,8 +56,6 @@ const useStore = create((set, get) => ({
         contextMemory: [],
         currentChatId: get().generateChatId(),
         unsavedChanges: false,
-        conversationSummary: null,
-        lastSummaryAt: 0
     })),
     
     /**
@@ -140,18 +133,7 @@ const useStore = create((set, get) => ({
      */
     getContextForLLM: () => {
         const state = get();
-        const context = [];
-        
-        // Include conversation summary if it exists
-        if (state.conversationSummary) {
-            context.push({
-                role: 'system',
-                content: `Earlier conversation summary:\n${state.conversationSummary}`
-            });
-        }
-        
-        // Include recent messages
-        context.push(...state.contextMemory);
+        const context = [...state.contextMemory];
         
         return {
             recentMessages: context,
@@ -159,9 +141,6 @@ const useStore = create((set, get) => ({
             totalTokens: state.chatHistory.reduce((sum, msg) => 
                 sum + msg.content.split(/\s+/).length, 0
             ),
-            compressionRatio: state.conversationSummary 
-                ? `${state.lastSummaryAt}:1` 
-                : 'none'
         };
     },
     
@@ -196,11 +175,6 @@ const useStore = create((set, get) => ({
     setAutosaveStatus: (status) => set({ autosaveStatus: status }),
     
     setUnsavedChanges: (unsaved) => set({ unsavedChanges: unsaved }),
-    
-    setConversationSummary: (summary, lastSummaryAt) => set({
-        conversationSummary: summary,
-        lastSummaryAt
-    }),
     
     setCurrentChatId: (chatId) => set({ currentChatId: chatId }),
     
@@ -284,10 +258,7 @@ export const State = {
     get autosaveStatus() { return useStore.getState().autosaveStatus; },
     get unsavedChanges() { return useStore.getState().unsavedChanges; },
     get lastActivityTime() { return useStore.getState().lastActivityTime; },
-    get conversationSummary() { return useStore.getState().conversationSummary; },
-    get lastSummaryAt() { return useStore.getState().lastSummaryAt; },
     get CONTEXT_WINDOW_SIZE() { return useStore.getState().CONTEXT_WINDOW_SIZE; },
-    get SUMMARY_INTERVAL() { return useStore.getState().SUMMARY_INTERVAL; },
     get healthCheckIntervalId() { return useStore.getState().healthCheckIntervalId; },
     get keyboardOpen() { return useStore.getState().keyboardOpen; },
     get initialViewportHeight() { return useStore.getState().initialViewportHeight; },
@@ -312,9 +283,6 @@ export const State = {
     setGenerating(isGenerating) { return useStore.getState().setGenerating(isGenerating); },
     setAutosaveStatus(status) { return useStore.getState().setAutosaveStatus(status); },
     setUnsavedChanges(unsaved) { return useStore.getState().setUnsavedChanges(unsaved); },
-    setConversationSummary(summary, lastSummaryAt) { 
-        return useStore.getState().setConversationSummary(summary, lastSummaryAt); 
-    },
     setCurrentChatId(chatId) { return useStore.getState().setCurrentChatId(chatId); },
     setChatStarted(started) { return useStore.getState().setChatStarted(started); },
     setHealthCheckInterval(intervalId) { 

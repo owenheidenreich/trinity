@@ -98,10 +98,9 @@ class TestBlueprintRegistration:
         assert len(non_static) >= 40, f"Only {len(non_static)} routes registered"
 
     def test_feature_flags_on_config(self, app):
-        """V4 and LangGraph feature flags should be on app.config."""
+        """V4 feature flags should be on app.config."""
         assert "V4_FEATURES_AVAILABLE" in app.config
         assert "V4_FEATURES" in app.config
-        assert "LANGGRAPH_AVAILABLE" in app.config
         assert isinstance(app.config["V4_FEATURES"], dict)
 
 

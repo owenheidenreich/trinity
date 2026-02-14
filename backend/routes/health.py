@@ -39,7 +39,6 @@ def health():
 
     # Import feature flags from app config
     v4 = current_app.config.get("V4_FEATURES_AVAILABLE", False)
-    langgraph = current_app.config.get("LANGGRAPH_AVAILABLE", False)
     v4_features = current_app.config.get("V4_FEATURES", {})
     v4_memory = v4_features.get("semantic_memory", False)
 
@@ -63,7 +62,6 @@ def health():
         "max_queue_size": MAX_QUEUE_SIZE,
         "features": {
             "v4_intelligence": v4,
-            "langgraph_agents": langgraph,
             "semantic_memory": v4_memory,
             "web_search": bool(BRAVE_SEARCH_API_KEY),
         },

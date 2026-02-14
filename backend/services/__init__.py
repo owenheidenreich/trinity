@@ -38,40 +38,12 @@ from .caching import (
     reset_token_tracker,
 )
 from .code_executor import evaluate_math_expression, execute_python_code, execute_tool
-from .complexity import (
-    QuestionAnalysis,
-    analyze_question,
-    classify_complexity,
-    get_pass_count,
-    needs_web_search,
-)
 
 # ===== LLM INTELLIGENCE UPGRADES (v4.0) =====
 from .embeddings import chunk_text, cosine_similarity, embed_batch, embed_text
-
-# ===== EXPERIMENTATION FRAMEWORK (Phase 4) =====
-from .experiments import (
-    EXPERIMENTS,
-    Experiment,
-    Variant,
-    add_experiment,
-    assign_variant,
-    disable_experiment,
-    enable_experiment,
-    get_all_assignments,
-    get_experiment,
-    list_experiments,
-)
 from .loading_messages import format_phase_update, get_loading_message, get_loading_sequence
 from .memory import SemanticMemory, build_enhanced_context, get_semantic_memory
 from .ollama import call_ollama, check_ollama_connection, warmup_model
-from .parallel import (
-    ParallelAgentPipeline,
-    ParallelResult,
-    PipelineResult,
-    get_parallel_pipeline,
-    reset_parallel_pipeline,
-)
 from .prompts import (
     REASONING_SYSTEM_PROMPT,
     TRINITY_SYSTEM_PROMPT,
@@ -91,7 +63,6 @@ from .tools import (
     parse_tool_calls,
 )
 from .vector_store import VectorStore, get_user_vector_store, get_vector_store
-from .voting import VotingResult, run_voting_pipeline, should_use_voting
 
 __all__ = [
     "TRINITY_SYSTEM_PROMPT",
@@ -117,11 +88,6 @@ __all__ = [
     "SESSION_EXPIRY",
     "SESSION_FUNDED_AKT",
     # Agent pipeline
-    "classify_complexity",
-    "get_pass_count",
-    "needs_web_search",
-    "analyze_question",
-    "QuestionAnalysis",
     "AgentPipeline",
     "AgentResponse",
     "get_agent_pipeline",
@@ -159,29 +125,11 @@ __all__ = [
     "execute_python_code",
     "execute_tool",
     # Voting
-    "run_voting_pipeline",
-    "VotingResult",
-    "should_use_voting",
+    # (removed — dead code)
     # Structured Output
     "generate_structured",
     "generate_with_schema",
     "SCHEMAS",
-    # ===== EXPERIMENTATION FRAMEWORK (Phase 4) =====
-    "Experiment",
-    "Variant",
-    "assign_variant",
-    "list_experiments",
-    "get_experiment",
-    "enable_experiment",
-    "disable_experiment",
-    "add_experiment",
-    "get_all_assignments",
-    "EXPERIMENTS",
-    "ParallelAgentPipeline",
-    "ParallelResult",
-    "PipelineResult",
-    "get_parallel_pipeline",
-    "reset_parallel_pipeline",
     # ===== COST OPTIMIZATION & CACHING (Phase 5) =====
     "EmbeddingCache",
     "get_embedding_cache",

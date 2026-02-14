@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
+  <meta name="app-version" content="3.0.0" />
+  <meta
+    http-equiv="Content-Security-Policy"
+    content="
+      default-src 'self';
+      script-src 'self';
+      style-src 'self' 'unsafe-inline';
+      img-src 'self' data: blob:;
+      connect-src 'self' https://api.dubya.ai https://*.workers.dev https://gateway.lighthouse.storage https://ipfs.io https://dweb.link https://cloudflare-ipfs.com https://*.icp0.io http://localhost:*;
+      font-src 'self' data:;
+      frame-src 'none';
+      object-src 'none';
+      base-uri 'self';
+      form-action 'self';
+    "
+  />
+  <title>Trinity AI</title>
+
+  <!-- Open Graph / Social -->
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://dubya.ai/" />
+  <meta property="og:title" content="Trinity AI — Decentralized AI Chat" />
+  <meta property="og:description" content="AI chat where you truly own everything. No accounts. No passwords. Your cryptographic keys encrypt your data before it leaves your browser. Built on ICP, Akash, and IPFS." />
+  <meta name="description" content="Trinity AI — fully decentralized AI chat with self-custody keys, encrypted storage, and live math rendering. Built on ICP, Akash, and IPFS." />
+
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#9651;</text></svg>" />
+</head>
+<body>
+  <div id="root"></div>
+  <!-- ICP Auth bundle — loaded before React app for window.ICPAuth -->
+  <script src="./icp-auth.js"></script>
+  <script type="module" src="/main.tsx"></script>
+</body>
+</html>

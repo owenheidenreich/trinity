@@ -9,6 +9,7 @@
 
 import { copyToClipboard, downloadCode, getFileIcon } from '../utils/codeUtils.js';
 import State from '../state/store.js';
+import Logger from '../core/logger.js';
 
 let containerEl = null;   // #codePanelContainer
 let selectEl = null;      // <select> dropdown
@@ -24,7 +25,7 @@ let selectedIndex = 0;    // Currently displayed block index
 export function initCodePanel() {
     containerEl = document.getElementById('codePanelContainer');
     if (!containerEl) {
-        console.error('❌ #codePanelContainer not found in DOM');
+        Logger.error('#codePanelContainer not found in DOM');
         return;
     }
 
@@ -77,7 +78,7 @@ export function initCodePanel() {
         }
     });
 
-    console.log('✅ Code panel initialized');
+    Logger.debug('Code panel initialized');
 }
 
 /**

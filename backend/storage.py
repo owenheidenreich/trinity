@@ -53,6 +53,61 @@ def get_user_memory_path(principal_id: str) -> Path:
     return get_user_dir(principal_id) / "user_memory.json"
 
 
+def _normalize_facts(memory: Dict) -> Dict:
+    """Normalize legacy fact schemas to canonical format.
+
+    Canonical: {"text": str, "category": str, "importance": int, "embedding": list|None, "created_at": int}
+    Legacy A (REST API): {"fact": "...", "addedAt": ..., "category": "..."}
+    Legacy B (plain strings): "some fact"
+
+    This migration is idempotent — already-normalized facts pass through unchanged.
+    """
+    facts = memory.get("facts", [])
+    if not facts:
+        return memory
+
+    normalized = []
+    changed = False
+    for fact in facts:
+        if isinstance(fact, str):
+            normalized.append({
+                "text": fact,
+                "category": "general",
+                "importance": 3,
+                "embedding": None,
+                "created_at": int(time.time() * 1000),
+            })
+            changed = True
+        elif isinstance(fact, dict):
+            if "text" in fact:
+                # Already canonical (or close) — ensure all fields present
+                fact.setdefault("category", "general")
+                fact.setdefault("importance", 3)
+                fact.setdefault("embedding", None)
+                fact.setdefault("created_at", fact.get("addedAt", int(time.time() * 1000)))
+                normalized.append(fact)
+            elif "fact" in fact:
+                # Legacy REST API format
+                normalized.append({
+                    "text": fact["fact"],
+                    "category": fact.get("category", "general"),
+                    "importance": fact.get("importance", 3),
+                    "embedding": fact.get("embedding"),
+                    "created_at": fact.get("addedAt", fact.get("created_at", int(time.time() * 1000))),
+                })
+                changed = True
+            else:
+                # Unknown dict format — skip
+                logger.warning(f"Skipping unrecognized fact format: {list(fact.keys())}")
+                changed = True
+        else:
+            changed = True  # drop non-string, non-dict entries
+
+    if changed:
+        memory["facts"] = normalized
+    return memory
+
+
 def load_user_memory(principal_id: str) -> Dict:
     """Load user's persistent memory (encrypted on disk)"""
     path = get_user_memory_path(principal_id)
@@ -65,11 +120,11 @@ def load_user_memory(principal_id: str) -> Dict:
             encrypted_data = json.loads(raw)
             # Check if it's encrypted format (has 'encryption' key)
             if isinstance(encrypted_data, dict) and "encryption" in encrypted_data:
-                return EncryptionUtils.decrypt_chat(encrypted_data, principal_id)
+                return _normalize_facts(EncryptionUtils.decrypt_chat(encrypted_data, principal_id))
             else:
                 # Legacy unencrypted JSON - return as-is, will be encrypted on next save
                 logger.warning(f"⚠️ Legacy unencrypted user memory found for {principal_id[:20]}...")
-                return encrypted_data
+                return _normalize_facts(encrypted_data)
         except (json.JSONDecodeError, ValueError, KeyError):
             # If it's not valid JSON or can't decrypt, return default
             logger.error(f"❌ Failed to load user memory for {principal_id[:20]}...")

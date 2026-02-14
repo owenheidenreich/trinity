@@ -1,6 +1,8 @@
 // sidebar.js - Sidebar rendering with chat list and auth buttons
 // Responsible for rendering sidebar content and chat list
 
+import Logger from '../core/logger.js';
+
 const Sidebar = {
     // Reference to DOM cache (will be set by UI module)
     elements: null,
@@ -9,7 +11,7 @@ const Sidebar = {
         const sidebarContent = document.getElementById('sidebarContent');
         if (!sidebarContent) return;
 
-        console.log('🎨 renderSidebar() called - isAuthenticated:', State.isAuthenticated, 'allChats:', State.allChats.length);
+        Logger.debug('renderSidebar() called - isAuthenticated:', State.isAuthenticated, 'allChats:', State.allChats.length);
 
         // Show/hide logout button in status header
         const logoutBtn = document.getElementById('logoutBtn');

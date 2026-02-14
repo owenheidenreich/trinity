@@ -25,6 +25,7 @@
 // ============================================================================
 
 import lighthouse from '@lighthouse-web3/sdk';
+import Logger from '../core/logger.js';
 
 // ============================================================================
 // CONFIGURATION
@@ -73,7 +74,7 @@ export async function checkIPFSStatus(cid, apiBaseUrl) {
 
         const data = await response.json();
         
-        console.log(`📊 IPFS status for ${cid.substring(0, 12)}...:`, data.status);
+        Logger.debug(`IPFS status for ${cid.substring(0, 12)}...:`, data.status);
         
         return {
             cid: data.cid,
@@ -83,7 +84,7 @@ export async function checkIPFSStatus(cid, apiBaseUrl) {
             checkedAt: data.checkedAt
         };
     } catch (error) {
-        console.error('Failed to check IPFS status:', error);
+        Logger.error('Failed to check IPFS status:', error);
         return {
             status: 'error',
             message: error.message,
@@ -133,7 +134,7 @@ export async function retrieveFromIPFS(cid) {
 
     for (const gatewayUrl of gateways) {
         try {
-            console.log(`🌐 Trying gateway: ${gatewayUrl}`);
+            Logger.debug(`Trying gateway: ${gatewayUrl}`);
             
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), GATEWAY_TIMEOUT_MS);
@@ -147,7 +148,7 @@ export async function retrieveFromIPFS(cid) {
 
             if (response.ok) {
                 const content = await response.text();
-                console.log(`✅ Successfully retrieved from: ${gatewayUrl}`);
+                Logger.debug(`Successfully retrieved from: ${gatewayUrl}`);
                 return content;
             } else {
                 errors.push(`${gatewayUrl}: HTTP ${response.status}`);
@@ -158,7 +159,7 @@ export async function retrieveFromIPFS(cid) {
             } else {
                 errors.push(`${gatewayUrl}: ${error.message}`);
             }
-            console.warn(`Gateway failed: ${gatewayUrl}`, error.message);
+            Logger.warn(`Gateway failed: ${gatewayUrl}`, error.message);
         }
     }
 
@@ -182,7 +183,7 @@ export async function getFileInfo(cid) {
         const response = await lighthouse.getFileInfo(cid);
         return response.data;
     } catch (error) {
-        console.error('Failed to get file info:', error);
+        Logger.error('Failed to get file info:', error);
         return null;
     }
 }

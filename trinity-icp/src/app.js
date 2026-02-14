@@ -6,6 +6,7 @@
 // ============================================================================
 
 import CONFIG from './config.js';
+import Logger from './core/logger.js';
 import UI from './ui/index.js';
 import Modals from './ui/modals.js';
 import AuthManager from './auth/authManager.js';
@@ -66,26 +67,26 @@ const Actions = {
 // INITIALIZATION
 // ============================================================================
 async function init() {
-    console.log('🚀 Trinity initializing...');
+    Logger.debug('Trinity initializing...');
 
     // Version check (cache bust)
     if (!CONFIG.checkVersion()) {
-        console.log('🔄 Version update detected, reloading...');
+        Logger.debug('Version update detected, reloading...');
         return;
     }
 
     // Initialize UI element cache
     UI.init();
     
-    console.log('✅ UI initialized');
+    Logger.debug('UI initialized');
 
     // Detect environment (dev vs production)
     let isDevelopment = false;
     try {
         isDevelopment = await detectEnvironment();
-        console.log('✅ Environment detected:', CONFIG.API_URL);
+        Logger.debug('Environment detected:', CONFIG.API_URL);
     } catch (error) {
-        console.error('❌ Environment detection failed:', error);
+        Logger.error('Environment detection failed:', error);
         CONFIG.setAPIURL(CONFIG.API_URL, false);
     }
 
@@ -102,7 +103,7 @@ async function init() {
     UI.disableUI();
     await Actions.initAuth();
     UI.enableUI();
-    console.log('✅ User authenticated');
+    Logger.debug('User authenticated');
 
     // Configure marked.js
     marked.setOptions({
@@ -215,7 +216,7 @@ async function init() {
         setTimeout(() => UI.elements.sidebar.classList.remove('no-transition'), 100);
     }
 
-    console.log('✅ Trinity fully initialized');
+    Logger.debug('Trinity fully initialized');
 
     // Health checks
     setTimeout(() => Actions.checkConnection(), 100);
@@ -258,9 +259,9 @@ window.deleteChat = (chatId) => Actions.deleteChat(chatId);
 
 // Debug helpers
 window.debugAuth = () => {
-    console.log('=== AUTH DEBUG ===');
-    console.log('AuthManager.isInitialized:', AuthManager.isInitialized);
-    console.log('State.isAuthenticated:', State.isAuthenticated);
-    console.log('State.principal:', State.principal);
-    console.log('=================');
+    Logger.debug('=== AUTH DEBUG ===');
+    Logger.debug('AuthManager.isInitialized:', AuthManager.isInitialized);
+    Logger.debug('State.isAuthenticated:', State.isAuthenticated);
+    Logger.debug('State.principal:', State.principal?.substring(0, 15) + '...');
+    Logger.debug('=================');
 };

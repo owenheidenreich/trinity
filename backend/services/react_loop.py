@@ -17,16 +17,13 @@ import re
 from dataclasses import dataclass, field
 from typing import Dict, Generator, List, Optional
 
-from config import REACT_MAX_ITERATIONS, REACT_NATIVE_TOOLS, QWEN3_THINKING_MODE, QWEN3_THINKING_BUDGET
+from config import REACT_MAX_ITERATIONS, REACT_TOKEN_BUDGET, REFLEXION_MAX_RETRIES
 
 from .agent_prompts import REACT_SYSTEM_PROMPT, TOOL_PROMPT_SECTION
 from .code_executor import execute_tool
 from .loading_messages import format_phase_update
 from .tools import (
     ToolResult,
-    extract_native_tool_calls,
-    get_native_tool_definitions,
-    model_supports_native_tools,
     parse_tool_calls,
 )
 
@@ -79,7 +76,36 @@ class ReactLoop:
         """
         self.client = client
         self.max_iterations = max_iterations or REACT_MAX_ITERATIONS
+        self.token_budget = REACT_TOKEN_BUDGET
+        self.reflexion_max_retries = REFLEXION_MAX_RETRIES
         self.context = context or {}
+
+    # ── Reflexion helpers ──────────────────────────────────────────
+    # Tools whose errors should trigger Reflexion (self-correction)
+    _REFLEXION_TOOLS = {"code_display", "run_command", "write_file"}
+
+    @staticmethod
+    def _is_reflexion_tool(tool_name: str) -> bool:
+        """Check if a tool supports Reflexion (error → fix → retry)."""
+        return tool_name in ReactLoop._REFLEXION_TOOLS
+
+    @staticmethod
+    def _build_reflexion_observation(tool_name: str, error_text: str, retry_count: int, max_retries: int) -> str:
+        """Build a Reflexion-aware observation that prompts self-correction."""
+        return (
+            f"[Tool Result: {tool_name}]\n"
+            f"ERROR: {error_text}\n\n"
+            f"Reflexion attempt {retry_count}/{max_retries}: "
+            f"The code had an error. Analyze the error, fix the issue, and try again. "
+            f"If you cannot fix it after examining the error, give your best answer with an explanation of the problem."
+        )
+
+    # ── Token budget estimation ────────────────────────────────────
+    @staticmethod
+    def _estimate_tokens(messages: List[Dict]) -> int:
+        """Rough token estimate: ~4 chars per token (conservative)."""
+        total_chars = sum(len(m.get("content", "")) for m in messages)
+        return total_chars // 4
 
     # ── Think-block filtering ──────────────────────────────────────
     _THINK_RE = re.compile(r"<think>.*?</think>\s*", flags=re.DOTALL)
@@ -89,53 +115,16 @@ class ReactLoop:
         """Remove <think>…</think> blocks from a complete string."""
         return ReactLoop._THINK_RE.sub("", text).lstrip()
 
-    def _is_qwen3(self) -> bool:
-        """Check if current model is Qwen3."""
-        model_name = getattr(self.client, "model", "").lower()
-        return model_name.startswith("qwen3")
-
-    def _should_use_native(self) -> bool:
-        """Determine if native tool calling should be used."""
-        if REACT_NATIVE_TOOLS == "never":
-            return False
-        if REACT_NATIVE_TOOLS == "always":
-            return True
-        # Auto-detect based on model
-        model_name = getattr(self.client, "model", "")
-        return model_supports_native_tools(model_name)
-
-    def _get_thinking_instruction(self, complexity: int = 5) -> str:
-        """Get Qwen3 thinking mode instruction based on complexity.
-
-        Returns /think or /no_think prefix for Qwen3 models, empty string for others.
-        """
-        if not self._is_qwen3():
-            return ""
-        if QWEN3_THINKING_MODE == "never":
-            return "/no_think\n"
-        if QWEN3_THINKING_MODE == "always":
-            return "/think\n"
-        # Auto: think for complex (>=6), skip for simple
-        if complexity >= 6:
-            return "/think\n"
-        return "/no_think\n"
-
     def _build_system_message(
         self,
         understanding: str = "",
         plan: str = "",
         user_memory: str = "",
         search_context: str = "",
-        native_mode: bool = False,
         complexity: int = 5,
     ) -> str:
         """Build the system message with tool definitions and context."""
         extra_parts = []
-
-        # Qwen3 thinking instruction
-        thinking = self._get_thinking_instruction(complexity)
-        if thinking:
-            extra_parts.append(thinking.strip())
 
         if user_memory:
             extra_parts.append(f"Context about the user:\n{user_memory}")
@@ -146,11 +135,18 @@ class ReactLoop:
         if search_context:
             extra_parts.append(f"Web search results:\n{search_context}")
 
+        # Inject repo map when workspace exists (helps with filesystem tools)
+        try:
+            from .repo_map import generate_repo_map
+            repo_map = generate_repo_map()
+            if repo_map:
+                extra_parts.append(repo_map)
+        except Exception as e:
+            logger.debug(f"Repo map generation skipped: {e}")
+
         extra_context = "\n\n".join(extra_parts) if extra_parts else ""
 
-        # When using native tools, Ollama handles tool definitions via the tools param
-        # so we don't need to include XML instructions in the system message
-        tool_defs = "" if native_mode else TOOL_PROMPT_SECTION
+        tool_defs = TOOL_PROMPT_SECTION
 
         return REACT_SYSTEM_PROMPT.format(
             tool_definitions=tool_defs,
@@ -165,7 +161,6 @@ class ReactLoop:
         plan: str = "",
         user_memory: str = "",
         search_context: str = "",
-        native_mode: bool = False,
         complexity: int = 5,
     ) -> List[Dict]:
         """Build the initial messages array for /api/chat."""
@@ -177,7 +172,6 @@ class ReactLoop:
             plan=plan,
             user_memory=user_memory,
             search_context=search_context,
-            native_mode=native_mode,
             complexity=complexity,
         )
         messages.append({"role": "system", "content": system_content})
@@ -195,27 +189,20 @@ class ReactLoop:
 
         return messages
 
-    def _extract_tool_calls(self, response, native_mode: bool):
-        """Extract tool calls from response using the appropriate parser."""
-        if native_mode and isinstance(response, dict):
-            # Native mode: response is the full message dict
-            return extract_native_tool_calls(response)
-        # XML mode: response is a string
+    def _extract_tool_calls(self, response):
+        """Extract tool calls from response using XML parser."""
         if isinstance(response, str):
             return parse_tool_calls(response)
         return []
 
-    def _get_response_content(self, response, native_mode: bool) -> str:
-        """Extract text content from response regardless of mode.
+    def _get_response_content(self, response) -> str:
+        """Extract text content from response.
 
-        Strips Qwen3 <think>...</think> blocks from the visible output.
+        Strips <think>...</think> blocks from the visible output.
         If stripping produces empty content, falls back to the text inside
         the think blocks (the model put its answer there).
         """
-        if native_mode and isinstance(response, dict):
-            raw = response.get("content", "") or ""
-        else:
-            raw = response if isinstance(response, str) else ""
+        raw = response if isinstance(response, str) else ""
         # Extract think-block content before stripping (fallback if stripped is empty)
         think_contents = re.findall(r"<think>(.*?)</think>", raw, flags=re.DOTALL)
         # Strip Qwen3 thinking blocks — keep only the visible answer
@@ -259,16 +246,14 @@ class ReactLoop:
 
         Returns a ReactResult with the final answer and metadata.
         """
-        native_mode = self._should_use_native()
-        native_tools = get_native_tool_definitions() if native_mode else None
-
         messages = self._build_messages(
             question, context_messages, understanding, plan, user_memory, search_context,
-            native_mode=native_mode, complexity=complexity,
+            complexity=complexity,
         )
 
         tools_used = []
         tool_log = []
+        reflexion_counts = {}  # Track retries per tool type
 
         for iteration in range(self.max_iterations):
             with track_agent_pass("react_iteration"):
@@ -280,8 +265,6 @@ class ReactLoop:
                     timeout=timeout,
                     pass_name="execute",
                     complexity=complexity,
-                    tools=native_tools,
-                    raw_message=native_mode,
                 )
 
                 if not response:
@@ -289,8 +272,8 @@ class ReactLoop:
                     break
 
                 # CHECK: Does response contain tool calls?
-                tool_calls = self._extract_tool_calls(response, native_mode)
-                content = self._get_response_content(response, native_mode)
+                tool_calls = self._extract_tool_calls(response)
+                content = self._get_response_content(response)
 
                 if not tool_calls:
                     # No tools — model is done, this is the final answer
@@ -319,13 +302,54 @@ class ReactLoop:
                 # OBSERVE: Add assistant response + tool result to messages
                 messages.append({"role": "assistant", "content": content})
 
-                result_text = result.output if result.success else f"Error: {result.error or result.output}"
-                messages.append({
-                    "role": "user",
-                    "content": f"[Tool Result: {tc.name}]\n{result_text}\n\nContinue based on this result. Use another tool if needed, or give your final answer.",
-                })
+                if not result.success and self._is_reflexion_tool(tc.name):
+                    # Reflexion: code execution error → prompt self-correction
+                    reflexion_counts[tc.name] = reflexion_counts.get(tc.name, 0) + 1
+                    retry_count = reflexion_counts[tc.name]
+                    error_text = result.error or result.output
 
-        # Hit max iterations — force a final answer
+                    if retry_count <= self.reflexion_max_retries:
+                        logger.info(
+                            f"Reflexion retry {retry_count}/{self.reflexion_max_retries} "
+                            f"for {tc.name}"
+                        )
+                        observation = self._build_reflexion_observation(
+                            tc.name, error_text, retry_count, self.reflexion_max_retries
+                        )
+                    else:
+                        logger.info(
+                            f"Reflexion max retries exceeded for {tc.name}, "
+                            f"proceeding normally"
+                        )
+                        observation = (
+                            f"[Tool Result: {tc.name}]\n"
+                            f"Error: {error_text}\n\n"
+                            f"Max retry attempts reached. Give your final answer "
+                            f"with an explanation of what went wrong."
+                        )
+                else:
+                    result_text = (
+                        result.output if result.success
+                        else f"Error: {result.error or result.output}"
+                    )
+                    observation = (
+                        f"[Tool Result: {tc.name}]\n{result_text}\n\n"
+                        f"Continue based on this result. Use another tool if needed, "
+                        f"or give your final answer."
+                    )
+
+                messages.append({"role": "user", "content": observation})
+
+                # TOKEN BUDGET: Force final answer if approaching context limit
+                estimated_tokens = self._estimate_tokens(messages)
+                if estimated_tokens > self.token_budget:
+                    logger.info(
+                        f"ReAct token budget exceeded (~{estimated_tokens} tokens > {self.token_budget}), "
+                        f"forcing final answer at iteration {iteration + 1}"
+                    )
+                    break
+
+        # Hit max iterations or token budget — force a final answer
         logger.info(f"ReAct hit max iterations ({self.max_iterations}), forcing final answer")
         messages.append({
             "role": "user",
@@ -369,15 +393,13 @@ class ReactLoop:
             {"token": "..."} — during final answer streaming
             {"react_done": True, "tools_used": [...], "iterations": N}
         """
-        native_mode = self._should_use_native()
-        native_tools = get_native_tool_definitions() if native_mode else None
-
         messages = self._build_messages(
             question, context_messages, understanding, plan, user_memory, search_context,
-            native_mode=native_mode, complexity=complexity,
+            complexity=complexity,
         )
 
         tools_used = []
+        reflexion_counts = {}  # Track retries per tool type
 
         for iteration in range(self.max_iterations):
             with track_agent_pass("react_iteration"):
@@ -389,8 +411,6 @@ class ReactLoop:
                     timeout=timeout,
                     pass_name="execute",
                     complexity=complexity,
-                    tools=native_tools,
-                    raw_message=native_mode,
                 )
 
                 if not response:
@@ -398,8 +418,8 @@ class ReactLoop:
                     break
 
                 # CHECK: Does response contain tool calls?
-                tool_calls = self._extract_tool_calls(response, native_mode)
-                content = self._get_response_content(response, native_mode)
+                tool_calls = self._extract_tool_calls(response)
+                content = self._get_response_content(response)
 
                 if not tool_calls:
                     # Final answer — stream it token by token
@@ -433,16 +453,57 @@ class ReactLoop:
                     f"{tc.name}: {status}",
                 )
 
-                # OBSERVE: Add to conversation
+                # OBSERVE: Add to conversation with Reflexion support
                 messages.append({"role": "assistant", "content": content})
 
-                result_text = result.output if result.success else f"Error: {result.error or result.output}"
-                messages.append({
-                    "role": "user",
-                    "content": f"[Tool Result: {tc.name}]\n{result_text}\n\nContinue based on this result. Use another tool if needed, or give your final answer.",
-                })
+                if not result.success and self._is_reflexion_tool(tc.name):
+                    # Reflexion: code execution error → prompt self-correction
+                    reflexion_counts[tc.name] = reflexion_counts.get(tc.name, 0) + 1
+                    retry_count = reflexion_counts[tc.name]
+                    error_text = result.error or result.output
 
-        # Max iterations — force final answer with streaming
+                    if retry_count <= self.reflexion_max_retries:
+                        logger.info(
+                            f"Reflexion retry {retry_count}/{self.reflexion_max_retries} "
+                            f"for {tc.name}"
+                        )
+                        observation = self._build_reflexion_observation(
+                            tc.name, error_text, retry_count, self.reflexion_max_retries
+                        )
+                        yield format_phase_update(
+                            "tool_execution",
+                            f"Reflexion: fixing error ({retry_count}/{self.reflexion_max_retries})...",
+                        )
+                    else:
+                        observation = (
+                            f"[Tool Result: {tc.name}]\n"
+                            f"Error: {error_text}\n\n"
+                            f"Max retry attempts reached. Give your final answer "
+                            f"with an explanation of what went wrong."
+                        )
+                else:
+                    result_text = (
+                        result.output if result.success
+                        else f"Error: {result.error or result.output}"
+                    )
+                    observation = (
+                        f"[Tool Result: {tc.name}]\n{result_text}\n\n"
+                        f"Continue based on this result. Use another tool if needed, "
+                        f"or give your final answer."
+                    )
+
+                messages.append({"role": "user", "content": observation})
+
+                # TOKEN BUDGET: Force final answer if approaching context limit
+                estimated_tokens = self._estimate_tokens(messages)
+                if estimated_tokens > self.token_budget:
+                    logger.info(
+                        f"ReAct streaming token budget exceeded (~{estimated_tokens} tokens > "
+                        f"{self.token_budget}), forcing final answer at iteration {iteration + 1}"
+                    )
+                    break
+
+        # Max iterations or token budget — force final answer with streaming
         logger.info(f"ReAct streaming hit max iterations ({self.max_iterations})")
         messages.append({
             "role": "user",

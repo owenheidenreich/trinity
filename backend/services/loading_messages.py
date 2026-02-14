@@ -16,13 +16,6 @@ from typing import Dict, List
 # These create messages like "Pondering the question..." or "Brewing the answer..."
 
 LOADING_PHRASES = {
-    "classifying": [
-        ("Examining", "question"),
-        ("Pondering", "complexity"),
-        ("Measuring", "depths"),
-        ("Sensing", "nuances"),
-        ("Calibrating", "response"),
-    ],
     "searching": [
         ("Scouring", "web"),
         ("Exploring", "internet"),
@@ -32,26 +25,6 @@ LOADING_PHRASES = {
         ("Diving into", "archives"),
         ("Querying", "databases"),
         ("Surfing", "information waves"),
-    ],
-    "understanding": [
-        ("Pondering", "question"),
-        ("Untangling", "meaning"),
-        ("Deciphering", "intent"),
-        ("Absorbing", "context"),
-        ("Contemplating", "puzzle"),
-        ("Grasping", "essence"),
-        ("Meditating on", "problem"),
-        ("Processing", "inquiry"),
-    ],
-    "planning": [
-        ("Drafting", "blueprint"),
-        ("Mapping", "approach"),
-        ("Charting", "course"),
-        ("Sketching", "strategy"),
-        ("Weaving", "plan"),
-        ("Plotting", "solution"),
-        ("Architecting", "response"),
-        ("Orchestrating", "thoughts"),
     ],
     "executing": [
         ("Brewing", "answer"),
@@ -64,26 +37,6 @@ LOADING_PHRASES = {
         ("Assembling", "thoughts"),
         ("Writing", "story"),
         ("Creating", "magic"),
-    ],
-    "critiquing": [
-        ("Polishing", "prose"),
-        ("Inspecting", "work"),
-        ("Reviewing", "craftsmanship"),
-        ("Examining", "details"),
-        ("Questioning", "assumptions"),
-        ("Testing", "logic"),
-        ("Scrutinizing", "reasoning"),
-        ("Evaluating", "quality"),
-    ],
-    "refining": [
-        ("Perfecting", "response"),
-        ("Enhancing", "answer"),
-        ("Elevating", "prose"),
-        ("Sharpening", "edge"),
-        ("Polishing", "gem"),
-        ("Refining", "gold"),
-        ("Buffing", "brilliance"),
-        ("Distilling", "essence"),
     ],
     "tool_execution": [
         ("Running", "tool"),

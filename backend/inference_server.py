@@ -43,7 +43,6 @@ V4_VECTOR_STORE_AVAILABLE = False
 V4_MEMORY_AVAILABLE = False
 V4_TOOLS_AVAILABLE = False
 V4_CODE_EXECUTOR_AVAILABLE = False
-V4_VOTING_AVAILABLE = False
 V4_STRUCTURED_AVAILABLE = False
 
 try:
@@ -82,13 +81,6 @@ except Exception as e:
     logger.error(f"❌ code_executor import failed: {e}")
 
 try:
-    from services.voting import V4_VOTING_AVAILABLE
-    logger.info(f"✅ voting: V4_VOTING_AVAILABLE={V4_VOTING_AVAILABLE}")
-except Exception as e:
-    V4_IMPORT_ERROR = f"voting: {e}"
-    logger.error(f"❌ voting import failed: {e}")
-
-try:
     from services.structured import V4_STRUCTURED_AVAILABLE
     logger.info(f"✅ structured: V4_STRUCTURED_AVAILABLE={V4_STRUCTURED_AVAILABLE}")
 except Exception as e:
@@ -103,15 +95,6 @@ V4_FEATURES_AVAILABLE = all([
     V4_CODE_EXECUTOR_AVAILABLE,
 ])
 logger.info(f"🧠 V4.0 Intelligence features: {'ENABLED' if V4_FEATURES_AVAILABLE else 'PARTIAL'}")
-
-LANGGRAPH_AVAILABLE = False
-try:
-    from services.graph import execute_graph  # noqa: F401
-    from services.graph.edges import should_use_langgraph  # noqa: F401
-    LANGGRAPH_AVAILABLE = True
-    logger.info("✅ LangGraph multi-agent system: ENABLED")
-except Exception as e:
-    logger.warning(f"⚠️ LangGraph not available: {e}")
 
 MCP_SERVER_AVAILABLE = False
 MCP_CLIENT_TOOLS = 0
@@ -162,10 +145,8 @@ app.config["V4_FEATURES"] = {
     "semantic_memory": V4_MEMORY_AVAILABLE,
     "tools": V4_TOOLS_AVAILABLE,
     "code_executor": V4_CODE_EXECUTOR_AVAILABLE,
-    "voting": V4_VOTING_AVAILABLE,
     "structured": V4_STRUCTURED_AVAILABLE,
 }
-app.config["LANGGRAPH_AVAILABLE"] = LANGGRAPH_AVAILABLE
 app.config["MCP_SERVER_AVAILABLE"] = MCP_SERVER_AVAILABLE
 app.config["MCP_CLIENT_TOOLS"] = MCP_CLIENT_TOOLS
 

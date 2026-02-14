@@ -120,6 +120,60 @@ TOOL_DEFINITIONS = {
             '<tool_call name="search_memory"><query>Python</query><search_type>hybrid</search_type></tool_call>'
         ],
     },
+    # ── Filesystem Tools ──────────────────────────────────────────
+    "read_file": {
+        "description": "Read a file from the workspace. Supports optional line ranges. Sandboxed to /workspace.",
+        "params": {
+            "path": "File path relative to workspace root (e.g., 'src/main.py')",
+            "start_line": "Optional: first line to read (1-based)",
+            "end_line": "Optional: last line to read (1-based)",
+        },
+        "examples": [
+            '<tool_call name="read_file"><path>src/main.py</path></tool_call>',
+            '<tool_call name="read_file"><path>src/main.py</path><start_line>10</start_line><end_line>50</end_line></tool_call>',
+        ],
+    },
+    "write_file": {
+        "description": "Write content to a file in the workspace. Creates parent directories if needed. Sandboxed to /workspace. Max 5MB.",
+        "params": {
+            "path": "File path relative to workspace root (e.g., 'src/output.py')",
+            "content": "The content to write to the file",
+        },
+        "examples": [
+            '<tool_call name="write_file"><path>hello.py</path><content>print("Hello, world!")</content></tool_call>',
+        ],
+    },
+    "list_directory": {
+        "description": "List files and directories in the workspace. Sandboxed to /workspace. Max depth 3.",
+        "params": {
+            "path": "Directory path relative to workspace root (default: '.')",
+            "recursive": "Whether to list recursively (true/false, default: false)",
+        },
+        "examples": [
+            '<tool_call name="list_directory"><path>.</path></tool_call>',
+            '<tool_call name="list_directory"><path>src</path><recursive>true</recursive></tool_call>',
+        ],
+    },
+    "search_codebase": {
+        "description": "Search for text patterns in workspace files. Returns matching lines with file paths and line numbers. Max 50 matches.",
+        "params": {
+            "query": "Text or regex pattern to search for",
+            "file_pattern": "Optional: glob pattern to filter files (e.g., '*.py', 'src/**/*.js')",
+        },
+        "examples": [
+            '<tool_call name="search_codebase"><query>def main</query><file_pattern>*.py</file_pattern></tool_call>',
+        ],
+    },
+    "run_command": {
+        "description": "Run an allowed command in the workspace. Only python, pytest, and node are allowed. Sandboxed to /workspace.",
+        "params": {
+            "command": "The command to run (e.g., 'python main.py', 'pytest tests/', 'node index.js')",
+        },
+        "examples": [
+            '<tool_call name="run_command"><command>pytest tests/ -x</command></tool_call>',
+            '<tool_call name="run_command"><command>python main.py</command></tool_call>',
+        ],
+    },
 }
 
 
@@ -166,9 +220,14 @@ def parse_tool_calls(text: str) -> List[ToolCall]:
     """
     tool_calls = []
 
-    # Match tool_call blocks
-    pattern = r'<tool_call\s+name=["\']([^"\']+)["\']>(.*?)</tool_call>'
-    matches = re.findall(pattern, text, re.DOTALL | re.IGNORECASE)
+    # Match tool_call blocks — closing </tool_call> tag is optional because
+    # some models (e.g. qwen2.5) omit it.  We try the strict pattern first,
+    # then fall back to a greedy-to-end-of-string match.
+    pattern_strict = r'<tool_call\s+name=["\']([^"\']+)["\']>(.*?)</tool_call>'
+    pattern_lenient = r'<tool_call\s+name=["\']([^"\']+)["\']>(.*?)(?:</tool_call>|\Z)'
+    matches = re.findall(pattern_strict, text, re.DOTALL | re.IGNORECASE)
+    if not matches:
+        matches = re.findall(pattern_lenient, text, re.DOTALL | re.IGNORECASE)
 
     for name, params_text in matches:
         params = {}
@@ -287,6 +346,20 @@ def detect_tools_needed(query: str, understanding: Dict = None) -> List[str]:
             tools.append("recall_memory")
             break
 
+    # Filesystem tool detection
+    fs_patterns = [
+        r"(read|show|open|cat|display|view)\s+.*?(file|source\s+code|code\s+in)",
+        r"(list|show)\s+(the\s+|me\s+the\s+)?(files?|director|folder|project\s+structure)",
+        r"(write|create|save)\s+(a\s+)?(file|to\s+file)",
+        r"(search|find|grep|look\s+for)\s+.*(in\s+the\s+)?(code|project|repo|files?|codebase)",
+        r"(run|execute)\s+(the\s+)?(test|pytest|python|node|script|command)",
+        r"what('?s|\s+is)\s+in\s+(this|the|my)\s+(project|directory|folder|repo)",
+    ]
+    for pattern in fs_patterns:
+        if re.search(pattern, query_lower):
+            tools.append("read_file")  # General filesystem signal
+            break
+
     return list(set(tools))  # Remove duplicates
 
 
@@ -310,133 +383,6 @@ def replace_tool_calls_with_results(text: str, results: Dict[str, ToolResult]) -
         text = text.replace(raw_text, replacement)
 
     return text
-
-
-# ============================================================================
-# NATIVE OLLAMA TOOL CALLING (Phase 2)
-# ============================================================================
-
-# Models known to support native function calling via Ollama /api/chat tools param
-NATIVE_TOOL_MODEL_PREFIXES = [
-    "qwen3", "qwen2.5", "qwen2",
-    "llama3.1", "llama3.2", "llama3.3",
-    "mistral", "mixtral",
-    "command-r",
-]
-
-
-def model_supports_native_tools(model_name: str) -> bool:
-    """Check if a model supports Ollama's native tool calling."""
-    model_lower = model_name.lower().split(":")[0]
-    return any(model_lower.startswith(p) for p in NATIVE_TOOL_MODEL_PREFIXES)
-
-
-def get_native_tool_definitions(tool_names: List[str] = None) -> List[Dict]:
-    """
-    Convert TOOL_DEFINITIONS to Ollama's native JSON Schema format.
-
-    Args:
-        tool_names: Optional list of tool names to include. If None, include all.
-
-    Returns:
-        List of tool definitions in Ollama native format
-    """
-    tools = []
-    for name, tool in TOOL_DEFINITIONS.items():
-        if tool_names and name not in tool_names:
-            continue
-
-        # Skip code execution if disabled
-        if name == "code_display" and not CODE_EXECUTION_ENABLED:
-            continue
-
-        properties = {}
-        required = []
-        for param_name, param_desc in tool["params"].items():
-            properties[param_name] = {
-                "type": "string",
-                "description": param_desc,
-            }
-            required.append(param_name)
-
-        tools.append({
-            "type": "function",
-            "function": {
-                "name": name,
-                "description": tool["description"],
-                "parameters": {
-                    "type": "object",
-                    "properties": properties,
-                    "required": required,
-                },
-            },
-        })
-
-    return tools
-
-
-def extract_native_tool_calls(response_message: Dict) -> List[ToolCall]:
-    """
-    Extract tool calls from Ollama's native response format.
-
-    Args:
-        response_message: The message dict from Ollama /api/chat response
-
-    Returns:
-        List of ToolCall objects (same format as parse_tool_calls)
-    """
-    tool_calls = []
-    native_calls = response_message.get("tool_calls", [])
-
-    for call in native_calls:
-        func = call.get("function", {})
-        name = func.get("name", "").lower().strip()
-        arguments = func.get("arguments", {})
-
-        # Arguments may be a JSON string or dict
-        if isinstance(arguments, str):
-            try:
-                import json
-                arguments = json.loads(arguments)
-            except (json.JSONDecodeError, ValueError):
-                arguments = {"raw": arguments}
-
-        if name:
-            tool_calls.append(
-                ToolCall(
-                    name=name,
-                    params=arguments,
-                    raw_text=str(call),
-                )
-            )
-
-    return tool_calls
-
-
-# ============================================================================
-# MERGED TOOL REGISTRY (local + external MCP)
-# ============================================================================
-
-
-def get_all_tool_definitions() -> Dict[str, dict]:
-    """
-    Get all available tools: local Trinity tools + external MCP tools.
-
-    Returns:
-        Combined TOOL_DEFINITIONS dict with both local and MCP tools
-    """
-    combined = dict(TOOL_DEFINITIONS)
-
-    try:
-        from .mcp_client import get_mcp_client
-
-        client = get_mcp_client()
-        if client.is_initialized and client.tool_count > 0:
-            combined.update(client.get_tool_definitions())
-    except Exception:
-        pass  # MCP client not available or not initialized
-
-    return combined
 
 
 # Module availability flag for graceful degradation

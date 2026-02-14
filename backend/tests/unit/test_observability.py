@@ -738,8 +738,7 @@ class TestAgentPipelineMetrics:
         """Complexity routing counter works"""
         from middleware.observability import COMPLEXITY_ROUTING
 
-        COMPLEXITY_ROUTING.labels(route="langgraph").inc()
-        COMPLEXITY_ROUTING.labels(route="legacy").inc()
+        COMPLEXITY_ROUTING.labels(route="agent").inc()
         assert True
 
     def test_tool_calls_metric(self, reset_metrics):
@@ -759,22 +758,6 @@ class TestAgentPipelineMetrics:
         TOOL_DURATION.labels(tool="calculator").observe(0.01)
         assert True
 
-    def test_voting_rounds_metric(self, reset_metrics):
-        """Voting rounds counter accepts outcome label"""
-        from middleware.observability import VOTING_ROUNDS
-
-        VOTING_ROUNDS.labels(outcome="consensus").inc()
-        VOTING_ROUNDS.labels(outcome="majority").inc()
-        VOTING_ROUNDS.labels(outcome="tiebreak").inc()
-        assert True
-
-    def test_voting_participants_metric(self, reset_metrics):
-        """Voting participants histogram works"""
-        from middleware.observability import VOTING_PARTICIPANTS
-
-        VOTING_PARTICIPANTS.observe(3)  # 3 agents voted
-        VOTING_PARTICIPANTS.observe(5)  # 5 agents voted
-        assert True
 
 
 class TestTrackAgentPass:
@@ -930,75 +913,20 @@ class TestRecordComplexity:
 class TestRecordRouting:
     """Tests for record_routing utility function"""
 
-    def test_record_routing_langgraph(self, reset_metrics):
-        """LangGraph routing can be recorded"""
+    def test_record_routing_agent(self, reset_metrics):
+        """Agent routing can be recorded"""
         from middleware.observability import record_routing
 
-        record_routing("langgraph")
-        assert True
-
-    def test_record_routing_legacy(self, reset_metrics):
-        """Legacy routing can be recorded"""
-        from middleware.observability import record_routing
-
-        record_routing("legacy")
+        record_routing("agent")
         assert True
 
     def test_record_routing_multiple(self, reset_metrics):
         """Multiple routing decisions can be recorded"""
         from middleware.observability import record_routing
 
-        # Simulate traffic pattern
-        for _ in range(8):
-            record_routing("legacy")  # Simple queries
-        for _ in range(2):
-            record_routing("langgraph")  # Complex queries
+        for _ in range(10):
+            record_routing("agent")
 
-        assert True
-
-
-class TestRecordVoting:
-    """Tests for record_voting utility function"""
-
-    def test_record_voting_consensus(self, reset_metrics):
-        """Consensus voting outcome can be recorded"""
-        from middleware.observability import record_voting
-
-        record_voting("consensus", participants=3)
-        assert True
-
-    def test_record_voting_majority(self, reset_metrics):
-        """Majority voting outcome can be recorded"""
-        from middleware.observability import record_voting
-
-        record_voting("majority", participants=5)
-        assert True
-
-    def test_record_voting_tiebreak(self, reset_metrics):
-        """Tiebreak voting outcome can be recorded"""
-        from middleware.observability import record_voting
-
-        record_voting("tiebreak", participants=4)
-        assert True
-
-    def test_record_voting_various_participant_counts(self, reset_metrics):
-        """Various participant counts are recorded"""
-        from middleware.observability import record_voting
-
-        # Different voting scenarios
-        record_voting("consensus", participants=2)  # Simple A/B
-        record_voting("majority", participants=3)  # Minimal majority
-        record_voting("consensus", participants=7)  # Large panel
-        record_voting("tiebreak", participants=10)  # Very large panel
-
-        assert True
-
-    def test_record_voting_default_participants(self, reset_metrics):
-        """Voting requires participant count"""
-        from middleware.observability import record_voting
-
-        # Participants is required - test that providing it works
-        record_voting("consensus", participants=1)
         assert True
 
 
@@ -1010,7 +938,6 @@ class TestAgentPipelineIntegration:
         from middleware.observability import (
             record_complexity,
             record_routing,
-            record_voting,
             track_agent_pass,
             track_tool_call,
         )
@@ -1018,31 +945,15 @@ class TestAgentPipelineIntegration:
         # 1. Classify complexity
         record_complexity("complex")
 
-        # 2. Route to LangGraph
-        record_routing("langgraph")
+        # 2. Route to agent
+        record_routing("agent")
 
-        # 3. Understand pass
-        with track_agent_pass("understand") as tracker:
-            time.sleep(0.001)
-
-        # 4. Plan pass
-        with track_agent_pass("plan") as tracker:
-            time.sleep(0.001)
-
-        # 5. Execute pass with tool calls
+        # 3. Execute pass with tool calls
         with track_agent_pass("execute") as exec_tracker:
             with track_tool_call("search") as tool_tracker:
                 time.sleep(0.001)
             with track_tool_call("calculator") as tool_tracker:
                 time.sleep(0.001)
-
-        # 6. Critique pass with voting
-        with track_agent_pass("critique") as tracker:
-            record_voting("majority", participants=3)
-
-        # 7. Refine pass
-        with track_agent_pass("refine") as tracker:
-            time.sleep(0.001)
 
         assert True
 
@@ -1072,17 +983,17 @@ class TestAgentPipelineIntegration:
 
         assert True
 
-    def test_simple_query_bypass(self, reset_metrics):
-        """Simple queries bypass LangGraph"""
+    def test_simple_query_direct(self, reset_metrics):
+        """Simple queries use direct generation"""
         from middleware.observability import (
             record_complexity,
             record_routing,
             track_inference,
         )
 
-        # Simple query - use legacy path
+        # Simple query - direct path
         record_complexity("simple")
-        record_routing("legacy")
+        record_routing("agent")
 
         # Direct inference, no agent passes
         with track_inference("llama3.1:8b", tier="2") as tracker:

@@ -275,7 +275,7 @@ COMPLEXITY_ROUTING = (
     Counter(
         "trinity_complexity_routing_total",
         "Routing decisions based on complexity",
-        ["route"],  # 'langgraph' or 'legacy'
+        ["route"],  # 'agent'
     )
     if PROMETHEUS_AVAILABLE
     else NoOpMetric()
@@ -301,71 +301,6 @@ TOOL_DURATION = (
     else NoOpMetric()
 )
 
-# Multi-agent voting metrics
-VOTING_ROUNDS = (
-    Counter(
-        "trinity_voting_rounds_total",
-        "Voting rounds by outcome",
-        ["outcome"],  # 'consensus', 'majority', 'tiebreak'
-    )
-    if PROMETHEUS_AVAILABLE
-    else NoOpMetric()
-)
-
-VOTING_PARTICIPANTS = (
-    Histogram(
-        "trinity_voting_participants",
-        "Number of agents participating in votes",
-        buckets=(1, 2, 3, 4, 5, 7, 10),
-    )
-    if PROMETHEUS_AVAILABLE
-    else NoOpMetric()
-)
-
-
-# =============================================================================
-# EXPERIMENT METRICS (Phase 4)
-# =============================================================================
-
-EXPERIMENT_ASSIGNMENTS = (
-    Counter(
-        "trinity_experiment_assignments_total",
-        "Total experiment variant assignments",
-        ["experiment", "variant"],
-    )
-    if PROMETHEUS_AVAILABLE
-    else NoOpMetric()
-)
-
-EXPERIMENT_EXPOSURES = (
-    Counter(
-        "trinity_experiment_exposures_total",
-        "Times a variant was actually used (not just assigned)",
-        ["experiment", "variant"],
-    )
-    if PROMETHEUS_AVAILABLE
-    else NoOpMetric()
-)
-
-PARALLEL_EXECUTIONS = (
-    Counter(
-        "trinity_parallel_executions_total",
-        "Parallel pipeline executions by winner",
-        ["winner"],  # 'legacy', 'langgraph', 'tie'
-    )
-    if PROMETHEUS_AVAILABLE
-    else NoOpMetric()
-)
-
-PARALLEL_LATENCY = (
-    Histogram(
-        "trinity_parallel_latency_seconds",
-        "Parallel execution total latency",
-        buckets=(1.0, 2.0, 5.0, 10.0, 20.0, 30.0, 60.0, 120.0),
-    )
-    if PROMETHEUS_AVAILABLE
-    else NoOpMetric()
-)
 
 
 # =============================================================================
@@ -677,14 +612,9 @@ def record_complexity(level: str):
 
 
 def record_routing(route: str):
-    """Record a routing decision (langgraph vs legacy)."""
+    """Record a routing decision."""
     COMPLEXITY_ROUTING.labels(route=route).inc()
 
-
-def record_voting(outcome: str, participants: int):
-    """Record a voting round outcome."""
-    VOTING_ROUNDS.labels(outcome=outcome).inc()
-    VOTING_PARTICIPANTS.observe(participants)
 
 
 # =============================================================================
@@ -928,8 +858,6 @@ __all__ = [
     "COMPLEXITY_ROUTING",
     "TOOL_CALLS",
     "TOOL_DURATION",
-    "VOTING_ROUNDS",
-    "VOTING_PARTICIPANTS",
     # Context managers
     "track_request",
     "track_inference",
@@ -947,7 +875,6 @@ __all__ = [
     "get_metrics_response",
     "record_complexity",
     "record_routing",
-    "record_voting",
     # Legacy metrics compatibility (Phase 5.5A migration)
     "start_request",
     "end_request",

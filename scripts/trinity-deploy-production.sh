@@ -51,7 +51,7 @@ TIER_YAML[3]="deploy-tier3-complex.yaml"
 typeset -A TIER_DESC
 TIER_DESC[1]="Qwen3 1.7B - Testing (~\$25/mo)"
 TIER_DESC[2]="Qwen2.5 14B - Balanced (~\$50/mo)"
-TIER_DESC[3]="Qwen3 32B - Intelligence (~\$200/mo)"
+TIER_DESC[3]="Qwen2.5-Coder 32B - Code Intelligence (~\$200/mo)"
 
 # =============================================================================
 # HELPER FUNCTIONS

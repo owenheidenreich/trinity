@@ -129,6 +129,8 @@ const idlFactory = ({ IDL }) => {
     });
 };
 
+import Logger from '../core/logger.js';
+
 // ============================================================================
 // ACTOR MANAGEMENT
 // ============================================================================
@@ -149,16 +151,13 @@ async function getActor() {
     
     const host = getICPHost();
     
-    console.log('🔗 Connecting to ICP:', {
-        host,
-        canisterId: BACKEND_CANISTER_ID,
-    });
+    Logger.debug('Connecting to ICP:', host, BACKEND_CANISTER_ID);
     
     agent = new HttpAgent({ host });
     
     // Fetch root key for local development (NEVER in production)
     if (host.includes('localhost')) {
-        console.warn('⚠️ Fetching root key for local development');
+        Logger.warn('Fetching root key for local development');
         await agent.fetchRootKey();
     }
     
@@ -239,7 +238,7 @@ export async function generateViaCanister(prompt, contextMessages = [], document
         public_key: publicKeyHex,
     };
     
-    console.log('📡 Calling ICP canister generate...', {
+    Logger.debug('Calling ICP canister generate...', {
         promptLength: enhancedPrompt.length,
         contextLength: contextMessages.length,
         hasDocument: !!documentContext,
@@ -252,7 +251,7 @@ export async function generateViaCanister(prompt, contextMessages = [], document
         const result = await actor.generate(request, auth, requestId);
         
         const latency = performance.now() - startTime;
-        console.log(`✅ Canister response in ${latency.toFixed(0)}ms`);
+        Logger.debug(`Canister response in ${latency.toFixed(0)}ms`);
         
         if ('Ok' in result) {
             return result.Ok;
@@ -261,7 +260,7 @@ export async function generateViaCanister(prompt, contextMessages = [], document
             throw new Error(`Canister error (${error.code}): ${error.error}`);
         }
     } catch (error) {
-        console.error('❌ Canister generate failed:', error);
+        Logger.error('Canister generate failed:', error);
         throw error;
     }
 }
@@ -276,20 +275,20 @@ export async function generateViaCanister(prompt, contextMessages = [], document
 export async function healthCheckViaCanister() {
     const actor = await getActor();
     
-    console.log('🏥 Checking health via canister...');
+    Logger.debug('Checking health via canister...');
     
     try {
         const result = await actor.health();
         
         if ('Ok' in result) {
-            console.log('✅ Health check passed:', result.Ok);
+            Logger.debug('Health check passed:', result.Ok);
             return result.Ok;
         } else {
             const error = result.Err;
             throw new Error(`Health check failed (${error.code}): ${error.error}`);
         }
     } catch (error) {
-        console.error('❌ Canister health check failed:', error);
+        Logger.error('Canister health check failed:', error);
         throw error;
     }
 }
@@ -325,7 +324,7 @@ export async function getFundingInfo() {
         const infoStr = await actor.get_funding_info();
         return JSON.parse(infoStr);
     } catch (error) {
-        console.warn('Failed to get funding info:', error);
+        Logger.warn('Failed to get funding info:', error);
         return null;
     }
 }

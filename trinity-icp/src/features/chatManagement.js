@@ -5,6 +5,7 @@
 // ============================================================================
 
 import API from '../core/api.js';
+import Logger from '../core/logger.js';
 import State from '../state/store.js';
 import UI from '../ui/index.js';
 import AutosaveManager from '../storage/autosave.js';
@@ -15,7 +16,7 @@ import { addEditButton } from '../ui/editMessage.js';
  */
 export function newChat() {
     if (!State.isAuthenticated) {
-        console.warn('⛔ New chat blocked - user not authenticated');
+        Logger.warn('New chat blocked - user not authenticated');
         return;
     }
 
@@ -37,7 +38,7 @@ export function newChat() {
     if (chatArea) chatArea.scrollTop = 0;
 
     UI.renderSidebar(State);
-    console.log('🆕 New chat started');
+    Logger.debug('New chat started');
 }
 
 /**
@@ -97,21 +98,20 @@ export function handleKeyDown(event, generateFn) {
  */
 export async function loadChats() {
     if (!State.isAuthenticated) {
-        console.log('❌ loadChats() skipped - not authenticated');
+        Logger.debug('loadChats() skipped - not authenticated');
         return;
     }
 
     try {
-        console.log('📋 Loading chats...');
+        Logger.debug('Loading chats...');
         const response = await API.listChats();
         const chats = response.chats || [];
 
-        console.log('📋 Chats loaded:', chats.length);
+        Logger.debug('Chats loaded:', chats.length);
         State.setAllChats(chats);
         UI.renderSidebar(State);
-        console.log('📋 Sidebar rendered with chats');
     } catch (error) {
-        console.error('❌ Failed to load chats:', error);
+        Logger.error('Failed to load chats:', error);
     }
 }
 
@@ -145,32 +145,19 @@ export async function executeAutosave() {
  */
 export async function loadUserMemory() {
     if (!State.isAuthenticated) {
-        console.log('❌ loadUserMemory() skipped - not authenticated');
+        Logger.debug('loadUserMemory() skipped - not authenticated');
         return;
     }
 
     try {
-        console.log('🧠 Loading user memory...');
+        Logger.debug('Loading user memory...');
         const memory = await API.getUserMemory();
         State.setUserMemory(memory);
-        console.log(`🧠 User memory loaded: ${memory.facts?.length || 0} facts`);
+        Logger.debug(`User memory loaded: ${memory.facts?.length || 0} facts`);
     } catch (error) {
-        console.error('❌ Failed to load user memory:', error);
+        Logger.error('Failed to load user memory:', error);
         State.setUserMemory({ facts: [], preferences: {} });
     }
-}
-
-/**
- * Recover archived chats from IPFS.
- * NOTE: Archive feature removed in v3.7.0 — this is now a no-op.
- */
-export async function recoverArchivedChats() {
-    if (!State.isAuthenticated) {
-        console.log('❌ recoverArchivedChats() skipped - not authenticated');
-        return;
-    }
-
-    console.log('ℹ️ Archive recovery skipped (feature removed in v3.7.0)');
 }
 
 /**
@@ -179,12 +166,12 @@ export async function recoverArchivedChats() {
  */
 export async function loadChat(chatId, editAndRegenerate = null) {
     if (State.isLoadingChat) {
-        console.log('⏳ Already loading a chat, ignoring click');
+        Logger.debug('Already loading a chat, ignoring click');
         return;
     }
 
     if (!State.isAuthenticated) {
-        console.warn('⛔ Load chat blocked - user not authenticated');
+        Logger.warn('Load chat blocked - user not authenticated');
         return;
     }
 
@@ -204,7 +191,7 @@ export async function loadChat(chatId, editAndRegenerate = null) {
         State.setContextMemory([]);
         const recentMessages = State.chatHistory.slice(-State.CONTEXT_WINDOW_SIZE);
         recentMessages.forEach(msg => State.updateContextMemory(msg));
-        console.log(`🔄 Loaded chat with ${State.chatHistory.length} messages, rebuilt context with ${State.contextMemory.length} recent messages`);
+        Logger.debug(`Loaded chat with ${State.chatHistory.length} messages, context: ${State.contextMemory.length}`);
 
         UI.renderChatHistory(State);
 
@@ -349,16 +336,13 @@ export async function pinChat(chatId) {
  * Load user data in background (non-blocking, errors don't break auth).
  */
 export async function loadUserDataInBackground() {
-    console.log('📂 Loading user data in background...');
+    Logger.debug('Loading user data in background...');
 
     try { await loadChats(); }
-    catch (error) { console.warn('⚠️ Failed to load chats (will retry later):', error.message); }
+    catch (error) { Logger.warn('Failed to load chats (will retry later):', error.message); }
 
     try { await loadUserMemory(); }
-    catch (error) { console.warn('⚠️ Failed to load user memory (will retry later):', error.message); }
-
-    try { await recoverArchivedChats(); }
-    catch (error) { console.warn('⚠️ Failed to recover archives (will retry later):', error.message); }
+    catch (error) { Logger.warn('Failed to load user memory (will retry later):', error.message); }
 
     // Retry pending syncs from IndexedDB
     try {
@@ -366,12 +350,12 @@ export async function loadUserDataInBackground() {
             (chatData) => API.autosave(chatData)
         );
         if (synced > 0) {
-            console.log(`☁️ Synced ${synced} pending chat(s)`);
+            Logger.debug(`Synced ${synced} pending chat(s)`);
         }
     } catch (error) {
-        console.warn('⚠️ Failed to retry pending syncs:', error.message);
+        Logger.warn('Failed to retry pending syncs:', error.message);
     }
 
     UI.renderSidebar(State);
-    console.log('📂 Background data loading complete');
+    Logger.debug('Background data loading complete');
 }

@@ -3,6 +3,7 @@
 // ============================================================================
 
 import CONFIG from './config.js';
+import Logger from './core/logger.js';
 
 // File size limits
 const MAX_TEXT_SIZE_KB = 100;
@@ -55,9 +56,9 @@ async function handleTextFile(file) {
         attachedFile = file;
         attachedContent = content;
         showAttachmentPreview(file.name, file.size);
-        console.log(`File attached: ${file.name}`);
+        Logger.debug(`File attached: ${file.name}`);
     } catch (error) {
-        console.error('Error reading file:', error);
+        Logger.error('Error reading file:', error);
         alert('Error reading file: ' + error.message);
     }
 }
@@ -80,7 +81,7 @@ function showAttachmentPreview(filename, size) {
 // ============================================================================
 
 function initTools() {
-    console.log('Initializing integrated tools...');
+    Logger.debug('Initializing integrated tools...');
     
     const attachBtn = document.getElementById('attachBtn');
     const fileInput = document.getElementById('fileInput');
@@ -95,7 +96,7 @@ function initTools() {
         removeBtn.addEventListener('click', clearAttachment);
     }
     
-    console.log('Integrated tools ready');
+    Logger.debug('Integrated tools ready');
 }
 
 export { 

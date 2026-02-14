@@ -759,7 +759,7 @@ def update_user_memory():
 @require_auth
 @storage_rate_limit
 def add_memory_fact():
-    """Add a single fact to user's memory"""
+    """Add a single fact to user's memory (normalized schema)."""
     try:
         principal = request.principal
         data = request.json
@@ -769,11 +769,25 @@ def add_memory_fact():
 
         memory = load_user_memory(principal)
 
+        fact_text = data["fact"]
+        category = data.get("category", "general")
+
+        # Generate embedding for semantic retrieval
+        embedding = None
+        try:
+            from services.embeddings import embed_text
+            emb = embed_text(fact_text)
+            if emb is not None:
+                embedding = emb.tolist()
+        except Exception:
+            pass  # Embedding optional — fact still saved without it
+
         new_fact = {
-            "fact": data["fact"],
-            "addedAt": int(time.time() * 1000),
-            "fromChatId": data.get("chatId"),
-            "category": data.get("category", "general"),
+            "text": fact_text,
+            "category": category,
+            "importance": int(data.get("importance", 3)),
+            "embedding": embedding,
+            "created_at": int(time.time() * 1000),
         }
 
         memory["facts"].append(new_fact)

@@ -1,0 +1,30 @@
+feat: intelligence overhaul + React frontend migration + bug fixes
+
+INTELLIGENCE-OVERHAUL (Phases 0-5):
+- Delete multi-pass pipeline, LangGraph, voting, complexity classifier (~2700 lines)
+- Replace with single-pass ReAct agent (525 lines)
+- Fix all memory bugs (B1-B8): format user memory, index both messages
+- Upgrade model target to qwen2.5-coder:32b
+- Add filesystem/code-execution tools with Reflexion
+- Expand context window 6 -> 20 messages
+- Remove ~100MB of LangGraph/LangChain dependencies
+
+FRONTEND-OVERHAUL (Phases A-E):
+- Replace vanilla JS frontend (~9700 lines) with React 19 + TypeScript (~5200 lines)
+- Single MarkdownRenderer pipeline (was 5+ pipelines)
+- SSE streaming via typed hooks (useChat, useAutosave, useConnection)
+- CSS Modules, design tokens, zero CDN dependencies
+- 137 unit tests (Vitest), ESLint, TypeScript strict mode
+- Deployed to ICP asset canister
+
+BUG FIXES (post-overhaul QA):
+- Fix ChatListItem type: snake_case to camelCase to match backend API
+- Fix pin chat endpoint: PATCH /chat/:id to POST /chat/:id/pin
+- Fix user memory response: unwrap directly (not .memory wrapper)
+- Fix first message chat_id race condition (React closure stale state)
+- Fix AutosaveRequest type casing to match runtime
+- Fix formatDate: remove x1000 (backend sends milliseconds)
+- Fix tool call parser: handle missing closing tool_call tag
+
+Backend: 615 tests pass, 91% coverage
+Frontend: 137 tests pass, tsc clean, ESLint clean

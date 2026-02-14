@@ -8,6 +8,7 @@
 // - Private keys encrypted in localStorage with browser-derived key
 
 import { encryptForStorage, decryptFromStorage, isEncrypted } from '../utils/crypto.js';
+import Logger from '../core/logger.js';
 
 const AuthManager = {
     isInitialized: false,
@@ -16,17 +17,17 @@ const AuthManager = {
 
     async initialize() {
         if (!window.ICPAuth) {
-            console.error('❌ ICP Auth bundle not loaded');
+            Logger.error('ICP Auth bundle not loaded');
             return false;
         }
 
         try {
-            console.log('🔧 ICP Authentication initializing...');
-            console.log('✅ ICPAuth available:', Object.keys(window.ICPAuth));
+            Logger.debug('ICP Authentication initializing...');
+            Logger.debug('ICPAuth available:', Object.keys(window.ICPAuth));
             
             // Verify we have the required classes
             if (!window.ICPAuth.HttpAgent || !window.ICPAuth.Ed25519KeyIdentity || !window.ICPAuth.Principal) {
-                console.error('❌ Missing required ICP Auth classes');
+                Logger.error('Missing required ICP Auth classes');
                 return false;
             }
 
@@ -38,24 +39,24 @@ const AuthManager = {
             
             if (savedKey && savedPrincipal) {
                 try {
-                    console.log('🔄 Restoring saved identity...');
+                    Logger.debug('Restoring saved identity...');
                     const restoredIdentity = await this.restoreIdentity(savedKey, savedPrincipal);
                     
                     if (restoredIdentity) {
-                        console.log('✅ Identity restored:', savedPrincipal);
+                        Logger.debug('Identity restored:', savedPrincipal?.slice(0, 10));
                         return restoredIdentity;
                     }
                 } catch (error) {
-                    console.error('❌ Failed to restore identity:', error);
+                    Logger.error('Failed to restore identity:', error);
                     localStorage.removeItem('trinity_identity_key');
                     localStorage.removeItem('trinity_principal');
                 }
             }
             
-            console.log('✅ ICP Authentication initialized');
+            Logger.debug('ICP Authentication initialized');
             return { isAuthenticated: false };
         } catch (error) {
-            console.error('❌ ICP Authentication initialization failed:', error);
+            Logger.error('ICP Authentication initialization failed:', error);
             return false;
         }
     },
@@ -66,11 +67,11 @@ const AuthManager = {
         // Decrypt if encrypted, otherwise use as-is (for migration)
         let privateKeyHex;
         if (isEncrypted(savedKey)) {
-            console.log('🔓 Decrypting stored key...');
+            Logger.debug('Decrypting stored key...');
             privateKeyHex = await decryptFromStorage(savedKey);
         } else {
             // Migrate unencrypted key to encrypted storage
-            console.log('🔐 Migrating unencrypted key to encrypted storage...');
+            Logger.debug('Migrating unencrypted key to encrypted storage...');
             privateKeyHex = savedKey;
             const encryptedKey = await encryptForStorage(privateKeyHex);
             localStorage.setItem('trinity_identity_key', encryptedKey);
@@ -93,7 +94,7 @@ const AuthManager = {
                 authenticatedSince: Date.now()
             };
         } else {
-            console.warn('⚠️ Principal mismatch, clearing saved data');
+            Logger.warn('Principal mismatch, clearing saved data');
             localStorage.removeItem('trinity_identity_key');
             localStorage.removeItem('trinity_principal');
             return null;
@@ -108,7 +109,7 @@ const AuthManager = {
         if (await this.authClient.isAuthenticated()) {
             this.identity = this.authClient.getIdentity();
             const principal = this.identity.getPrincipal().toText();
-            console.log('✅ User already authenticated:', principal);
+            Logger.debug('User already authenticated:', principal?.slice(0, 10));
             return {
                 isAuthenticated: true,
                 principal: principal,
@@ -120,10 +121,10 @@ const AuthManager = {
     },
 
     async login() {
-        console.log('🔐 Auth.login() called');
+        Logger.debug('Auth.login() called');
         
         if (!this.isInitialized) {
-            console.error('❌ Auth not initialized');
+            Logger.error('Auth not initialized');
             alert('Authentication not initialized. Please refresh the page.');
             return { success: false };
         }
@@ -142,12 +143,12 @@ const AuthManager = {
                 .join('');
             
             // Encrypt and store in localStorage
-            console.log('🔐 Encrypting private key for storage...');
+            Logger.debug('Encrypting private key for storage...');
             const encryptedKey = await encryptForStorage(privateKeyHex);
             localStorage.setItem('trinity_identity_key', encryptedKey);
             localStorage.setItem('trinity_principal', principal);
             
-            console.log('✅ New identity created:', principal);
+            Logger.debug('New identity created:', principal?.slice(0, 10));
             
             return { 
                 success: true, 
@@ -156,7 +157,7 @@ const AuthManager = {
                 authenticatedSince: Date.now()
             };
         } catch (error) {
-            console.error('❌ Login exception:', error);
+            Logger.error('Login exception:', error);
             alert('Login error: ' + error.message);
             return { success: false, error: error.message };
         }
@@ -169,7 +170,7 @@ const AuthManager = {
         
         this.identity = null;
         this.authClient = null;
-        console.log('✅ Logged out and cleared saved identity');
+        Logger.debug('Logged out and cleared saved identity');
         
         return { success: true };
     },
@@ -192,12 +193,12 @@ const AuthManager = {
             const principal = this.identity.getPrincipal().toText();
             
             // Encrypt and save to localStorage
-            console.log('🔐 Encrypting imported key for storage...');
+            Logger.debug('Encrypting imported key for storage...');
             const encryptedKey = await encryptForStorage(privateKeyHex);
             localStorage.setItem('trinity_identity_key', encryptedKey);
             localStorage.setItem('trinity_principal', principal);
             
-            console.log('✅ Identity imported:', principal);
+            Logger.debug('Identity imported:', principal?.slice(0, 10));
             
             return {
                 success: true,
@@ -205,7 +206,7 @@ const AuthManager = {
                 authenticatedSince: Date.now()
             };
         } catch (error) {
-            console.error('❌ Import key failed:', error);
+            Logger.error('Import key failed:', error);
             return { success: false, error: error.message };
         }
     },
@@ -227,7 +228,7 @@ const AuthManager = {
                 principal: this.identity.getPrincipal().toText()
             };
         } catch (error) {
-            console.error('❌ Export key failed:', error);
+            Logger.error('Export key failed:', error);
             return { success: false, error: error.message };
         }
     },
@@ -252,7 +253,7 @@ const AuthManager = {
             
             return signatureHex;
         } catch (error) {
-            console.error('❌ Failed to sign message:', error);
+            Logger.error('Failed to sign message:', error);
             throw error;
         }
     },
@@ -279,7 +280,7 @@ const AuthManager = {
             
             return publicKeyHex;
         } catch (error) {
-            console.error('❌ Failed to get public key:', error);
+            Logger.error('Failed to get public key:', error);
             throw error;
         }
     },

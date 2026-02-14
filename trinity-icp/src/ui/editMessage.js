@@ -5,6 +5,7 @@
 // ============================================================================
 
 import { protectMath, restoreMath } from '../utils/math.js';
+import Logger from '../core/logger.js';
 
 /**
  * Convert <tool_call> XML blocks to renderable markdown.
@@ -152,7 +153,7 @@ export function findMessageIndex(messageDiv) {
     // First try data attribute (most reliable)
     if (messageDiv.dataset.userIndex !== undefined) {
         const idx = parseInt(messageDiv.dataset.userIndex, 10);
-        console.log('📍 Found user index from data attribute:', idx);
+        Logger.debug('Found user index from data attribute:', idx);
         return idx;
     }
 
@@ -164,10 +165,10 @@ export function findMessageIndex(messageDiv) {
             userIndex++;
         }
         if (messages[i] === messageDiv) {
-            console.log('📍 Found user index by DOM traversal:', userIndex);
+            Logger.debug('Found user index by DOM traversal:', userIndex);
             return userIndex;
         }
     }
-    console.warn('⚠️ Could not find message index');
+    Logger.warn('Could not find message index');
     return -1;
 }

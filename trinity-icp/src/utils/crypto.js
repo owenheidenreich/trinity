@@ -3,6 +3,8 @@
  * Uses Web Crypto API for AES-GCM encryption
  */
 
+import Logger from '../core/logger.js';
+
 // Salt for key derivation (static but provides some obfuscation)
 const STORAGE_SALT = new Uint8Array([
     0x54, 0x52, 0x49, 0x4e, 0x49, 0x54, 0x59, 0x5f,
@@ -72,7 +74,7 @@ export async function encryptForStorage(plaintext) {
         // Return as base64
         return btoa(String.fromCharCode(...combined));
     } catch (error) {
-        console.error('❌ Encryption failed:', error);
+        Logger.error('Encryption failed:', error);
         throw error;
     }
 }
@@ -104,7 +106,7 @@ export async function decryptFromStorage(encryptedBase64) {
         const decoder = new TextDecoder();
         return decoder.decode(decrypted);
     } catch (error) {
-        console.error('❌ Decryption failed:', error);
+        Logger.error('Decryption failed:', error);
         throw error;
     }
 }

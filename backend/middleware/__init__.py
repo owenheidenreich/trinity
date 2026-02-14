@@ -1,31 +1,17 @@
 """
 Trinity Backend - Middleware Package
-Rate limiting, ICP caching, observability, A/B testing, and request utilities
+Rate limiting, ICP caching, observability, and request utilities
 """
 
-from .ab_test import (
-    experiment,
-    experiments,
-    get_all_experiment_assignments,
-    get_experiment_config,
-    get_session_id,
-    get_variant_name,
-    is_in_variant,
-    record_exposure,
-)
 from .icp_cache import icp_cache, icp_idempotent
-from .observability import (  # Phase 4: Experiment metrics; Phase 5: Cost optimization metrics
+from .observability import (  # Phase 5: Cost optimization metrics
     AUTH_ATTEMPTS,
     EMBEDDING_CACHE_HITS,
     EMBEDDING_CACHE_MISSES,
     EMBEDDING_CACHE_SIZE,
     ERROR_COUNTER,
     ESTIMATED_COST_USD,
-    EXPERIMENT_ASSIGNMENTS,
-    EXPERIMENT_EXPOSURES,
     INFERENCE_DURATION,
-    PARALLEL_EXECUTIONS,
-    PARALLEL_LATENCY,
     PROMETHEUS_AVAILABLE,
     REQUEST_COUNTER,
     REQUEST_LATENCY,
@@ -100,19 +86,6 @@ __all__ = [
     "INFERENCE_DURATION",
     "TOKENS_GENERATED",
     "AUTH_ATTEMPTS",
-    # Phase 4: Experiment exports
-    "EXPERIMENT_ASSIGNMENTS",
-    "EXPERIMENT_EXPOSURES",
-    "PARALLEL_EXECUTIONS",
-    "PARALLEL_LATENCY",
-    "experiment",
-    "experiments",
-    "get_session_id",
-    "get_experiment_config",
-    "get_variant_name",
-    "is_in_variant",
-    "record_exposure",
-    "get_all_experiment_assignments",
     # Phase 5: Cost optimization exports
     "EMBEDDING_CACHE_HITS",
     "EMBEDDING_CACHE_MISSES",

@@ -1,0 +1,53 @@
+// ICP Asset Configuration for Trinity React Frontend
+// Deployed to asset canister — configures HTTP headers for all served files
+[
+  {
+    // Global headers for all assets
+    "match": "**/*",
+    "security_policy": "standard",
+    "headers": {
+      // CSP matches the <meta> tag in index.html — belt-and-suspenders
+      // React build bundles everything (no CDN), so script-src is 'self' only
+      "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://api.dubya.ai https://*.workers.dev https://gateway.lighthouse.storage https://ipfs.io https://dweb.link https://cloudflare-ipfs.com https://*.icp0.io; font-src 'self' data:; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';",
+      "X-Content-Type-Options": "nosniff",
+      "Referrer-Policy": "strict-origin-when-cross-origin",
+      "Permissions-Policy": "camera=(), microphone=(), geolocation=()"
+    }
+  },
+  {
+    // HTML — never cache (ensures immediate updates on deploy)
+    "match": "**/*.html",
+    "headers": {
+      "Cache-Control": "no-cache, no-store, must-revalidate"
+    }
+  },
+  {
+    // Hashed JS/CSS — immutable long cache (filenames contain content hash)
+    "match": "assets/**/*.{js,css}",
+    "headers": {
+      "Cache-Control": "public, max-age=31536000, immutable"
+    }
+  },
+  {
+    // icp-auth.js — no hash in filename, so no-cache
+    "match": "icp-auth.js",
+    "headers": {
+      "Cache-Control": "no-cache, no-store, must-revalidate"
+    }
+  },
+  {
+    // Font files — long cache (hashed filenames)
+    "match": "assets/**/*.{woff,woff2,ttf}",
+    "headers": {
+      "Cache-Control": "public, max-age=31536000, immutable"
+    }
+  },
+  {
+    // .well-known for ICP custom domain
+    "match": ".well-known/**/*",
+    "headers": {
+      "Content-Type": "text/plain",
+      "Cache-Control": "no-cache"
+    }
+  }
+]

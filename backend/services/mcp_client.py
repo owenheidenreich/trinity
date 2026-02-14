@@ -251,30 +251,10 @@ def initialize_mcp_client() -> int:
     """
     Initialize the MCP client from config.
 
-    Reads MCP_SERVERS_CONFIG and connects to configured servers.
-    Returns number of tools discovered.
+    MCP client feature is currently disabled.
+    Returns number of tools discovered (always 0).
     """
-    from config import MCP_CLIENT_ENABLED, MCP_SERVERS_CONFIG
-
-    if not MCP_CLIENT_ENABLED:
-        return 0
-
-    try:
-        configs_raw = json.loads(MCP_SERVERS_CONFIG)
-    except (json.JSONDecodeError, TypeError):
-        logger.warning("MCP_SERVERS config is not valid JSON, skipping")
-        return 0
-
-    if not configs_raw:
-        return 0
-
-    server_configs = []
-    for raw in configs_raw:
-        if isinstance(raw, dict) and "name" in raw and "url" in raw:
-            server_configs.append(MCPServerConfig(name=raw["name"], url=raw["url"]))
-
-    client = get_mcp_client()
-    return client.initialize(server_configs)
+    return 0
 
 
 # Module availability flag

@@ -1,43 +1,35 @@
 version: "2.0"
 
 # ============================================================================
-# Trinity Tier 3: Complex Reasoning (Qwen3 32B)
+# Trinity Tier 3: Code Intelligence (Qwen2.5-Coder 32B)
 # ============================================================================
 #
-# Purpose: Complex reasoning, code generation, multi-step analysis
-# Model: Qwen3 32B — outperforms Qwen2.5-72B at half the VRAM
+# Purpose: Code generation, debugging, complex reasoning
+# Model: Qwen2.5-Coder 32B — 72.9% on Aider benchmark, 128K context
 # Cost: ~$0.80-1.50/hour (~$600-1000/month)
 # Response Time: 5-20 seconds
-# Intelligence: Excellent (hybrid thinking mode for deep reasoning)
+# Intelligence: Excellent (code-specialized, 128K context window)
 #
-# Qwen3 advantages:
-# - 32B outperforms Qwen2.5-72B on most benchmarks
-# - Hybrid thinking: /think for complex, /no_think for speed
-# - Native function calling with structured JSON output
-# - Multi-model: qwen3:1.7b (fast) + qwen3:8b (smart) + qwen3:32b (reasoning)
+# Qwen2.5-Coder advantages:
+# - 72.9% Aider benchmark (vs ~45% for general 8B models)
+# - 128K context window (4x previous)
+# - Code-specialized training data
+# - Q4_K_M quantization fits ~20GB VRAM
 #
-# Fits on A100 40GB, A6000, or 2x RTX 4090.
+# Fits on A100 40GB, A6000, or RTX 4090 24GB.
 # ============================================================================
 
 services:
   trinity:
-    image: gdubx/trinity-inference:v2-20260212-211828
+    image: gdubx/trinity-inference:v2-20260213-154107
     env:
-      - PROVIDER_ID=trinity-tier3-qwen3-32b
-      - MODEL_NAME=qwen3:32b
+      - PROVIDER_ID=trinity-tier3-qwen25-coder-32b
+      - MODEL_NAME=qwen2.5-coder:32b
       - MODEL_BACKEND=ollama
       - GPU_TYPE=A100
       - MAX_QUEUE_SIZE=5
       - OLLAMA_HOST=http://localhost:11434
-      # Multi-Model Architecture (v4.0)
-      # FAST_MODEL: Quick classification/routing (tiny Qwen3)
-      # SMART_MODEL: General purpose balanced reasoning (Qwen3 8B)
-      # REASONING_MODEL: Complex reasoning (Qwen3 32B — same as MODEL_NAME)
-      - MULTI_MODEL_ENABLED=true
-      - FAST_MODEL=qwen3:1.7b
-      - SMART_MODEL=qwen3:8b
-      - REASONING_MODEL=qwen3:32b
-      # RAG & Semantic Memory (v4.0)
+      # RAG & Semantic Memory
       - EMBEDDING_MODEL=BAAI/bge-small-en-v1.5
       - RAG_TOP_K=5
       - RAG_CHUNK_SIZE=512
@@ -45,13 +37,9 @@ services:
       - WORKING_MEMORY_SIZE=3
       - SEMANTIC_MEMORY_SIZE=5
       - RECENCY_WEIGHT=0.3
-      # Tool Use & Code Execution (v4.0)
+      # Tool Use & Code Execution
       - CODE_EXECUTION_ENABLED=false
       - CODE_EXECUTION_TIMEOUT=5
-      # Voting (v4.0)
-      - VOTING_ENABLED=true
-      - VOTING_CANDIDATES=3
-      - VOTING_COMPLEXITY_THRESHOLD=7
       # API Keys - Injected from .env at deployment time
       - LIGHTHOUSE_API_KEY=${LIGHTHOUSE_API_KEY}
       - BRAVE_SEARCH_API_KEY=${BRAVE_SEARCH_API_KEY}

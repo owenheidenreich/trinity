@@ -6,51 +6,40 @@
 
 import CONFIG from '../config.js';
 import API from '../core/api.js';
+import Logger from '../core/logger.js';
 import State from '../state/store.js';
 import UI from '../ui/index.js';
-import ContextMemory from '../state/contextMemory.js';
 import AutosaveManager from '../storage/autosave.js';
 import { enhanceCodeBlocks, addCopyAllButton, addContinueButton, addDownloadSection } from '../ui/messages.js';
 import { extractCodeBlocks, getCodeBlockStatus } from '../utils/codeBlockParser.js';
 import { getFileIcon, LANG_EXTENSIONS, generateSmartFilename } from '../utils/codeUtils.js';
 import { addEditButton, parseMarkdownWithMath, preprocessToolCalls } from '../ui/editMessage.js';
 import { getAttachedContent, clearAttachment } from '../tools.js';
-import { healthCheckViaCanister, isCanisterConfigured } from '../api/canister-client.js';
 
 /**
  * Check backend connection health.
  */
 export async function checkConnection() {
     try {
-        let data;
-
-        if (CONFIG.USE_CANISTER && isCanisterConfigured()) {
-            console.log('🏥 Checking health via ICP canister...');
-            data = await healthCheckViaCanister();
-            console.log('Health check response (via canister):', data);
-        } else {
-            console.log('Checking connection to:', `${CONFIG.API_URL}/health`);
-            data = await API.healthCheck();
-            console.log('Health check response:', data);
-        }
+        Logger.debug('Checking connection to:', `${CONFIG.API_URL}/health`);
+        const data = await API.healthCheck();
+        Logger.debug('Health check response:', data);
 
         if (data.status === 'healthy' || data.ollama_connected) {
             UI.updateConnectionStatus(true, data);
-            console.log('✅ Successfully connected to Akash backend');
+            Logger.debug('Connected to Akash backend');
         } else {
-            console.warn('Backend returned unhealthy status:', data);
+            Logger.warn('Backend returned unhealthy status:', data);
             UI.updateConnectionStatus(false, null, 'Backend unhealthy');
         }
     } catch (error) {
-        console.error('Connection error:', error);
+        Logger.error('Connection error:', error);
         let detail = error.message;
 
         if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
             detail = 'Network error - check if Akash deployment is running';
         } else if (error.message.includes('CORS')) {
             detail = 'CORS error - backend may need CORS headers';
-        } else if (error.message.includes('canister')) {
-            detail = 'ICP canister error - check canister deployment';
         }
 
         UI.updateConnectionStatus(false, null, detail);
@@ -64,7 +53,7 @@ export async function checkConnection() {
 export async function generate(executeAutosave) {
     // Block if not authenticated
     if (!State.isAuthenticated) {
-        console.warn('⛔ Generate blocked - user not authenticated');
+        Logger.warn('Generate blocked - user not authenticated');
         UI.showNotification('⛔ Please log in to use Trinity', 'error');
         return;
     }
@@ -100,7 +89,7 @@ export async function generate(executeAutosave) {
         addEditButton(userMsgDiv, originalPrompt, null, editAndRegenerate);
     }
 
-    console.log('📝 Current context memory:', State.contextMemory.length, 'messages');
+    Logger.debug('Current context memory:', State.contextMemory.length, 'messages');
 
     // Create AI message div for streaming
     const { messagesContainer, chatArea } = UI.elements;
@@ -125,11 +114,11 @@ export async function generate(executeAutosave) {
         let generatedText = '';
         let isReceivingTokens = false;
 
-        console.log('🧠 Using Agentic Pipeline:', CONFIG.API_URL);
+        Logger.debug('Using Agentic Pipeline:', CONFIG.API_URL);
 
         const documentContent = getAttachedContent();
         if (documentContent) {
-            console.log('📎 Including attached content:', documentContent.length, 'chars');
+            Logger.debug('Including attached content:', documentContent.length, 'chars');
         }
 
         // Token buffer for smooth typing effect
@@ -353,14 +342,14 @@ export async function generate(executeAutosave) {
                         }
 
                         if (fullText.includes('$') || fullText.includes('\\')) {
-                            console.log('📐 Math content detected:', fullText.substring(0, 200));
+                            Logger.debug('Math content detected');
                         }
 
                         messageDiv.innerHTML = DOMPurify.sanitize(parseMarkdownWithMath(fullText));
                         
                         // Extract final code blocks and render
                         const finalBlocks = extractCodeBlocks(fullText);
-                        try { enhanceCodeBlocks(messageDiv, finalBlocks); } catch (e) { console.error('Code enhancement failed:', e); }
+                        try { enhanceCodeBlocks(messageDiv, finalBlocks); } catch (e) { Logger.error('Code enhancement failed:', e); }
                         
                         // Add download section for code blocks
                         if (finalBlocks.length > 0) {
@@ -378,7 +367,7 @@ export async function generate(executeAutosave) {
 
                         // If response was truncated, show Continue button
                         if (agentResponse?.done_reason === 'length') {
-                            console.log('⚠️ Response truncated — showing Continue button');
+                            Logger.debug('Response truncated — showing Continue button');
                             addContinueButton(messageDiv, () => {
                                 // Build continuation prompt
                                 const lastChars = fullText.slice(-300);
@@ -446,12 +435,13 @@ export async function generate(executeAutosave) {
                                             addCopyAllButton(messageDiv);
 
                                             // Update chat history with merged content
-                                            const history = State.chatHistory;
+                                            const history = [...State.chatHistory];
                                             if (history.length > 0) {
-                                                const lastMsg = history[history.length - 1];
+                                                const lastMsg = { ...history[history.length - 1] };
                                                 if (lastMsg.role === 'assistant') {
                                                     lastMsg.content = combined;
-                                                    State.setChatHistory([...history]);
+                                                    history[history.length - 1] = lastMsg;
+                                                    State.setChatHistory(history);
                                                 }
                                             }
 
@@ -469,7 +459,7 @@ export async function generate(executeAutosave) {
                                     // onError
                                     (err) => {
                                         if (continueInterval) clearInterval(continueInterval);
-                                        console.error('Continue error:', err);
+                                        Logger.error('Continue error:', err);
                                         contDiv.innerHTML += '<p style="color:#ef4444;">Failed to continue. Please try again.</p>';
                                     },
                                     { documentContext: null }
@@ -479,14 +469,11 @@ export async function generate(executeAutosave) {
 
                         setTimeout(() => {
                             renderKatex();
-                            console.log('✅ KaTeX final render complete');
+                            Logger.debug('KaTeX final render complete');
                         }, 50);
 
                         if (agentResponse) {
-                            console.log(`🧠 Agent: ${agentResponse.complexity} complexity, ${agentResponse.passes_used} passes, ${agentResponse.total_time_seconds}s`);
-                            if (agentResponse.search_performed) {
-                                console.log(`🔍 Web search performed: ${agentResponse.search_query}`);
-                            }
+                            Logger.debug(`Agent: ${agentResponse.complexity} complexity, ${agentResponse.passes_used} passes, ${agentResponse.total_time_seconds}s`);
                         }
                         resolve();
                     };
@@ -506,25 +493,15 @@ export async function generate(executeAutosave) {
         });
 
         clearAttachment();
-        console.log('✅ Streamed text length:', generatedText.length);
+        Logger.debug('Streamed text length:', generatedText.length);
 
         if (generatedText) {
-            console.log('💬 Adding to state...');
             const cleanText = preprocessToolCalls(generatedText);
             State.addMessage('assistant', cleanText);
 
-            // Check if summarization is needed
-            if (State.chatHistory.length >= State.SUMMARY_INTERVAL &&
-                State.chatHistory.length - State.lastSummaryAt >= State.SUMMARY_INTERVAL) {
-                console.log(`📊 Conversation has ${State.chatHistory.length} messages, triggering summarization...`);
-                ContextMemory.compressContext().catch(err =>
-                    console.error('Failed to compress context:', err)
-                );
-            }
-
             // Trigger autosave if authenticated
             if (State.isAuthenticated) {
-                console.log('💾 Triggering autosave after message exchange...');
+                Logger.debug('Triggering autosave after message exchange');
                 AutosaveManager.scheduleAutosave(
                     {
                         messages: State.chatHistory,
@@ -537,16 +514,16 @@ export async function generate(executeAutosave) {
                 );
             }
         } else {
-            console.error('❌ No generated text received');
-            messageDiv.innerHTML = '❌ No response generated';
+            Logger.error('No generated text received');
+            messageDiv.innerHTML = 'No response generated';
         }
     } catch (error) {
         if (error.name === 'AbortError' || error.isAbort) {
-            console.log('🛑 Generation aborted by user');
+            Logger.debug('Generation aborted by user');
             return;
         }
-        console.error('❌ Generate error:', error);
-        messageDiv.innerHTML = `❌ Request failed: ${error.message}`;
+        Logger.error('Generate error:', error);
+        messageDiv.innerHTML = `Request failed: ${error.message}`;
     } finally {
         UI.setGenerating(false, State);
     }

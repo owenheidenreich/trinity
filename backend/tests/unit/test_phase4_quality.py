@@ -81,12 +81,6 @@ class TestNamedConstants:
     def test_default_max_tokens_exists(self):
         assert "DEFAULT_MAX_TOKENS" in self.config_content
 
-    def test_default_max_tokens_stream_exists(self):
-        assert "DEFAULT_MAX_TOKENS_STREAM" in self.config_content
-
-    def test_simple_max_tokens_exists(self):
-        assert "SIMPLE_MAX_TOKENS" in self.config_content
-
     def test_default_temperature_exists(self):
         assert "DEFAULT_TEMPERATURE" in self.config_content
 
@@ -94,12 +88,6 @@ class TestNamedConstants:
 
     def test_ollama_timeout_exists(self):
         assert "OLLAMA_TIMEOUT" in self.config_content
-
-    def test_ollama_timeout_stream_exists(self):
-        assert "OLLAMA_TIMEOUT_STREAM" in self.config_content
-
-    def test_ollama_timeout_simple_exists(self):
-        assert "OLLAMA_TIMEOUT_SIMPLE" in self.config_content
 
     def test_ollama_timeout_tools_exists(self):
         assert "OLLAMA_TIMEOUT_TOOLS" in self.config_content
@@ -146,12 +134,8 @@ class TestNamedConstants:
         """All new constants should be importable from config."""
         from config import (
             DEFAULT_MAX_TOKENS,
-            DEFAULT_MAX_TOKENS_STREAM,
-            SIMPLE_MAX_TOKENS,
             DEFAULT_TEMPERATURE,
             OLLAMA_TIMEOUT,
-            OLLAMA_TIMEOUT_STREAM,
-            OLLAMA_TIMEOUT_SIMPLE,
             OLLAMA_TIMEOUT_TOOLS,
             MAX_DOCUMENT_CONTEXT_CHARS,
             MAX_WEB_SCRAPE_CHARS,
@@ -207,7 +191,7 @@ class TestImportPatterns:
     # Allowed exceptions: lazy imports documented with reason
     ALLOWED_LAZY_IMPORTS = {
         "generate.py": {"services", "middleware"},   # service layer, avoid circular imports
-        "chat.py": {"middleware"},                   # mutable globals, intentional
+        "chat.py": {"middleware", "services"},    # mutable globals + lazy embeddings for fact normalization
         "tools.py": {"bs4"},                        # optional heavy dependency
         "v4.py": {"config", "lighthouse", "services"},  # conditional RAG/lighthouse/service usage
     }

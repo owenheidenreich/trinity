@@ -32,13 +32,6 @@ numpy==1.26.4
 # Added: February 5, 2026 - Prometheus metrics for production monitoring
 prometheus-client==0.20.0
 
-# ===== LANGGRAPH MULTI-AGENT (Phase 3) =====
-# Added: February 5, 2026 - Multi-agent orchestration for complex queries
-# PINNED: February 6, 2026 - Fixed versions to avoid pip resolution-too-deep error
-langgraph==0.2.62
-langchain-core==0.3.29
-langchain-community==0.3.14
-
 # ===== MCP (Model Context Protocol) =====
 # Added: February 12, 2026 - Expose Trinity tools via MCP, connect to external MCP servers
 # Optional: graceful degradation if not installed (stdio server requires it, HTTP route does not)

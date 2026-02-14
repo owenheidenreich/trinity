@@ -1,6 +1,8 @@
 // auth/keyExportModal.js - Security modal for displaying and copying private keys
 // Shows critical security warnings and allows users to copy their Ed25519 private key
 
+import Logger from '../core/logger.js';
+
 export function showKeyExportModal(privateKeyHex, principal) {
     const modal = document.createElement('div');
     modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: flex; align-items: center; justify-content: center; z-index: 10000;';
@@ -71,7 +73,7 @@ export function showKeyExportModal(privateKeyHex, principal) {
                 throw new Error('execCommand failed');
             }
         } catch (err) {
-            console.error('Failed to copy:', err);
+            Logger.error('Failed to copy:', err);
             // Keep text selected for manual copy
             keyTextarea.focus();
             keyTextarea.select();

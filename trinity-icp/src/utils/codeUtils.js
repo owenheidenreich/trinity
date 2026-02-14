@@ -3,6 +3,8 @@
 // ============================================================================
 // Extracted to avoid circular imports between messages.js and codePanel.js
 
+import Logger from '../core/logger.js';
+
 /**
  * Language → file extension mapping for downloads
  */
@@ -37,7 +39,7 @@ export function copyToClipboard(text, btn, defaultLabel = 'Copy') {
             setTimeout(() => { btn.textContent = defaultLabel; btn.classList.remove('copied'); }, 2000);
         }
     } catch (err) {
-        console.error('Failed to copy:', err);
+        Logger.error('Failed to copy:', err);
         if (btn) {
             btn.textContent = 'Failed';
             setTimeout(() => { btn.textContent = defaultLabel; }, 2000);

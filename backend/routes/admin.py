@@ -1,5 +1,5 @@
 """
-Admin endpoints — experiments, caching, token & quota usage.
+Admin endpoints — caching, token & quota usage.
 Routes: /admin/*
 All require @require_admin decorator.
 """
@@ -9,70 +9,6 @@ from flask import Blueprint, jsonify
 from icp_auth import require_admin
 
 admin_bp = Blueprint("admin", __name__)
-
-
-@admin_bp.route("/admin/experiments")
-@require_admin
-def get_experiments_status():
-    """Get all experiment definitions and current status."""
-    try:
-        from services.experiments import EXPERIMENTS, list_experiments
-
-        all_experiments = list_experiments(enabled_only=False)
-        enabled_count = sum(1 for exp in EXPERIMENTS.values() if exp.enabled)
-
-        return jsonify({
-            "experiments": all_experiments,
-            "enabled_count": enabled_count,
-            "total_count": len(all_experiments),
-        })
-    except ImportError:
-        return jsonify({"error": "Experiments module not available", "experiments": {}}), 503
-
-
-@admin_bp.route("/admin/experiments/<experiment_name>/enable", methods=["POST"])
-@require_admin
-def enable_experiment_endpoint(experiment_name: str):
-    """Enable a specific experiment."""
-    try:
-        from services.experiments import enable_experiment
-
-        success = enable_experiment(experiment_name)
-        if success:
-            return jsonify({"status": "enabled", "experiment": experiment_name})
-        else:
-            return jsonify({"error": f"Experiment not found: {experiment_name}"}), 404
-    except ImportError:
-        return jsonify({"error": "Experiments module not available"}), 503
-
-
-@admin_bp.route("/admin/experiments/<experiment_name>/disable", methods=["POST"])
-@require_admin
-def disable_experiment_endpoint(experiment_name: str):
-    """Disable a specific experiment."""
-    try:
-        from services.experiments import disable_experiment
-
-        success = disable_experiment(experiment_name)
-        if success:
-            return jsonify({"status": "disabled", "experiment": experiment_name})
-        else:
-            return jsonify({"error": f"Experiment not found: {experiment_name}"}), 404
-    except ImportError:
-        return jsonify({"error": "Experiments module not available"}), 503
-
-
-@admin_bp.route("/admin/experiments/assignment/<session_id>")
-@require_admin
-def get_experiment_assignments(session_id: str):
-    """Get all experiment assignments for a specific session."""
-    try:
-        from services.experiments import get_all_assignments
-
-        assignments = get_all_assignments(session_id)
-        return jsonify({"session_id": session_id, "assignments": assignments})
-    except ImportError:
-        return jsonify({"error": "Experiments module not available"}), 503
 
 
 @admin_bp.route("/admin/cache/stats")

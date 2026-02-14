@@ -53,7 +53,7 @@ http_session = create_http_session()
 
 # ===== SERVER CONFIGURATION =====
 PROVIDER_ID = os.getenv("PROVIDER_ID", "local-mac-mini")
-MODEL_NAME = os.getenv("MODEL_NAME", "phi3")
+MODEL_NAME = os.getenv("MODEL_NAME", "qwen2.5-coder:32b")
 MODEL_BACKEND = os.getenv("MODEL_BACKEND", "ollama")
 GPU_TYPE = os.getenv("GPU_TYPE", "CPU")
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
@@ -85,6 +85,7 @@ tier_names = {
     "qwen2.5:72b": 3,
     "qwen2.5:14b": 2,
     "qwen2.5:32b": 3,
+    "qwen2.5-coder:32b": 3,
     # Qwen3 models
     "qwen3:1.7b": 1,
     "qwen3:8b": 2,
@@ -112,15 +113,9 @@ MAX_PROMPT_LENGTH = 50000  # 50KB max prompt to prevent DoS
 # ===== INFERENCE DEFAULTS =====
 NUM_CTX = 32768                        # Explicit Ollama context window (prompt + response)
 DEFAULT_MAX_TOKENS = 8000             # Default max_length for /generate
-DEFAULT_MAX_TOKENS_STREAM = 4000      # Default max_length for /generate/stream
-SIMPLE_MAX_TOKENS = 150            # Default for /generate/simple
-SIMPLE_MAX_TOKENS_CAP = 300        # Hard cap for /generate/simple
 REASONING_MIN_TOKENS = 8000        # Min tokens when reasoning mode active
-REASONING_MIN_TOKENS_STREAM = 4000 # Min tokens for streaming reasoning
 DEFAULT_TEMPERATURE = 0.7          # Default sampling temperature
 OLLAMA_TIMEOUT = 600               # Full generation timeout (seconds)
-OLLAMA_TIMEOUT_STREAM = 300        # Streaming timeout (seconds)
-OLLAMA_TIMEOUT_SIMPLE = 120        # Simple endpoint timeout (seconds)
 OLLAMA_TIMEOUT_TOOLS = 300         # Tools/summarize timeout (seconds)
 
 # ===== DOCUMENT / CONTEXT LIMITS =====
@@ -146,20 +141,6 @@ MAX_SESSION_HOURS = 24
 # ===== ENCRYPTION =====
 PBKDF2_ITERATIONS = 100000
 ENCRYPTION_KEY_LENGTH = 32  # 256 bits
-
-# ===== MULTI-MODEL CONFIGURATION (Tier 2 & 3 only) =====
-# Fast model for classification/summarization (Tier 2+)
-FAST_MODEL = os.getenv("FAST_MODEL", "qwen3:1.7b")
-# Smart model for general tasks (Tier 2+)
-SMART_MODEL = os.getenv("SMART_MODEL", "qwen3:8b")
-# Reasoning model for complex tasks (Tier 3 only)
-REASONING_MODEL = os.getenv("REASONING_MODEL", "qwen3:32b")
-
-# Enable multi-model only when explicitly enabled via env var.
-# Default False: deploy scripts don't set FAST/SMART/REASONING_MODEL env vars,
-# so the defaults would point to qwen3 models that aren't installed.
-# Set MULTI_MODEL_ENABLED=true in your deploy YAML to enable.
-MULTI_MODEL_ENABLED = os.getenv("MULTI_MODEL_ENABLED", "false").lower() == "true"
 
 # ===== RAG CONFIGURATION =====
 # FastEmbed model for embeddings (33MB, 384 dimensions)
@@ -191,38 +172,32 @@ CODE_EXECUTION_MEMORY_LIMIT = 10 * 1024 * 1024  # 10MB
 # Enable iterative tool calling (think -> act -> observe -> repeat)
 REACT_ENABLED = os.getenv("REACT_ENABLED", "true").lower() == "true"
 # Maximum tool-calling iterations before forcing a final answer
-REACT_MAX_ITERATIONS = int(os.getenv("REACT_MAX_ITERATIONS", "5"))
-# Native tool calling mode: "auto" (detect by model), "always", "never"
-# Default "never" — Qwen3 native tools + thinking mode produces empty content;
-# XML-based tool calling works reliably. Re-enable with "auto" after validation.
-REACT_NATIVE_TOOLS = os.getenv("REACT_NATIVE_TOOLS", "never")
+REACT_MAX_ITERATIONS = int(os.getenv("REACT_MAX_ITERATIONS", "15"))
+# Token budget guard — force final answer if approaching context limit
+# 75% of context window (32K default → 24K budget)
+REACT_TOKEN_BUDGET = int(os.getenv("REACT_TOKEN_BUDGET", "24000"))
+# Maximum Reflexion retries for code execution errors
+REFLEXION_MAX_RETRIES = int(os.getenv("REFLEXION_MAX_RETRIES", "3"))
 
-# ===== QWEN3 THINKING MODE =====
-# Qwen3 hybrid thinking: "auto" (think for complex, skip for simple), "always", "never"
-QWEN3_THINKING_MODE = os.getenv("QWEN3_THINKING_MODE", "auto")
-# Budget tokens for thinking (controls depth of internal reasoning)
-QWEN3_THINKING_BUDGET = int(os.getenv("QWEN3_THINKING_BUDGET", "4096"))
-
+# ===== FILESYSTEM TOOLS =====
+# Sandbox root for filesystem tools (Docker: /workspace, local: /tmp/trinity/workspace)
+WORKSPACE_ROOT = os.getenv("WORKSPACE_ROOT", "/workspace")
+# Max file size for write_file (5MB)
+WORKSPACE_MAX_FILE_SIZE = int(os.getenv("WORKSPACE_MAX_FILE_SIZE", str(5 * 1024 * 1024)))
+# Max directory listing depth
+WORKSPACE_MAX_DEPTH = int(os.getenv("WORKSPACE_MAX_DEPTH", "3"))
+# Max search results
+WORKSPACE_MAX_SEARCH_RESULTS = int(os.getenv("WORKSPACE_MAX_SEARCH_RESULTS", "50"))
+# Allowed commands for run_command tool
+WORKSPACE_ALLOWED_COMMANDS = ["python", "python3", "pytest", "node"]
+# Command execution timeout (seconds)
+WORKSPACE_COMMAND_TIMEOUT = int(os.getenv("WORKSPACE_COMMAND_TIMEOUT", "30"))
 # ===== MEMORY TOOLS (MemGPT) =====
 MEMORY_TOOLS_ENABLED = os.getenv("MEMORY_TOOLS_ENABLED", "true").lower() == "true"
 
 # ===== MCP (Model Context Protocol) =====
 # Enable MCP server (exposes Trinity tools to external MCP clients)
 MCP_SERVER_ENABLED = os.getenv("MCP_SERVER_ENABLED", "true").lower() == "true"
-# Enable MCP client (connects to external MCP servers for additional tools)
-MCP_CLIENT_ENABLED = os.getenv("MCP_CLIENT_ENABLED", "false").lower() == "true"
-# External MCP servers to connect to (JSON array)
-# Format: [{"name": "server1", "url": "http://host:port/sse"}]
-MCP_SERVERS_CONFIG = os.getenv("MCP_SERVERS", "[]")
-
-# ===== SELF-CONSISTENCY VOTING =====
-# Number of candidates to generate for voting
-VOTING_CANDIDATES = 3
-# Temperatures for diversity
-VOTING_TEMPERATURES = [0.3, 0.7, 1.0]
-# Minimum complexity to trigger voting
-VOTING_MIN_COMPLEXITY = 7
-
 # ===== PATHS =====
 # Only create directories in production (not during import for tests)
 try:

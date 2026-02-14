@@ -5,6 +5,8 @@
 // Saves chats locally FIRST, then syncs to cloud
 // ============================================================================
 
+import Logger from '../core/logger.js';
+
 const DB_NAME = 'TrinityChats';
 const DB_VERSION = 1;
 const STORES = {
@@ -29,13 +31,13 @@ export const IndexedDBStorage = {
             const request = indexedDB.open(DB_NAME, DB_VERSION);
 
             request.onerror = () => {
-                console.error('❌ IndexedDB open failed:', request.error);
+                Logger.error('IndexedDB open failed:', request.error);
                 reject(request.error);
             };
 
             request.onsuccess = () => {
                 dbInstance = request.result;
-                console.log('🗄️ IndexedDB initialized');
+                Logger.debug('IndexedDB initialized');
                 resolve(dbInstance);
             };
 
@@ -55,7 +57,7 @@ export const IndexedDBStorage = {
                     syncStore.createIndex('timestamp', 'timestamp', { unique: false });
                 }
 
-                console.log('🗄️ IndexedDB schema created');
+                Logger.debug('IndexedDB schema created');
             };
         });
     },
@@ -89,17 +91,17 @@ export const IndexedDBStorage = {
                 store.put(record);
 
                 tx.oncomplete = () => {
-                    console.log('💾 Saved to IndexedDB:', chatId.slice(0, 8) + '...');
+                    Logger.debug('Saved to IndexedDB:', chatId.slice(0, 8));
                     resolve(true);
                 };
 
                 tx.onerror = () => {
-                    console.error('❌ IndexedDB save failed:', tx.error);
+                    Logger.error('IndexedDB save failed:', tx.error);
                     reject(tx.error);
                 };
             });
         } catch (error) {
-            console.error('❌ IndexedDB saveChat error:', error);
+            Logger.error('IndexedDB saveChat error:', error);
             return false;
         }
     },
@@ -126,14 +128,14 @@ export const IndexedDBStorage = {
                 });
 
                 tx.oncomplete = () => {
-                    console.log('📤 Queued for sync:', chatId.slice(0, 8) + '...');
+                    Logger.debug('Queued for sync:', chatId.slice(0, 8));
                     resolve(true);
                 };
 
                 tx.onerror = () => reject(tx.error);
             });
         } catch (error) {
-            console.error('❌ IndexedDB queueForSync error:', error);
+            Logger.error('IndexedDB queueForSync error:', error);
             return false;
         }
     },
@@ -155,7 +157,7 @@ export const IndexedDBStorage = {
                 tx.onerror = () => reject(tx.error);
             });
         } catch (error) {
-            console.error('❌ IndexedDB markSynced error:', error);
+            Logger.error('IndexedDB markSynced error:', error);
             return false;
         }
     },
@@ -176,7 +178,7 @@ export const IndexedDBStorage = {
                 request.onerror = () => reject(request.error);
             });
         } catch (error) {
-            console.error('❌ IndexedDB getPendingSync error:', error);
+            Logger.error('IndexedDB getPendingSync error:', error);
             return [];
         }
     },
@@ -198,7 +200,7 @@ export const IndexedDBStorage = {
                 request.onerror = () => reject(request.error);
             });
         } catch (error) {
-            console.error('❌ IndexedDB loadChat error:', error);
+            Logger.error('IndexedDB loadChat error:', error);
             return null;
         }
     },
@@ -226,7 +228,7 @@ export const IndexedDBStorage = {
                 request.onerror = () => reject(request.error);
             });
         } catch (error) {
-            console.error('❌ IndexedDB listChats error:', error);
+            Logger.error('IndexedDB listChats error:', error);
             return [];
         }
     },
@@ -249,7 +251,7 @@ export const IndexedDBStorage = {
                 tx.onerror = () => reject(tx.error);
             });
         } catch (error) {
-            console.error('❌ IndexedDB deleteChat error:', error);
+            Logger.error('IndexedDB deleteChat error:', error);
             return false;
         }
     },
@@ -268,13 +270,13 @@ export const IndexedDBStorage = {
                 tx.objectStore(STORES.PENDING_SYNC).clear();
 
                 tx.oncomplete = () => {
-                    console.log('🗄️ IndexedDB cleared');
+                    Logger.debug('IndexedDB cleared');
                     resolve(true);
                 };
                 tx.onerror = () => reject(tx.error);
             });
         } catch (error) {
-            console.error('❌ IndexedDB clearAll error:', error);
+            Logger.error('IndexedDB clearAll error:', error);
             return false;
         }
     }
