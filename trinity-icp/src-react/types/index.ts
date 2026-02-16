@@ -11,6 +11,7 @@ export type {
 } from './api';
 export type {
   AuthState,
+  AuthResult,
   LoginResult,
   ImportKeyResult,
   ExportKeyResult,

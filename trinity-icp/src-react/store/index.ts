@@ -20,6 +20,7 @@ export const useStore = create<StoreState>((set, get) => ({
   // ===== Authentication State =====
   isAuthenticated: false,
   principal: null,
+  username: null,
   authenticatedSince: null,
 
   // ===== User Memory =====
@@ -126,6 +127,7 @@ export const useStore = create<StoreState>((set, get) => ({
     set({
       isAuthenticated: false,
       principal: null,
+      username: null,
       authenticatedSince: null,
       // Wipe all user data to prevent cross-account leaks
       allChats: [],

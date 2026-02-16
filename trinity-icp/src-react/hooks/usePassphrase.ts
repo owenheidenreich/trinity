@@ -1,8 +1,12 @@
 /**
- * usePassphrase — manages passphrase state for encrypted memory.
+ * usePassphrase — simplified passphrase management.
  *
- * Passphrase is held in React state only (never in localStorage).
- * Calls backend /api/passphrase/* endpoints for setup/unlock/lock.
+ * Auth overhaul: the login password IS the passphrase. This hook is now
+ * an internal implementation detail, not a user-facing flow. After
+ * register() or signIn(), the auth layer calls setupOrUnlock() automatically.
+ *
+ * The backend passphrase endpoints (/api/passphrase/setup, /unlock) remain
+ * unchanged — this hook just auto-calls them with the user's password.
  */
 import { useState, useCallback } from 'react';
 import CONFIG from '../config';
@@ -21,17 +25,21 @@ function fetchWithTimeout(
   );
 }
 
-export type PassphraseStatus = 'unknown' | 'no_passphrase' | 'locked' | 'unlocked';
+export type PassphraseStatus = 'unknown' | 'locked' | 'unlocked';
 
 interface UsePassphraseReturn {
   status: PassphraseStatus;
   loading: boolean;
   error: string | null;
-  checkStatus: (buildAuthHeaders: (endpoint: string) => Promise<Record<string, string> | null>) => Promise<void>;
-  setup: (passphrase: string, buildAuthHeaders: (endpoint: string) => Promise<Record<string, string> | null>) => Promise<boolean>;
-  unlock: (passphrase: string, buildAuthHeaders: (endpoint: string) => Promise<Record<string, string> | null>) => Promise<boolean>;
-  lock: (buildAuthHeaders: (endpoint: string) => Promise<Record<string, string> | null>) => Promise<void>;
-  skipSetup: () => void;
+  /** Auto-setup or unlock the passphrase after authentication. */
+  setupOrUnlock: (
+    password: string,
+    buildAuthHeaders: (endpoint: string) => Promise<Record<string, string> | null>,
+  ) => Promise<boolean>;
+  /** Lock the session (logout). */
+  lock: (
+    buildAuthHeaders: (endpoint: string) => Promise<Record<string, string> | null>,
+  ) => Promise<void>;
 }
 
 export function usePassphrase(): UsePassphraseReturn {
@@ -39,127 +47,123 @@ export function usePassphrase(): UsePassphraseReturn {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const checkStatus = useCallback(
-    async (buildAuthHeaders: (endpoint: string) => Promise<Record<string, string> | null>) => {
-      try {
-        const headers = await buildAuthHeaders('/api/passphrase/status');
-        if (!headers) return;
-
-        const res = await fetchWithTimeout(`${CONFIG.API_URL}/api/passphrase/status`, {
-          method: 'GET',
-          headers,
-        });
-        const data = await res.json();
-
-        if (data.session_unlocked) {
-          setStatus('unlocked');
-        } else if (data.has_passphrase) {
-          setStatus('locked');
-        } else {
-          setStatus('no_passphrase');
-        }
-      } catch (err) {
-        Logger.error('Passphrase status check failed:', err);
-        // Network error: assume returning user whose passphrase is locked.
-        // This avoids showing the "set new password" screen to existing users
-        // when the backend is temporarily unreachable.
-        setStatus('locked');
-      }
-    },
-    []
-  );
-
-  const setup = useCallback(
+  /**
+   * Auto-setup or unlock: check status, then call setup or unlock as needed.
+   * Called automatically after register() or signIn() — not user-facing.
+   */
+  const setupOrUnlock = useCallback(
     async (
-      passphrase: string,
-      buildAuthHeaders: (endpoint: string) => Promise<Record<string, string> | null>
+      password: string,
+      buildAuthHeaders: (endpoint: string) => Promise<Record<string, string> | null>,
     ): Promise<boolean> => {
       setLoading(true);
       setError(null);
+
       try {
-        const headers = await buildAuthHeaders('/api/passphrase/setup');
+        // 1. Check current status
+        const statusHeaders = await buildAuthHeaders('/api/passphrase/status');
+        if (!statusHeaders) {
+          setError('Not authenticated');
+          setLoading(false);
+          return false;
+        }
+
+        let hasPassphrase = false;
+        let sessionUnlocked = false;
+
+        try {
+          const statusRes = await fetchWithTimeout(
+            `${CONFIG.API_URL}/api/passphrase/status`,
+            { method: 'GET', headers: statusHeaders },
+          );
+          const statusData = await statusRes.json();
+          hasPassphrase = statusData.has_passphrase ?? false;
+          sessionUnlocked = statusData.session_unlocked ?? false;
+        } catch {
+          // Network error — assume locked (returning user)
+          hasPassphrase = true;
+          sessionUnlocked = false;
+        }
+
+        // Already unlocked — nothing to do
+        if (sessionUnlocked) {
+          setStatus('unlocked');
+          setLoading(false);
+          return true;
+        }
+
+        // 2. Setup or unlock
+        const endpoint = hasPassphrase ? '/api/passphrase/unlock' : '/api/passphrase/setup';
+        const headers = await buildAuthHeaders(endpoint);
         if (!headers) {
           setError('Not authenticated');
           setLoading(false);
           return false;
         }
 
-        const res = await fetchWithTimeout(`${CONFIG.API_URL}/api/passphrase/setup`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ passphrase }),
-        });
+        const res = await fetchWithTimeout(
+          `${CONFIG.API_URL}${endpoint}`,
+          {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ passphrase: password }),
+          },
+        );
         const data = await res.json();
 
         if (data.success) {
           setStatus('unlocked');
           setLoading(false);
           return true;
-        } else if (res.status === 409) {
-          // Canary already exists — this user already has a passphrase.
-          // Transition to unlock flow instead of showing a confusing error.
-          setStatus('locked');
-          setError('Password already set. Please enter your existing password.');
-          setLoading(false);
-          return false;
-        } else {
-          setError(data.error || 'Setup failed');
+        }
+
+        // If setup returned 409 (canary already exists), try unlock instead
+        if (res.status === 409) {
+          const unlockHeaders = await buildAuthHeaders('/api/passphrase/unlock');
+          if (!unlockHeaders) {
+            setError('Not authenticated');
+            setLoading(false);
+            return false;
+          }
+
+          const unlockRes = await fetchWithTimeout(
+            `${CONFIG.API_URL}/api/passphrase/unlock`,
+            {
+              method: 'POST',
+              headers: unlockHeaders,
+              body: JSON.stringify({ passphrase: password }),
+            },
+          );
+          const unlockData = await unlockRes.json();
+
+          if (unlockData.success) {
+            setStatus('unlocked');
+            setLoading(false);
+            return true;
+          }
+
+          setError(unlockData.error || 'Failed to unlock');
           setLoading(false);
           return false;
         }
+
+        setError(data.error || 'Passphrase setup failed');
+        setLoading(false);
+        return false;
       } catch (err) {
-        Logger.error('Passphrase setup failed:', err);
+        Logger.error('Passphrase setup/unlock failed:', err);
         setError('Network error');
         setLoading(false);
         return false;
       }
     },
-    []
-  );
-
-  const unlock = useCallback(
-    async (
-      passphrase: string,
-      buildAuthHeaders: (endpoint: string) => Promise<Record<string, string> | null>
-    ): Promise<boolean> => {
-      setLoading(true);
-      setError(null);
-      try {
-        const headers = await buildAuthHeaders('/api/passphrase/unlock');
-        if (!headers) {
-          setError('Not authenticated');
-          setLoading(false);
-          return false;
-        }
-
-        const res = await fetchWithTimeout(`${CONFIG.API_URL}/api/passphrase/unlock`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ passphrase }),
-        });
-        const data = await res.json();
-
-        if (data.success) {
-          setStatus('unlocked');
-          setLoading(false);
-          return true;
-        } else {
-          setError(data.error || 'Incorrect passphrase');
-          setLoading(false);
-          return false;
-        }
-      } catch (err) {
-        Logger.error('Passphrase unlock failed:', err);
-        setError('Network error');
-        setLoading(false);
-        return false;
-      }
-    },
-    []
+    [],
   );
 
   const lock = useCallback(
-    async (buildAuthHeaders: (endpoint: string) => Promise<Record<string, string> | null>) => {
+    async (
+      buildAuthHeaders: (endpoint: string) => Promise<Record<string, string> | null>,
+    ) => {
       try {
         const headers = await buildAuthHeaders('/api/passphrase/lock');
         if (!headers) return;
@@ -173,14 +177,10 @@ export function usePassphrase(): UsePassphraseReturn {
         Logger.error('Passphrase lock failed:', err);
       }
     },
-    []
+    [],
   );
 
-  const skipSetup = useCallback(() => {
-    setStatus('unlocked');
-  }, []);
-
-  return { status, loading, error, checkStatus, setup, unlock, lock, skipSetup };
+  return { status, loading, error, setupOrUnlock, lock };
 }
 
 export default usePassphrase;

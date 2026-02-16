@@ -38,5 +38,8 @@ ed25519-dalek = { version = "2", default-features = false, features = ["alloc", 
 hex = "0.4"
 base64 = "0.22"
 
+# Stable storage for username registry (survives upgrades)
+ic-stable-structures = "0.6"
+
 # NOTE: ic-cdk-timers removed - was unused and slowed down builds
 # NOTE: [profile.release] moved to workspace root Cargo.toml

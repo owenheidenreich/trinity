@@ -16,7 +16,13 @@ export interface AuthState {
   authenticatedSince: number | null;
 }
 
-/** Login result */
+/** Register/SignIn result */
+export interface AuthResult {
+  success: boolean;
+  error?: string;
+}
+
+/** Login result (legacy, kept for compatibility) */
 export interface LoginResult {
   success: boolean;
   principal?: string;

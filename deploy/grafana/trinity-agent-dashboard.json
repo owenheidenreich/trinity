@@ -2,7 +2,7 @@
   "annotations": {
     "list": []
   },
-  "description": "Trinity AI Agent Pipeline Performance - Multi-pass execution monitoring",
+  "description": "Trinity AI Agent Pipeline Performance - Single-pass agent + ReAct loop monitoring",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
@@ -115,12 +115,12 @@
         "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
         "textMode": "auto"
       },
-      "title": "Complex Queries (LangGraph)",
+      "title": "ReAct Iterations/min",
       "type": "stat",
       "targets": [
         {
-          "expr": "sum(rate(trinity_complexity_routing_total{route=\"langgraph\"}[5m]))",
-          "legendFormat": "LangGraph/sec"
+          "expr": "sum(rate(trinity_tool_calls_total[5m])) * 60",
+          "legendFormat": "Iterations/min"
         }
       ]
     },
@@ -349,16 +349,16 @@
         "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true },
         "tooltip": { "mode": "single", "sort": "none" }
       },
-      "title": "Routing: LangGraph vs Legacy",
+      "title": "Routing: Single-Pass vs ReAct",
       "type": "timeseries",
       "targets": [
         {
-          "expr": "sum(rate(trinity_complexity_routing_total{route=\"langgraph\"}[5m]))",
-          "legendFormat": "🤖 LangGraph (Complex)"
+          "expr": "sum(rate(trinity_complexity_routing_total{route=\"agent\"}[5m]))",
+          "legendFormat": "🤖 Single-Pass Agent"
         },
         {
-          "expr": "sum(rate(trinity_complexity_routing_total{route=\"legacy\"}[5m]))",
-          "legendFormat": "⚡ Legacy (Simple/Medium)"
+          "expr": "sum(rate(trinity_tool_calls_total[5m]))",
+          "legendFormat": "🔧 ReAct Tool Calls"
         }
       ]
     },
@@ -397,20 +397,20 @@
         "legend": { "calcs": ["mean"], "displayMode": "list", "placement": "bottom", "showLegend": true },
         "tooltip": { "mode": "single", "sort": "none" }
       },
-      "title": "Voting Rounds",
+      "title": "Memory Operations",
       "type": "timeseries",
       "targets": [
         {
-          "expr": "sum(rate(trinity_voting_rounds_total{outcome=\"consensus\"}[5m]))",
-          "legendFormat": "✅ Consensus"
+          "expr": "sum(rate(trinity_tool_calls_total{tool=\"save_memory\"}[5m]))",
+          "legendFormat": "💾 Save Memory"
         },
         {
-          "expr": "sum(rate(trinity_voting_rounds_total{outcome=\"majority\"}[5m]))",
-          "legendFormat": "📊 Majority"
+          "expr": "sum(rate(trinity_tool_calls_total{tool=\"recall_memory\"}[5m]))",
+          "legendFormat": "🧠 Recall Memory"
         },
         {
-          "expr": "sum(rate(trinity_voting_rounds_total{outcome=\"tiebreak\"}[5m]))",
-          "legendFormat": "⚖️ Tiebreak"
+          "expr": "sum(rate(trinity_tool_calls_total{tool=\"search_memory\"}[5m]))",
+          "legendFormat": "🔍 Search Memory"
         }
       ]
     },
@@ -514,7 +514,7 @@
   "refresh": "30s",
   "schemaVersion": 38,
   "style": "dark",
-  "tags": ["trinity", "agent", "langgraph", "pipeline"],
+  "tags": ["trinity", "agent", "react", "pipeline"],
   "templating": {
     "list": [
       {

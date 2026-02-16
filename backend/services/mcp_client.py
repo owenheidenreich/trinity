@@ -2,7 +2,7 @@
 Trinity MCP Client
 
 Connects to external MCP servers and makes their tools available
-to Trinity's ReAct loop and LangGraph agents.
+to Trinity's ReAct loop.
 
 External tools are prefixed with their server name to avoid collisions:
   e.g., "github:search_repos", "slack:send_message"

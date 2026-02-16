@@ -34,7 +34,7 @@ from services.provider_factory import get_provider
 from routes import ALL_BLUEPRINTS
 
 # ===========================================================================
-# V4 / LangGraph feature detection (stored on app.config for blueprints)
+# V4 feature detection (stored on app.config for blueprints)
 # ===========================================================================
 
 V4_IMPORT_ERROR = None

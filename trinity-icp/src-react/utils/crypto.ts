@@ -1,70 +1,96 @@
 /**
- * Client-side AES-256-GCM encryption for localStorage key protection.
- * Ported from utils/crypto.js with types.
- * Browser-bound: different browser/machine = different derived key.
+ * Client-side cryptography for Trinity auth overhaul.
+ *
+ * Key derivation uses Argon2id (via hash-wasm WebAssembly) instead of
+ * browser-fingerprint PBKDF2. This makes identity derivation deterministic
+ * across devices: same username + password = same Ed25519 keypair.
+ *
+ * Two derivation paths with different salts:
+ *   1. Identity seed:  Argon2id(password, "trinity:" + username)  → Ed25519 keypair
+ *   2. Storage key:    Argon2id(password, "trinity:storage:" + username) → AES-256-GCM key for localStorage
  */
+import { argon2id } from 'hash-wasm';
 
-const SALT_STRING = 'TRINITY_KEY_SALT';
-const ITERATIONS = 50_000;
-const KEY_LENGTH = 256; // bits
+// Argon2id parameters — must match across all clients
+const ARGON2_MEMORY_KB = 65536; // 64 MB
+const ARGON2_ITERATIONS = 3;
+const ARGON2_PARALLELISM = 1; // WASM is single-threaded
+const ARGON2_HASH_LENGTH = 32; // 32 bytes = 256 bits
 
 /**
- * Derive a browser-fingerprint-based encryption key.
- *
- * IMPORTANT: The fingerprint must remain **stable** across browser updates,
- * OS patches, and window resizes. We intentionally exclude volatile values
- * like navigator.userAgent / navigator.platform / screen dimensions.
- *
- * Components used (all stable for a given browser profile):
- *   - origin:        always https://dubya.ai
- *   - hardwareConcurrency: CPU core count (rarely changes)
- *   - language:      user locale (stable per profile)
- *   - colorDepth:    display colour depth (stable per monitor)
+ * Derive a 32-byte Ed25519 seed from username + password.
+ * Same inputs always produce the same seed (deterministic identity).
  */
-async function deriveKey(): Promise<CryptoKey> {
-  const encoder = new TextEncoder();
+export async function deriveIdentitySeed(
+  password: string,
+  username: string,
+): Promise<Uint8Array> {
+  const salt = `trinity:${username.toLowerCase()}`;
+  const hash = await argon2id({
+    password,
+    salt,
+    parallelism: ARGON2_PARALLELISM,
+    iterations: ARGON2_ITERATIONS,
+    memorySize: ARGON2_MEMORY_KB,
+    hashLength: ARGON2_HASH_LENGTH,
+    outputType: 'binary',
+  });
+  return new Uint8Array(hash);
+}
 
-  // Stable fingerprint components — intentionally excludes userAgent/platform/screen size
-  const origin = 'https://dubya.ai';
-  const cores =
-    typeof navigator !== 'undefined' ? String(navigator.hardwareConcurrency ?? 0) : '0';
-  const lang =
-    typeof navigator !== 'undefined' ? (navigator.language ?? 'en') : 'en';
-  const depth =
-    typeof screen !== 'undefined' ? String(screen.colorDepth ?? 24) : '24';
-  const passphrase = `${origin}:${cores}:${lang}:${depth}`;
+/**
+ * Derive a CryptoKey for encrypting the private key in localStorage.
+ * Uses a different salt than identity derivation to produce a different key.
+ */
+async function deriveStorageKeyBytes(
+  password: string,
+  username: string,
+): Promise<Uint8Array> {
+  const salt = `trinity:storage:${username.toLowerCase()}`;
+  const hash = await argon2id({
+    password,
+    salt,
+    parallelism: ARGON2_PARALLELISM,
+    iterations: ARGON2_ITERATIONS,
+    memorySize: ARGON2_MEMORY_KB,
+    hashLength: ARGON2_HASH_LENGTH,
+    outputType: 'binary',
+  });
+  return new Uint8Array(hash);
+}
 
-  const keyMaterial = await crypto.subtle.importKey(
+/**
+ * Import raw key bytes as an AES-256-GCM CryptoKey.
+ */
+async function importAesKey(rawBytes: Uint8Array): Promise<CryptoKey> {
+  return crypto.subtle.importKey(
     'raw',
-    encoder.encode(passphrase),
-    'PBKDF2',
+    rawBytes.buffer as ArrayBuffer,
+    { name: 'AES-GCM', length: 256 },
     false,
-    ['deriveKey']
-  );
-
-  return crypto.subtle.deriveKey(
-    {
-      name: 'PBKDF2',
-      salt: encoder.encode(SALT_STRING),
-      iterations: ITERATIONS,
-      hash: 'SHA-256',
-    },
-    keyMaterial,
-    { name: 'AES-GCM', length: KEY_LENGTH },
-    false,
-    ['encrypt', 'decrypt']
+    ['encrypt', 'decrypt'],
   );
 }
 
-/** Encrypt plaintext for localStorage storage. Returns base64. */
-export async function encryptForStorage(plaintext: string): Promise<string> {
+/**
+ * Encrypt plaintext for localStorage storage.
+ * Requires username + password to derive the storage key.
+ * Returns base64(IV + ciphertext).
+ */
+export async function encryptForStorage(
+  plaintext: string,
+  password: string,
+  username: string,
+): Promise<string> {
   const encoder = new TextEncoder();
-  const key = await deriveKey();
+  const keyBytes = await deriveStorageKeyBytes(password, username);
+  const key = await importAesKey(keyBytes);
   const iv = crypto.getRandomValues(new Uint8Array(12));
+
   const encrypted = await crypto.subtle.encrypt(
     { name: 'AES-GCM', iv },
     key,
-    encoder.encode(plaintext)
+    encoder.encode(plaintext),
   );
 
   // Prepend IV to ciphertext
@@ -75,10 +101,18 @@ export async function encryptForStorage(plaintext: string): Promise<string> {
   return btoa(String.fromCharCode(...combined));
 }
 
-/** Decrypt base64-encoded ciphertext from localStorage. */
-export async function decryptFromStorage(encryptedBase64: string): Promise<string> {
+/**
+ * Decrypt base64-encoded ciphertext from localStorage.
+ * Requires username + password to derive the storage key.
+ */
+export async function decryptFromStorage(
+  encryptedBase64: string,
+  password: string,
+  username: string,
+): Promise<string> {
   const decoder = new TextDecoder();
-  const key = await deriveKey();
+  const keyBytes = await deriveStorageKeyBytes(password, username);
+  const key = await importAesKey(keyBytes);
   const combined = Uint8Array.from(atob(encryptedBase64), (c) => c.charCodeAt(0));
   const iv = combined.slice(0, 12);
   const ciphertext = combined.slice(12);
@@ -86,7 +120,7 @@ export async function decryptFromStorage(encryptedBase64: string): Promise<strin
   const decrypted = await crypto.subtle.decrypt(
     { name: 'AES-GCM', iv },
     key,
-    ciphertext
+    ciphertext,
   );
 
   return decoder.decode(decrypted);

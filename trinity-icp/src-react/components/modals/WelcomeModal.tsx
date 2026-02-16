@@ -1,135 +1,95 @@
 /**
- * WelcomeModal — unified auth + passphrase flow.
+ * WelcomeModal — username + password authentication.
  *
- * Replaces the separate AuthModal → PassphraseModal chain with
- * a single component that guides users through the full flow:
+ * Two forms:
+ *   Create Account: username + password + confirm → register on-chain
+ *   Sign In:        username + password → verify on-chain
  *
- *   New user:       Welcome → Set Password → (optional) Save Backup Key → Done
- *   Returning user: Welcome Back → Enter Password → Done
- *   Key restore:    Welcome → Restore Backup → Enter Password → Done
- *
- * Crypto details (Ed25519, hex keys) are hidden from normal users.
- * Backup key export is offered as an optional post-setup step.
+ * Crypto details are hidden. No backup keys, no canary concepts.
+ * The user's password deterministically derives their Ed25519 identity
+ * via Argon2id — same credentials = same identity on any device.
  */
-import { useState, useCallback, useEffect } from 'react';
-import type { PassphraseStatus } from '../../hooks/usePassphrase';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import styles from '../../styles/components/Modal.module.css';
+import { isUsernameAvailable } from '../../services/canister';
 
-type Step =
-  | 'loading'        // checking auth/passphrase status
-  | 'welcome'        // not authenticated — "Get Started" / "Restore"
-  | 'import'         // restoring from backup key
-  | 'setup'          // set a password (new user, key just generated)
-  | 'unlock'         // enter password (returning user)
-  | 'backup'         // optional: save your backup key
-  ;
+type Mode = 'signin' | 'create';
 
 interface WelcomeModalProps {
-  isAuthenticated: boolean;
   isInitializing: boolean;
-  passphraseStatus: PassphraseStatus;
-  passphraseLoading: boolean;
-  passphraseError: string | null;
-  onCreateIdentity: () => Promise<{ success: boolean; privateKeyHex?: string }>;
-  onImportKey: (key: string) => Promise<{ success: boolean }>;
-  onSetupPassphrase: (passphrase: string) => Promise<boolean>;
-  onUnlockPassphrase: (passphrase: string) => Promise<boolean>;
-  onShowBackupKey: () => void;
-  onDismissBackupKey: () => void;
+  savedUsername: string | null;
+  onRegister: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  onSignIn: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 export function WelcomeModal({
-  isAuthenticated,
   isInitializing,
-  passphraseStatus,
-  passphraseLoading: _passphraseLoading,
-  passphraseError,
-  onCreateIdentity,
-  onImportKey,
-  onSetupPassphrase,
-  onUnlockPassphrase,
-  onShowBackupKey,
-  onDismissBackupKey,
+  savedUsername,
+  onRegister,
+  onSignIn,
 }: WelcomeModalProps) {
-  const [step, setStep] = useState<Step>('loading');
+  // Default to sign-in if we have a saved username (returning user)
+  const [mode, setMode] = useState<Mode>(savedUsername ? 'signin' : 'create');
+  const [username, setUsername] = useState(savedUsername ?? '');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
-  const [importKey, setImportKey] = useState('');
-  const [backupKey, setBackupKey] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [loadingText, setLoadingText] = useState('');
+  const [usernameAvailable, setUsernameAvailable] = useState<boolean | null>(null);
+  const [usernameChecking, setUsernameChecking] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Derive step from auth + passphrase state
-  useEffect(() => {
-    if (isInitializing) {
-      setStep('loading');
-      return;
-    }
-
-    if (!isAuthenticated) {
-      // Only move to welcome if we're not already in an active sub-step
-      setStep((prev) => (prev === 'import' ? 'import' : 'welcome'));
-      return;
-    }
-
-    // Authenticated — wait for passphrase status
-    if (passphraseStatus === 'unknown') {
-      setStep('loading');
-      return;
-    }
-
-    if (passphraseStatus === 'no_passphrase') {
-      // Don't override backup step
-      setStep((prev) => (prev === 'backup' ? 'backup' : 'setup'));
-      return;
-    }
-
-    if (passphraseStatus === 'locked') {
-      setStep('unlock');
-      return;
-    }
-
-    // 'unlocked' — modal should not render (handled by parent)
-  }, [isAuthenticated, isInitializing, passphraseStatus]);
-
-  // Clear errors when switching steps
+  // Clear error + fields when switching modes
   useEffect(() => {
     setError('');
     setPassword('');
     setConfirm('');
-    setCopied(false);
-  }, [step]);
+    setUsernameAvailable(null);
+  }, [mode]);
 
-  // "Get Started" — generate identity silently then move to password setup
-  const handleGetStarted = useCallback(async () => {
-    setLoading(true);
-    setError('');
-    const result = await onCreateIdentity();
-    setLoading(false);
-    if (result.success && result.privateKeyHex) {
-      setBackupKey(result.privateKeyHex);
-      // The useEffect will move us to 'setup' once passphrase check completes
-    } else {
-      setError('Something went wrong. Please try again.');
+  // Live username availability check (debounced)
+  useEffect(() => {
+    if (mode !== 'create' || username.length < 3) {
+      setUsernameAvailable(null);
+      return;
     }
-  }, [onCreateIdentity]);
 
-  // Import backup key
-  const handleImport = useCallback(async () => {
-    if (!importKey.trim()) return;
-    setLoading(true);
-    setError('');
-    const result = await onImportKey(importKey.trim());
-    setLoading(false);
-    if (!result.success) {
-      setError('Invalid backup key. Please check and try again.');
+    // Validate format locally first
+    if (!/^[a-z0-9_]+$/i.test(username)) {
+      setUsernameAvailable(null);
+      return;
     }
-    // Success → useEffect will transition to 'unlock' or 'setup'
-  }, [importKey, onImportKey]);
 
-  // Set password
-  const handleSetup = useCallback(async () => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+
+    setUsernameChecking(true);
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const available = await isUsernameAvailable(username);
+        setUsernameAvailable(available);
+      } catch {
+        setUsernameAvailable(null);
+      } finally {
+        setUsernameChecking(false);
+      }
+    }, 400);
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [username, mode]);
+
+  // Create Account
+  const handleCreate = useCallback(async () => {
+    if (username.length < 3) {
+      setError('Username must be at least 3 characters');
+      return;
+    }
+    if (!/^[a-z0-9_]+$/i.test(username)) {
+      setError('Username may only contain letters, numbers, and underscores');
+      return;
+    }
     if (password.length < 8) {
       setError('Password must be at least 8 characters');
       return;
@@ -138,250 +98,284 @@ export function WelcomeModal({
       setError('Passwords do not match');
       return;
     }
+
     setError('');
     setLoading(true);
-    const ok = await onSetupPassphrase(password);
-    setLoading(false);
-    if (ok) {
-      // Only show backup step if we have a key to show (new user)
-      if (backupKey) {
-        onShowBackupKey();
-        setStep('backup');
-      }
-      // Otherwise useEffect handles transition to unlocked → parent hides modal
-    }
-  }, [password, confirm, backupKey, onSetupPassphrase]);
+    setLoadingText('Deriving identity...');
 
-  // Unlock with password
-  const handleUnlock = useCallback(async () => {
-    if (!password) return;
+    // Small delay so the loading text renders before Argon2id blocks
+    await new Promise((r) => setTimeout(r, 50));
+    setLoadingText('Creating account...');
+
+    const result = await onRegister(username, password);
+    setLoading(false);
+    setLoadingText('');
+
+    if (!result.success) {
+      setError(result.error || 'Registration failed');
+    }
+  }, [username, password, confirm, onRegister]);
+
+  // Sign In
+  const handleSignIn = useCallback(async () => {
+    if (!username) {
+      setError('Enter your username');
+      return;
+    }
+    if (!password) {
+      setError('Enter your password');
+      return;
+    }
+
     setError('');
     setLoading(true);
-    const ok = await onUnlockPassphrase(password);
+    setLoadingText('Deriving identity...');
+
+    await new Promise((r) => setTimeout(r, 50));
+    setLoadingText('Verifying...');
+
+    const result = await onSignIn(username, password);
     setLoading(false);
-    if (!ok) {
-      setError(passphraseError || 'Incorrect password. Please try again.');
+    setLoadingText('');
+
+    if (!result.success) {
+      setError(result.error || 'Sign-in failed');
     }
-    // Success → useEffect handles transition
-  }, [password, passphraseError, onUnlockPassphrase]);
+  }, [username, password, onSignIn]);
 
-  // Copy backup key
-  const handleCopyKey = useCallback(() => {
-    navigator.clipboard.writeText(backupKey).catch(() => {});
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }, [backupKey]);
-
-  // Don't render if fully authenticated + unlocked (and not showing backup key)
-  if (isAuthenticated && passphraseStatus === 'unlocked' && step !== 'backup') {
-    return null;
+  // Loading state
+  if (isInitializing) {
+    return (
+      <div className={styles.overlay}>
+        <div className={styles.modal}>
+          <div className={styles.header}>
+            <h2 className={styles.title}>Trinity</h2>
+          </div>
+          <div className={styles.body}>
+            <div style={{ display: 'flex', justifyContent: 'center', padding: '24px 0' }}>
+              <div style={{
+                width: 28,
+                height: 28,
+                border: '3px solid var(--color-border)',
+                borderTopColor: 'var(--color-accent)',
+                borderRadius: '50%',
+                animation: 'spin 0.8s linear infinite',
+              }} />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   }
-
-  const displayError = error || (passphraseError && step === 'unlock' ? passphraseError : '');
 
   return (
     <div className={styles.overlay}>
       <div className={styles.modal}>
-        {/* ─── Loading ─── */}
-        {step === 'loading' && (
+        {/* ─── Create Account ─── */}
+        {mode === 'create' && (
           <>
             <div className={styles.header}>
-              <h2 className={styles.title}>Trinity</h2>
-            </div>
-            <div className={styles.body}>
-              <div style={{
-                display: 'flex',
-                justifyContent: 'center',
-                padding: '24px 0',
-              }}>
-                <div style={{
-                  width: 28,
-                  height: 28,
-                  border: '3px solid var(--color-border)',
-                  borderTopColor: 'var(--color-accent)',
-                  borderRadius: '50%',
-                  animation: 'spin 0.8s linear infinite',
-                }} />
-              </div>
-            </div>
-          </>
-        )}
-
-        {/* ─── Welcome (not authenticated) ─── */}
-        {step === 'welcome' && (
-          <>
-            <div className={styles.header}>
-              <h2 className={styles.title}>Welcome to Trinity</h2>
-            </div>
-            <div className={styles.body}>
-              <p style={{ color: 'var(--color-text-secondary)', marginBottom: '24px', lineHeight: 1.5 }}>
-                Your conversations are encrypted and stored with self-custody
-                authentication. No email or account required.
-              </p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                <button
-                  className={styles.primaryBtn}
-                  onClick={handleGetStarted}
-                  disabled={loading}
-                  style={{ padding: '12px 24px', fontSize: '1rem' }}
-                >
-                  {loading ? 'Setting up...' : 'Get Started'}
-                </button>
-                <button
-                  className={styles.secondaryBtn}
-                  onClick={() => setStep('import')}
-                  style={{ fontSize: '0.8125rem' }}
-                >
-                  Restore from backup key
-                </button>
-              </div>
-            </div>
-          </>
-        )}
-
-        {/* ─── Import backup key ─── */}
-        {step === 'import' && (
-          <>
-            <div className={styles.header}>
-              <h2 className={styles.title}>Restore Account</h2>
-            </div>
-            <div className={styles.body}>
-              <p style={{ color: 'var(--color-text-secondary)', marginBottom: '12px' }}>
-                Paste the backup key you saved when you first created your account.
-              </p>
-              <textarea
-                className={styles.input}
-                value={importKey}
-                onChange={(e) => setImportKey(e.target.value)}
-                placeholder="Paste your backup key here..."
-                autoFocus
-                rows={3}
-                style={{ resize: 'none' }}
-              />
-              <div className={styles.footer} style={{ marginTop: '16px' }}>
-                <button className={styles.secondaryBtn} onClick={() => setStep('welcome')}>
-                  Back
-                </button>
-                <button
-                  className={styles.primaryBtn}
-                  onClick={handleImport}
-                  disabled={!importKey.trim() || loading}
-                >
-                  {loading ? 'Restoring...' : 'Restore'}
-                </button>
-              </div>
-            </div>
-          </>
-        )}
-
-        {/* ─── Setup password (new user) ─── */}
-        {step === 'setup' && (
-          <>
-            <div className={styles.header}>
-              <h2 className={styles.title}>Set Your Password</h2>
+              <h2 className={styles.title}>Create Account</h2>
             </div>
             <div className={styles.body}>
               <p style={{ color: 'var(--color-text-secondary)', marginBottom: '16px', lineHeight: 1.5 }}>
-                This password encrypts your AI memory and chat history. Without it,
-                no one can read your data — not even Trinity.
+                Your password creates your cryptographic identity.
+                No email or phone required.
               </p>
+
+              {/* Username */}
+              <div style={{ position: 'relative', marginBottom: '8px' }}>
+                <input
+                  className={styles.input}
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
+                  placeholder="Username (3-20 chars, a-z 0-9 _)"
+                  autoFocus
+                  maxLength={20}
+                  autoComplete="username"
+                  disabled={loading}
+                />
+                {username.length >= 3 && (
+                  <span style={{
+                    position: 'absolute',
+                    right: '12px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    fontSize: '0.75rem',
+                    color: usernameChecking
+                      ? 'var(--color-text-secondary)'
+                      : usernameAvailable === true
+                        ? 'var(--color-success, #4ade80)'
+                        : usernameAvailable === false
+                          ? 'var(--color-error)'
+                          : 'var(--color-text-secondary)',
+                  }}>
+                    {usernameChecking
+                      ? '...'
+                      : usernameAvailable === true
+                        ? 'available'
+                        : usernameAvailable === false
+                          ? 'taken'
+                          : ''}
+                  </span>
+                )}
+              </div>
+
+              {/* Password */}
               <input
                 className={styles.input}
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Password (8+ characters)"
-                autoFocus
+                autoComplete="new-password"
+                disabled={loading}
                 style={{ marginBottom: '8px' }}
               />
+
+              {/* Confirm */}
               <input
                 className={styles.input}
                 type="password"
                 value={confirm}
                 onChange={(e) => setConfirm(e.target.value)}
                 placeholder="Confirm password"
-                onKeyDown={(e) => e.key === 'Enter' && handleSetup()}
+                autoComplete="new-password"
+                disabled={loading}
+                onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
               />
+
+              {/* Warning */}
+              <p style={{
+                color: 'var(--color-text-secondary)',
+                fontSize: '0.75rem',
+                marginTop: '12px',
+                lineHeight: 1.4,
+                opacity: 0.7,
+              }}>
+                If you forget your password, your data cannot be recovered.
+                Trinity does not collect personal information.
+              </p>
+
               <div className={styles.footer} style={{ marginTop: '16px' }}>
                 <button
                   className={styles.primaryBtn}
-                  onClick={handleSetup}
-                  disabled={loading || password.length < 8}
+                  onClick={handleCreate}
+                  disabled={loading || password.length < 8 || usernameAvailable === false}
+                  style={{ width: '100%', padding: '12px' }}
                 >
-                  {loading ? 'Setting up...' : 'Continue'}
+                  {loading ? loadingText || 'Creating...' : 'Create Account'}
                 </button>
               </div>
+
+              <p style={{
+                textAlign: 'center',
+                marginTop: '16px',
+                fontSize: '0.8125rem',
+                color: 'var(--color-text-secondary)',
+              }}>
+                Already have an account?{' '}
+                <button
+                  onClick={() => setMode('signin')}
+                  disabled={loading}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--color-accent)',
+                    cursor: 'pointer',
+                    textDecoration: 'underline',
+                    fontSize: 'inherit',
+                    padding: 0,
+                  }}
+                >
+                  Sign In
+                </button>
+              </p>
             </div>
           </>
         )}
 
-        {/* ─── Unlock (returning user) ─── */}
-        {step === 'unlock' && (
+        {/* ─── Sign In ─── */}
+        {mode === 'signin' && (
           <>
             <div className={styles.header}>
               <h2 className={styles.title}>Welcome Back</h2>
             </div>
             <div className={styles.body}>
               <p style={{ color: 'var(--color-text-secondary)', marginBottom: '16px' }}>
-                Enter your password to unlock your data.
+                Sign in to access your encrypted data.
               </p>
+
+              <input
+                className={styles.input}
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
+                placeholder="Username"
+                autoFocus={!savedUsername}
+                autoComplete="username"
+                disabled={loading}
+                style={{ marginBottom: '8px' }}
+              />
               <input
                 className={styles.input}
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter password"
-                autoFocus
-                onKeyDown={(e) => e.key === 'Enter' && handleUnlock()}
+                placeholder="Password"
+                autoFocus={!!savedUsername}
+                autoComplete="current-password"
+                disabled={loading}
+                onKeyDown={(e) => e.key === 'Enter' && handleSignIn()}
               />
+
               <div className={styles.footer} style={{ marginTop: '16px' }}>
                 <button
                   className={styles.primaryBtn}
-                  onClick={handleUnlock}
-                  disabled={loading || !password}
+                  onClick={handleSignIn}
+                  disabled={loading || !username || !password}
+                  style={{ width: '100%', padding: '12px' }}
                 >
-                  {loading ? 'Unlocking...' : 'Unlock'}
+                  {loading ? loadingText || 'Signing in...' : 'Sign In'}
                 </button>
               </div>
-            </div>
-          </>
-        )}
 
-        {/* ─── Save backup key (optional, after setup) ─── */}
-        {step === 'backup' && (
-          <>
-            <div className={styles.header}>
-              <h2 className={styles.title}>Save Your Backup Key</h2>
-            </div>
-            <div className={styles.body}>
-              <p style={{ color: 'var(--color-text-secondary)', marginBottom: '8px', lineHeight: 1.5 }}>
-                This key lets you restore your account on a new device or browser.
-                Save it somewhere safe — Trinity cannot recover it for you.
-              </p>
-              <p className={styles.warning} style={{ marginBottom: '12px' }}>
-                You can also export this later from the sidebar menu.
-              </p>
-              <div className={styles.keyDisplay}>{backupKey}</div>
-              <div className={styles.footer}>
-                <button className={styles.secondaryBtn} onClick={onDismissBackupKey}>
-                  Skip
+              <p style={{
+                textAlign: 'center',
+                marginTop: '16px',
+                fontSize: '0.8125rem',
+                color: 'var(--color-text-secondary)',
+              }}>
+                New here?{' '}
+                <button
+                  onClick={() => setMode('create')}
+                  disabled={loading}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--color-accent)',
+                    cursor: 'pointer',
+                    textDecoration: 'underline',
+                    fontSize: 'inherit',
+                    padding: 0,
+                  }}
+                >
+                  Create Account
                 </button>
-                <button className={styles.primaryBtn} onClick={() => { handleCopyKey(); setTimeout(onDismissBackupKey, 1500); }}>
-                  {copied ? 'Copied!' : 'Copy & Continue'}
-                </button>
-              </div>
+              </p>
             </div>
           </>
         )}
 
         {/* ─── Error display ─── */}
-        {displayError && (
+        {error && (
           <p style={{
             color: 'var(--color-error)',
             margin: '0 24px 16px',
             fontSize: '0.875rem',
           }}>
-            {displayError}
+            {error}
           </p>
         )}
       </div>

@@ -18,6 +18,7 @@ export interface StoreState {
   // ===== Authentication State =====
   isAuthenticated: boolean;
   principal: string | null;
+  username: string | null;
   authenticatedSince: number | null;
 
   // ===== User Memory =====

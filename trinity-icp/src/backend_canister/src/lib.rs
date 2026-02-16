@@ -30,7 +30,10 @@ use ic_cdk::api::management_canister::http_request::{
     http_request, CanisterHttpRequestArgument, HttpHeader, HttpMethod, HttpResponse,
     TransformArgs, TransformContext, TransformFunc,
 };
+use ic_stable_structures::memory_manager::{MemoryId, MemoryManager, VirtualMemory};
+use ic_stable_structures::{DefaultMemoryImpl, StableBTreeMap, Storable, storable::Bound};
 use serde::Serialize;
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
 
@@ -99,6 +102,68 @@ pub struct ErrorResponse {
 }
 
 // ============================================================================
+// USERNAME REGISTRY TYPES (Stable Storage)
+// ============================================================================
+
+/// Memory IDs for stable storage partitions
+const MEMORY_ID_USERNAME_TO_INFO: MemoryId = MemoryId::new(0);
+const MEMORY_ID_PRINCIPAL_TO_USERNAME: MemoryId = MemoryId::new(1);
+
+type Memory = VirtualMemory<DefaultMemoryImpl>;
+
+/// Max key sizes for StableBTreeMap
+const MAX_USERNAME_LEN: u32 = 20;
+const MAX_PRINCIPAL_LEN: u32 = 64; // ICP principal text is ~27-63 chars
+const MAX_USER_INFO_LEN: u32 = 256; // serialized UserInfo
+
+/// Wrapper for String keys in StableBTreeMap
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct StableString(String);
+
+impl Storable for StableString {
+    fn to_bytes(&self) -> Cow<[u8]> {
+        Cow::Owned(self.0.as_bytes().to_vec())
+    }
+
+    fn from_bytes(bytes: Cow<[u8]>) -> Self {
+        StableString(String::from_utf8(bytes.to_vec()).unwrap_or_default())
+    }
+
+    const BOUND: Bound = Bound::Bounded {
+        max_size: MAX_PRINCIPAL_LEN,
+        is_fixed_size: false,
+    };
+}
+
+/// User registration info stored on-chain
+#[derive(CandidType, Deserialize, Serialize, Clone, Debug)]
+pub struct UserInfo {
+    pub principal: String,
+    pub public_key_hex: String,
+    pub registered_at: u64,
+}
+
+impl Storable for UserInfo {
+    fn to_bytes(&self) -> Cow<[u8]> {
+        let bytes = serde_json::to_vec(self).unwrap_or_default();
+        Cow::Owned(bytes)
+    }
+
+    fn from_bytes(bytes: Cow<[u8]>) -> Self {
+        serde_json::from_slice(&bytes).unwrap_or(UserInfo {
+            principal: String::new(),
+            public_key_hex: String::new(),
+            registered_at: 0,
+        })
+    }
+
+    const BOUND: Bound = Bound::Bounded {
+        max_size: MAX_USER_INFO_LEN,
+        is_fixed_size: false,
+    };
+}
+
+// ============================================================================
 // CANISTER STATE
 // ============================================================================
 
@@ -108,14 +173,31 @@ thread_local! {
     static AKASH_URL: RefCell<String> = RefCell::new(
         "https://api.dubya.ai".to_string()
     );
-    
+
     /// Response cache for idempotency
     /// Key: request_id, Value: (JSON response, timestamp_ns)
     /// TTL: 60 seconds - long enough for ICP consensus + Akash response
     static RESPONSE_CACHE: RefCell<HashMap<String, (String, u64)>> = RefCell::new(HashMap::new());
-    
+
     /// Cache TTL in nanoseconds (60 seconds)
     static CACHE_TTL_NS: u64 = 60_000_000_000;
+
+    /// Stable storage memory manager
+    static MEMORY_MANAGER: RefCell<MemoryManager<DefaultMemoryImpl>> = RefCell::new(
+        MemoryManager::init(DefaultMemoryImpl::default())
+    );
+
+    /// Username → UserInfo (bidirectional mapping, part 1)
+    static USERNAME_TO_INFO: RefCell<StableBTreeMap<StableString, UserInfo, Memory>> =
+        RefCell::new(StableBTreeMap::init(
+            MEMORY_MANAGER.with(|m| m.borrow().get(MEMORY_ID_USERNAME_TO_INFO))
+        ));
+
+    /// Principal → Username (bidirectional mapping, part 2)
+    static PRINCIPAL_TO_USERNAME: RefCell<StableBTreeMap<StableString, StableString, Memory>> =
+        RefCell::new(StableBTreeMap::init(
+            MEMORY_MANAGER.with(|m| m.borrow().get(MEMORY_ID_PRINCIPAL_TO_USERNAME))
+        ));
 }
 
 // ============================================================================
@@ -606,6 +688,169 @@ fn transform_response(args: TransformArgs) -> HttpResponse {
         headers: vec![], // Strip headers for determinism
         body,
     }
+}
+
+// ============================================================================
+// USERNAME REGISTRY
+// ============================================================================
+
+/// Validate username format: 3-20 chars, [a-z0-9_], normalized to lowercase
+fn validate_username(username: &str) -> Result<String, String> {
+    let normalized = username.to_lowercase();
+
+    if normalized.len() < 3 {
+        return Err("Username must be at least 3 characters".to_string());
+    }
+    if normalized.len() > 20 {
+        return Err("Username must be at most 20 characters".to_string());
+    }
+    if !normalized.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_') {
+        return Err("Username may only contain lowercase letters, digits, and underscores".to_string());
+    }
+    if normalized.starts_with('_') || normalized.ends_with('_') {
+        return Err("Username cannot start or end with an underscore".to_string());
+    }
+
+    Ok(normalized)
+}
+
+/// Verify Ed25519 signature for registration
+/// Message format: "register:{username}:{principal}:{timestamp}"
+fn verify_registration_signature(
+    username: &str,
+    principal: &str,
+    public_key_hex: &str,
+    signature_hex: &str,
+    timestamp: &str,
+) -> bool {
+    use ed25519_dalek::{Signature, VerifyingKey};
+
+    // Check timestamp within 5 minutes
+    let ts: i64 = match timestamp.parse() {
+        Ok(ts) => ts,
+        Err(_) => return false,
+    };
+    let now_ms = (ic_cdk::api::time() / 1_000_000) as i64;
+    if (now_ms - ts).abs() > 5 * 60 * 1000 {
+        return false;
+    }
+
+    // Decode public key
+    let pk_bytes = match hex::decode(public_key_hex) {
+        Ok(bytes) if bytes.len() == 32 => bytes,
+        _ => return false,
+    };
+    let verifying_key = match VerifyingKey::from_bytes(
+        pk_bytes.as_slice().try_into().unwrap_or(&[0u8; 32])
+    ) {
+        Ok(pk) => pk,
+        Err(_) => return false,
+    };
+
+    // Decode signature
+    let sig_bytes = match hex::decode(signature_hex) {
+        Ok(bytes) if bytes.len() == 64 => bytes,
+        _ => return false,
+    };
+    let sig_array: [u8; 64] = match sig_bytes.as_slice().try_into() {
+        Ok(arr) => arr,
+        Err(_) => return false,
+    };
+    let signature = Signature::from_bytes(&sig_array);
+
+    // Verify: "register:{username}:{principal}:{timestamp}"
+    let message = format!("register:{}:{}:{}", username, principal, timestamp);
+    verifying_key.verify_strict(message.as_bytes(), &signature).is_ok()
+}
+
+/// Register a username → principal mapping on-chain.
+/// Requires Ed25519 signature proving ownership of the keypair.
+/// One principal can only have one username (enforced bidirectionally).
+#[ic_cdk::update]
+fn register_username(
+    username: String,
+    principal: String,
+    public_key_hex: String,
+    signature_hex: String,
+    timestamp: String,
+) -> Result<(), String> {
+    // 1. Validate username format
+    let normalized = validate_username(&username)?;
+
+    // 2. Verify Ed25519 signature
+    if !verify_registration_signature(
+        &normalized,
+        &principal,
+        &public_key_hex,
+        &signature_hex,
+        &timestamp,
+    ) {
+        return Err("Invalid or expired signature".to_string());
+    }
+
+    // 3. Check username not taken
+    let username_taken = USERNAME_TO_INFO.with(|map| {
+        map.borrow().contains_key(&StableString(normalized.clone()))
+    });
+    if username_taken {
+        return Err("Username already taken".to_string());
+    }
+
+    // 4. Check principal not already registered
+    let principal_taken = PRINCIPAL_TO_USERNAME.with(|map| {
+        map.borrow().contains_key(&StableString(principal.clone()))
+    });
+    if principal_taken {
+        return Err("This identity already has a username".to_string());
+    }
+
+    // 5. Store bidirectional mapping
+    let user_info = UserInfo {
+        principal: principal.clone(),
+        public_key_hex,
+        registered_at: ic_cdk::api::time(),
+    };
+
+    USERNAME_TO_INFO.with(|map| {
+        map.borrow_mut().insert(StableString(normalized.clone()), user_info);
+    });
+
+    PRINCIPAL_TO_USERNAME.with(|map| {
+        map.borrow_mut().insert(
+            StableString(principal),
+            StableString(normalized.clone()),
+        );
+    });
+
+    ic_cdk::println!("Username registered: {}", normalized);
+    Ok(())
+}
+
+/// Look up the principal for a given username (query, free).
+#[ic_cdk::query]
+fn lookup_username(username: String) -> Option<String> {
+    let normalized = username.to_lowercase();
+    USERNAME_TO_INFO.with(|map| {
+        map.borrow().get(&StableString(normalized)).map(|info| info.principal.clone())
+    })
+}
+
+/// Check if a username is available (query, free).
+#[ic_cdk::query]
+fn is_username_available(username: String) -> Result<bool, String> {
+    let normalized = validate_username(&username)?;
+    let taken = USERNAME_TO_INFO.with(|map| {
+        map.borrow().contains_key(&StableString(normalized))
+    });
+    Ok(!taken)
+}
+
+/// Reverse lookup: get the username for a principal (query, free).
+#[ic_cdk::query]
+fn get_username_for_principal(principal: String) -> Option<String> {
+    PRINCIPAL_TO_USERNAME.with(|map| {
+        map.borrow().get(&StableString(principal)).map(|s| s.0.clone())
+    })
 }
 
 // ============================================================================

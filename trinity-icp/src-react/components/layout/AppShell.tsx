@@ -29,7 +29,6 @@ export function AppShell() {
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [showKeyExport, setShowKeyExport] = useState(false);
   const [infoVariant, setInfoVariant] = useState<InfoVariant | null>(null);
-  const [showBackupKey, setShowBackupKey] = useState(false);
 
   // Store
   const chatHistory = useStore((s) => s.chatHistory);
@@ -72,16 +71,19 @@ export function AppShell() {
 
   const autosave = useAutosave(loadChats);
 
-  // Check passphrase status after auth
+  // Auto-setup/unlock passphrase after authentication
   useEffect(() => {
-    if (auth.isAuthenticated) {
-      void passphrase.checkStatus(auth.buildAuthHeaders);
+    if (auth.isAuthenticated && passphrase.status !== 'unlocked') {
+      const password = auth.getPassword();
+      if (password) {
+        void passphrase.setupOrUnlock(password, auth.buildAuthHeaders);
+      }
     }
   }, [auth.isAuthenticated]);
 
-  // Load chat list and user memory once passphrase is unlocked (or skipped)
+  // Load chat list and user memory once passphrase is unlocked
   useEffect(() => {
-    if (auth.isAuthenticated && (passphrase.status === 'unlocked' || passphrase.status === 'no_passphrase')) {
+    if (auth.isAuthenticated && passphrase.status === 'unlocked') {
       void loadChats();
       void loadUserMemory();
     }
@@ -94,7 +96,6 @@ export function AppShell() {
       const response = await fetch(`${CONFIG.API_URL}/user/memory`, { headers });
       if (response.ok) {
         const data = await response.json();
-        // Backend returns memory object directly (not wrapped in .memory)
         setUserMemory(data ?? null);
       }
     } catch (err) {
@@ -102,10 +103,25 @@ export function AppShell() {
     }
   }, [auth.buildAuthHeaders, setUserMemory]);
 
+  // Register handler
+  const handleRegister = useCallback(
+    async (username: string, password: string) => {
+      return auth.register(username, password);
+    },
+    [auth.register]
+  );
+
+  // Sign-in handler
+  const handleSignIn = useCallback(
+    async (username: string, password: string) => {
+      return auth.signIn(username, password);
+    },
+    [auth.signIn]
+  );
+
   // Send message
   const handleSend = useCallback(
     async (message: string, attachment?: File) => {
-      // If a file is attached, prepend its content to the prompt
       let prompt = message;
       if (attachment) {
         try {
@@ -116,26 +132,21 @@ export function AppShell() {
         }
       }
 
-      // Add user message to history
       addMessage('user', prompt);
 
-      // Initialize chat ID if needed — generate BEFORE sending so useChat picks it up
       let activeChatId = currentChatId;
       if (!activeChatId) {
         activeChatId = useStore.getState().generateChatId();
         setCurrentChatId(activeChatId);
-        // Flush to store synchronously so useChat reads the new ID
         useStore.setState({ currentChatId: activeChatId });
       }
 
-      // Send to backend
       const result = await chat.send(prompt, auth.buildAuthHeaders);
 
       if (!result.success) {
         if (result.error && result.error !== 'Aborted') {
           toastManager.error(result.error);
         }
-        // Preserve any partial tokens that were streamed before the error
         const partialTokens = chat.getTokens();
         if (partialTokens) {
           addMessage('assistant', partialTokens);
@@ -144,14 +155,11 @@ export function AppShell() {
         return;
       }
 
-      // Add AI response to history when streaming completes
-      // Use getTokens() to avoid stale closure (chat.tokens captures pre-stream value)
       const finalTokens = chat.getTokens();
       if (finalTokens) {
         addMessage('assistant', finalTokens);
       }
 
-      // Trigger autosave (sidebar refreshes via onSaveSuccess callback)
       autosave.scheduleAutosave(auth.buildAuthHeaders);
     },
     [addMessage, currentChatId, setCurrentChatId, chat, auth.buildAuthHeaders, autosave]
@@ -212,7 +220,7 @@ export function AppShell() {
     reset();
   }, [reset]);
 
-  // Pin/unpin chat — POST to /chat/:id/pin (backend toggles internally)
+  // Pin/unpin chat
   const handlePinChat = useCallback(
     async (chatId: string) => {
       try {
@@ -309,7 +317,6 @@ export function AppShell() {
     await chat.continueGeneration(auth.buildAuthHeaders);
     const finalTokens = chat.getTokens();
     if (finalTokens) {
-      // Update last assistant message
       const lastIdx = chatHistory.length - 1;
       if (lastIdx >= 0 && chatHistory[lastIdx]?.role === 'assistant') {
         const updated = [...chatHistory];
@@ -320,29 +327,19 @@ export function AppShell() {
     autosave.scheduleAutosave(auth.buildAuthHeaders);
   }, [chat, auth.buildAuthHeaders, chatHistory, setChatHistory, autosave]);
 
-  // Determine if the welcome/auth flow is still active
-  const needsWelcome =
+  // Show welcome modal if not authenticated or passphrase not unlocked
+  const needsAuth =
     auth.isInitializing ||
     !auth.isAuthenticated ||
-    passphrase.status === 'unknown' ||
-    passphrase.status === 'no_passphrase' ||
-    passphrase.status === 'locked' ||
-    showBackupKey;
+    passphrase.status !== 'unlocked';
 
-  if (needsWelcome) {
+  if (needsAuth) {
     return (
       <WelcomeModal
-        isAuthenticated={auth.isAuthenticated}
-        isInitializing={auth.isInitializing}
-        passphraseStatus={passphrase.status}
-        passphraseLoading={passphrase.loading}
-        passphraseError={passphrase.error}
-        onCreateIdentity={auth.login}
-        onImportKey={auth.importKey}
-        onSetupPassphrase={(pp) => passphrase.setup(pp, auth.buildAuthHeaders)}
-        onUnlockPassphrase={(pp) => passphrase.unlock(pp, auth.buildAuthHeaders)}
-        onShowBackupKey={() => setShowBackupKey(true)}
-        onDismissBackupKey={() => setShowBackupKey(false)}
+        isInitializing={auth.isInitializing || (auth.isAuthenticated && passphrase.status !== 'unlocked')}
+        savedUsername={auth.savedUsername}
+        onRegister={handleRegister}
+        onSignIn={handleSignIn}
       />
     );
   }

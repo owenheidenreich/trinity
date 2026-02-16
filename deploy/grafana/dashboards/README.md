@@ -1,7 +1,7 @@
 # Grafana Dashboard Files
 The actual dashboard JSON files are in the parent `deploy/grafana/` directory:
 - `trinity-dashboard.json` — Main system health & usage dashboard
-- `trinity-agent-dashboard.json` — Agent/LangGraph specific metrics
+- `trinity-agent-dashboard.json` — Agent pipeline & ReAct loop metrics
 
 These files are volume-mounted into Grafana at `/var/lib/grafana/dashboards/`
 via the docker-compose.monitoring.yml configuration.
