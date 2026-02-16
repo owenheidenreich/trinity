@@ -78,7 +78,12 @@ def _clean_storage(tmp_path, monkeypatch):
     monkeypatch.setattr("config.CHATS_DIR", test_chats)
     # Also patch storage module's reference
     monkeypatch.setattr("storage.CHATS_DIR", test_chats)
+    from middleware.rate_limit import request_counts, storage_request_counts
+    request_counts.clear()
+    storage_request_counts.clear()
     yield
+    request_counts.clear()
+    storage_request_counts.clear()
     shutil.rmtree(test_chats, ignore_errors=True)
 
 
@@ -497,6 +502,81 @@ class TestChatAutosaveLifecycle:
         data = resp.get_json()
         assert data["count"] == 0
         assert data["chats"] == []
+
+    def test_autosave_queues_checkpoint_sync(self, client, mock_auth):
+        """Autosave should queue a chat checkpoint instead of uploading in-request."""
+        headers = _auth_headers(PRINCIPAL_A)
+
+        with patch("routes.chat._ensure_restored"), \
+             patch("routes.chat._get_chat_manifest", return_value={"chats": []}), \
+             patch("routes.chat.load_metadata", return_value={"chats": [], "principalId": PRINCIPAL_A}), \
+             patch("routes.chat.save_metadata"), \
+             patch("routes.chat.update_chat_in_manifest"), \
+             patch("routes.chat.queue_chat_sync") as mock_queue:
+            resp = client.post("/chat/autosave", json={
+                "chatId": "chat-queued",
+                "title": "Queued Chat",
+                "messages": [{"role": "user", "content": "hello"}],
+                "metadata": {"title": "Queued Chat"},
+            }, headers=headers)
+
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["success"] is True
+        assert data["syncQueued"] is True
+        mock_queue.assert_called_once()
+
+    def test_get_chat_uses_local_snapshot_before_ipfs(self, client, mock_ipfs, mock_auth):
+        """After autosave, GET /chat/<id> should return local snapshot without IPFS download."""
+        headers = _auth_headers(PRINCIPAL_A)
+        chat_id = "chat-local-cache"
+
+        with patch("routes.chat._ensure_restored"), \
+             patch("routes.chat._get_chat_manifest", return_value={"chats": []}), \
+             patch("routes.chat.load_metadata", return_value={"chats": [], "principalId": PRINCIPAL_A}), \
+             patch("routes.chat.save_metadata"), \
+             patch("routes.chat.update_chat_in_manifest"), \
+             patch("routes.chat.queue_chat_sync"):
+            save_resp = client.post("/chat/autosave", json={
+                "chatId": chat_id,
+                "title": "Local Cache Chat",
+                "messages": [{"role": "user", "content": "hello from local cache"}],
+                "metadata": {"title": "Local Cache Chat"},
+            }, headers=headers)
+            assert save_resp.status_code == 200
+
+        with patch("routes.chat.http_session.get") as mock_gateway:
+            load_resp = client.get(f"/chat/{chat_id}", headers=headers)
+
+        assert load_resp.status_code == 200
+        loaded = load_resp.get_json()
+        assert loaded["chatId"] == chat_id
+        assert loaded["messages"][0]["content"] == "hello from local cache"
+        mock_gateway.assert_not_called()
+
+    def test_archive_flushes_pending_checkpoint_when_cid_missing(self, client, mock_auth):
+        """Archiving should force-flush queued checkpoint if manifest chat has no CID yet."""
+        headers = _auth_headers(PRINCIPAL_A)
+        chat_id = "chat-archive-queued"
+
+        manifest_without_cid = {
+            "chats": [{"chatId": chat_id, "title": "Archive Me", "cid": None, "archived": False}]
+        }
+        manifest_with_cid = {
+            "chats": [{"chatId": chat_id, "title": "Archive Me", "cid": "cid-queued", "archived": False}]
+        }
+
+        with patch("routes.chat._ensure_restored"), \
+             patch("routes.chat._get_chat_manifest", side_effect=[manifest_without_cid, manifest_with_cid]), \
+             patch("routes.chat.flush_chat_sync_now", return_value="cid-queued") as mock_flush, \
+             patch("routes.chat.save_manifest"), \
+             patch("routes.chat.sync_manifest_to_ipfs"), \
+             patch("routes.chat.load_metadata", return_value={"chats": [{"chatId": chat_id}]}), \
+             patch("routes.chat.save_metadata"):
+            resp = client.post(f"/chat/{chat_id}/archive", headers=headers)
+
+        assert resp.status_code == 200
+        mock_flush.assert_called_once_with(PRINCIPAL_A, chat_id)
 
 
 # ============================================================================

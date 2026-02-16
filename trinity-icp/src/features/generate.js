@@ -16,6 +16,9 @@ import { getFileIcon, LANG_EXTENSIONS, generateSmartFilename } from '../utils/co
 import { addEditButton, parseMarkdownWithMath, preprocessToolCalls } from '../ui/editMessage.js';
 import { getAttachedContent, clearAttachment } from '../tools.js';
 
+// Monotonic generation token to ignore stale async callbacks.
+let activeGenerationToken = 0;
+
 /**
  * Check backend connection health.
  */
@@ -67,6 +70,8 @@ export async function generate(executeAutosave) {
     // Mark as generating immediately
     State.setGenerating(true);
     UI.setGenerating(true, State);
+    const generationToken = ++activeGenerationToken;
+    const isActive = () => generationToken === activeGenerationToken;
 
     // Clear input immediately
     const originalPrompt = prompt;
@@ -301,6 +306,7 @@ export async function generate(executeAutosave) {
                 prompt,
                 // onToken
                 (token, fullText) => {
+                    if (!isActive()) return;
                     if (!isReceivingTokens) {
                         isReceivingTokens = true;
                         messageDiv.innerHTML = '';
@@ -311,6 +317,7 @@ export async function generate(executeAutosave) {
                 },
                 // onPhase
                 (phase, message) => {
+                    if (!isActive()) return;
                     if (!isReceivingTokens) {
                         const phaseName = DOMPurify.sanitize(phase.charAt(0).toUpperCase() + phase.slice(1));
                         const safeMessage = DOMPurify.sanitize(message);
@@ -327,15 +334,14 @@ export async function generate(executeAutosave) {
                 },
                 // onDone
                 (fullText, agentResponse) => {
+                    if (!isActive()) {
+                        resolve();
+                        return;
+                    }
                     generatedText = fullText;
                     tokenBuffer = fullText;
 
-                    const finishTyping = () => {
-                        if (displayedLength < tokenBuffer.length) {
-                            setTimeout(finishTyping, 20);
-                            return;
-                        }
-
+                    const finalizeResponse = () => {
                         if (typingInterval) {
                             clearInterval(typingInterval);
                             typingInterval = null;
@@ -415,11 +421,7 @@ export async function generate(executeAutosave) {
                                     () => {},
                                     // onDone
                                     (contText, contAgentResp) => {
-                                        const finishCont = () => {
-                                            if (continueDisplayed < continueBuffer.length) {
-                                                setTimeout(finishCont, 20);
-                                                return;
-                                            }
+                                        const finalizeContinuation = () => {
                                             if (continueInterval) {
                                                 clearInterval(continueInterval);
                                                 continueInterval = null;
@@ -454,7 +456,8 @@ export async function generate(executeAutosave) {
 
                                             renderKatex();
                                         };
-                                        finishCont();
+                                        continueDisplayed = continueBuffer.length;
+                                        finalizeContinuation();
                                     },
                                     // onError
                                     (err) => {
@@ -478,10 +481,17 @@ export async function generate(executeAutosave) {
                         resolve();
                     };
 
-                    finishTyping();
+                    // Stream is complete: flush immediately to final render so
+                    // download cards appear without waiting for typing catch-up.
+                    displayedLength = tokenBuffer.length;
+                    finalizeResponse();
                 },
                 // onError
                 (error) => {
+                    if (!isActive()) {
+                        resolve();
+                        return;
+                    }
                     if (typingInterval) {
                         clearInterval(typingInterval);
                         typingInterval = null;
@@ -491,6 +501,10 @@ export async function generate(executeAutosave) {
                 { documentContext: documentContent }
             );
         });
+
+        if (!isActive()) {
+            return;
+        }
 
         clearAttachment();
         Logger.debug('Streamed text length:', generatedText.length);
@@ -518,6 +532,9 @@ export async function generate(executeAutosave) {
             messageDiv.innerHTML = 'No response generated';
         }
     } catch (error) {
+        if (generationToken !== activeGenerationToken) {
+            return;
+        }
         if (error.name === 'AbortError' || error.isAbort) {
             Logger.debug('Generation aborted by user');
             return;
@@ -525,7 +542,9 @@ export async function generate(executeAutosave) {
         Logger.error('Generate error:', error);
         messageDiv.innerHTML = `Request failed: ${error.message}`;
     } finally {
-        UI.setGenerating(false, State);
+        if (generationToken === activeGenerationToken) {
+            UI.setGenerating(false, State);
+        }
     }
 }
 
@@ -533,6 +552,7 @@ export async function generate(executeAutosave) {
  * Stop current generation.
  */
 export function stopGeneration() {
+    activeGenerationToken++;
     API.cancelRequest();
     State.setGenerating(false);
     UI.setGenerating(false, State);

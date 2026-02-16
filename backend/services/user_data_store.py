@@ -22,10 +22,17 @@ import json
 import logging
 import threading
 import time
+import hashlib
+import base64
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from config import CHATS_DIR, PRINCIPAL_DISPLAY_LENGTH
+from config import (
+    CHAT_CHECKPOINT_DEBOUNCE_SECONDS,
+    CHAT_CHECKPOINT_MAX_WAIT_SECONDS,
+    CHATS_DIR,
+    PRINCIPAL_DISPLAY_LENGTH,
+)
 from encryption import EncryptionUtils
 from lighthouse import (
     download_from_ipfs,
@@ -53,6 +60,7 @@ def decrypt_for_user(encrypted: dict, principal_id: str) -> dict:
 # Track which principals have been restored this session
 _restored_principals: set = set()
 _restore_lock = threading.Lock()
+_restore_inflight: set = set()
 
 # Debounce state for vector DB uploads
 _vector_sync_counters: Dict[str, int] = {}
@@ -66,11 +74,22 @@ _profile_sync_latest: Dict[str, Dict] = {}
 _profile_sync_lock = threading.Lock()
 PROFILE_SYNC_DEBOUNCE_SECONDS = 15
 
+# Debounce state for graph uploads
+_graph_sync_timers: Dict[str, threading.Timer] = {}
+_graph_sync_lock = threading.Lock()
+GRAPH_SYNC_DEBOUNCE_SECONDS = 30
+
 # Debounce state for chat manifest uploads
 _manifest_sync_timers: Dict[str, threading.Timer] = {}
 _manifest_sync_latest: Dict[str, Dict] = {}
 _manifest_sync_lock = threading.Lock()
 MANIFEST_SYNC_DEBOUNCE_SECONDS = 5
+
+# Debounce state for chat blob uploads
+_chat_sync_timers: Dict[tuple, threading.Timer] = {}
+_chat_sync_latest: Dict[tuple, Dict] = {}
+_chat_sync_started_at: Dict[tuple, float] = {}
+_chat_sync_lock = threading.Lock()
 
 # =============================================================================
 # RETRY LOGIC — at-least-once IPFS delivery
@@ -90,6 +109,11 @@ _sync_status_lock = threading.Lock()
 IPFS_RETRY_ATTEMPTS = 3
 IPFS_RETRY_DELAYS = [1, 4, 16]  # seconds — exponential backoff
 
+# Content-hash dedupe cache for IPFS uploads.
+_upload_dedupe: Dict[tuple, str] = {}
+_upload_latest: Dict[tuple, Dict] = {}
+_upload_dedupe_lock = threading.Lock()
+
 
 def _upload_with_retry(file_data: bytes, filename: str, principal_id: str = None,
                        is_master_bundle: bool = False) -> Optional[str]:
@@ -97,12 +121,41 @@ def _upload_with_retry(file_data: bytes, filename: str, principal_id: str = None
     Upload to IPFS with exponential-backoff retry.
     Returns CID on success, None on failure after all retries.
     """
+    digest = hashlib.sha256(file_data).hexdigest()
+    if principal_id:
+        file_key = (principal_id, filename)
+        dedupe_key = (principal_id, filename, digest)
+        with _upload_dedupe_lock:
+            cached_cid = _upload_dedupe.get(dedupe_key)
+            latest = _upload_latest.get(file_key)
+        if cached_cid:
+            logger.debug("♻️ IPFS dedupe hit for %s", filename)
+            return cached_cid
+        if latest and latest.get("hash") == digest and latest.get("cid"):
+            logger.debug("♻️ IPFS unchanged payload for %s", filename)
+            return latest["cid"]
+
     last_error = None
     for attempt in range(IPFS_RETRY_ATTEMPTS):
         try:
             cid = upload_to_ipfs(file_data, filename, principal_id=principal_id,
                                  is_master_bundle=is_master_bundle)
             if cid:
+                if principal_id:
+                    with _upload_dedupe_lock:
+                        _upload_dedupe[(principal_id, filename, digest)] = cid
+                        _upload_latest[(principal_id, filename)] = {
+                            "hash": digest,
+                            "cid": cid,
+                            "updated_at": int(time.time() * 1000),
+                        }
+                try:
+                    from services.slo_metrics import record_ipfs_write
+
+                    if principal_id:
+                        record_ipfs_write(principal_id)
+                except Exception:
+                    pass
                 return cid
             last_error = "upload_to_ipfs returned None"
         except Exception as e:
@@ -190,8 +243,10 @@ def get_all_sync_status() -> Dict:
 
 def get_pending_sync_count() -> int:
     """Return number of pending syncs."""
+    with _chat_sync_lock:
+        queued_chat_checkpoints = len(_chat_sync_latest)
     with _pending_syncs_lock:
-        return len(_pending_syncs)
+        return len(_pending_syncs) + queued_chat_checkpoints
 
 
 # =============================================================================
@@ -202,6 +257,9 @@ def _default_manifest(principal_id: str) -> Dict:
     """Return an empty user manifest."""
     return {
         "version": 2,
+        "manifestVersion": 1,
+        "currentManifestCid": None,
+        "manifestHistory": [],
         "principal": principal_id,
         "profile": {
             "cid": None,
@@ -212,6 +270,11 @@ def _default_manifest(principal_id: str) -> Dict:
             "cid": None,
             "lastUpdated": None,
             "messageCount": 0,
+        },
+        "graphIndex": {
+            "cid": None,
+            "lastUpdated": None,
+            "tripleCount": 0,
         },
         "chats": [],
         "totalBytes": 0,
@@ -259,11 +322,24 @@ def save_manifest(principal_id: str, manifest: Dict):
 def sync_manifest_to_ipfs(principal_id: str, manifest: Dict) -> Optional[str]:
     """Encrypt and upload manifest to IPFS with retry. Returns CID or None."""
     try:
+        previous_cid = manifest.get("currentManifestCid")
+        previous_version = int(manifest.get("manifestVersion", 1))
         encrypted = encrypt_for_user(manifest, principal_id)
         data = json.dumps(encrypted).encode("utf-8")
         filename = _manifest_filename(principal_id)
         cid = _upload_with_retry(data, filename, principal_id=principal_id, is_master_bundle=True)
         if cid:
+            if previous_cid and previous_cid != cid:
+                history = manifest.get("manifestHistory", [])
+                history.append({
+                    "version": previous_version,
+                    "cid": previous_cid,
+                    "updatedAt": int(time.time() * 1000),
+                })
+                manifest["manifestHistory"] = history[-20:]
+            manifest["currentManifestCid"] = cid
+            manifest["manifestVersion"] = previous_version + 1
+            save_manifest(principal_id, manifest)
             logger.info(f"📋 Manifest synced to IPFS: {cid[:16]}...")
             _record_sync_status(principal_id, "manifest", True, cid=cid)
         else:
@@ -300,6 +376,51 @@ def find_manifest_on_ipfs(principal_id: str) -> Optional[Dict]:
     except Exception as e:
         logger.error(f"❌ Manifest search failed for {principal_id[:20]}: {e}")
         return None
+
+
+def rollback_manifest(principal_id: str, target_version: Optional[int] = None) -> bool:
+    """
+    Roll back local manifest to a previous manifest CID checkpoint.
+
+    Args:
+        principal_id: User principal.
+        target_version: Optional target manifestVersion from history.
+
+    Returns:
+        True on successful rollback.
+    """
+    manifest = load_manifest(principal_id)
+    history = manifest.get("manifestHistory", [])
+    if not history:
+        return False
+
+    target = None
+    if target_version is None:
+        target = history[-1]
+    else:
+        for entry in reversed(history):
+            if int(entry.get("version", -1)) == int(target_version):
+                target = entry
+                break
+    if not target:
+        return False
+
+    cid = target.get("cid")
+    if not cid:
+        return False
+
+    raw = download_from_ipfs(cid)
+    if not raw:
+        return False
+
+    try:
+        encrypted = json.loads(raw.decode("utf-8"))
+        restored = decrypt_for_user(encrypted, principal_id)
+        save_manifest(principal_id, restored)
+        return True
+    except Exception as e:
+        logger.error(f"❌ Manifest rollback failed for {principal_id[:20]}: {e}")
+        return False
 
 
 # =============================================================================
@@ -536,6 +657,103 @@ def _try_legacy_vector_restore(principal_id: str) -> bool:
 
 
 # =============================================================================
+# GRAPH MEMORY SYNC
+# =============================================================================
+
+def _graph_filename(principal_id: str) -> str:
+    return f"{principal_id[:PRINCIPAL_DISPLAY_LENGTH]}_identity_graph.json"
+
+
+def sync_graph_db_to_ipfs(principal_id: str) -> Optional[str]:
+    """
+    Sync graph memory artifacts (identity.kuzu + triples sidecar) to IPFS.
+    """
+    try:
+        user_dir = Path(CHATS_DIR) / principal_id
+        graph_db_path = user_dir / "identity.kuzu"
+        triples_path = user_dir / "identity_triples.json"
+        triples = []
+        if triples_path.exists():
+            try:
+                with open(triples_path, "r") as f:
+                    triples = json.load(f) or []
+            except Exception:
+                triples = []
+
+        graph_db_bytes = b""
+        if graph_db_path.exists():
+            with open(graph_db_path, "rb") as f:
+                graph_db_bytes = f.read()
+
+        payload = {
+            "type": "identity_graph",
+            "graph_db_b64": base64.b64encode(graph_db_bytes).decode("utf-8"),
+            "triples": triples,
+            "updatedAt": int(time.time() * 1000),
+        }
+        encrypted = encrypt_for_user(payload, principal_id)
+        cid = _upload_with_retry(
+            json.dumps(encrypted).encode("utf-8"),
+            _graph_filename(principal_id),
+            principal_id=principal_id,
+        )
+        if not cid:
+            _record_sync_status(principal_id, "graphDb", False, error="upload returned None")
+            _add_pending_sync(principal_id, "graphDb", sync_graph_db_to_ipfs, (principal_id,))
+            return None
+
+        _record_sync_status(principal_id, "graphDb", True, cid=cid)
+        manifest = load_manifest(principal_id)
+        old_cid = manifest.get("graphIndex", {}).get("cid")
+        manifest["graphIndex"]["cid"] = cid
+        manifest["graphIndex"]["lastUpdated"] = int(time.time() * 1000)
+        manifest["graphIndex"]["tripleCount"] = len(triples)
+        save_manifest(principal_id, manifest)
+        sync_manifest_to_ipfs(principal_id, manifest)
+        if old_cid and old_cid != cid:
+            unpin_cid(old_cid)
+        return cid
+    except Exception as e:
+        logger.error(f"❌ Graph DB sync failed: {e}", exc_info=True)
+        _record_sync_status(principal_id, "graphDb", False, error=str(e))
+        _add_pending_sync(principal_id, "graphDb", sync_graph_db_to_ipfs, (principal_id,))
+        return None
+
+
+def restore_graph_db_from_ipfs(principal_id: str, manifest: Dict = None) -> bool:
+    """Restore graph memory artifacts from IPFS if present."""
+    try:
+        user_dir = Path(CHATS_DIR) / principal_id
+        user_dir.mkdir(parents=True, exist_ok=True)
+        graph_db_path = user_dir / "identity.kuzu"
+        triples_path = user_dir / "identity_triples.json"
+
+        if manifest is None:
+            manifest = load_manifest(principal_id)
+        graph_cid = manifest.get("graphIndex", {}).get("cid")
+        if not graph_cid:
+            return True
+
+        raw = download_from_ipfs(graph_cid)
+        if not raw:
+            return False
+
+        encrypted = json.loads(raw.decode("utf-8"))
+        payload = decrypt_for_user(encrypted, principal_id)
+        graph_db_b64 = payload.get("graph_db_b64", "")
+        if graph_db_b64:
+            with open(graph_db_path, "wb") as f:
+                f.write(base64.b64decode(graph_db_b64))
+        triples = payload.get("triples", [])
+        with open(triples_path, "w") as f:
+            json.dump(triples if isinstance(triples, list) else [], f)
+        return True
+    except Exception as e:
+        logger.error(f"❌ Graph DB restore failed: {e}", exc_info=True)
+        return False
+
+
+# =============================================================================
 # AUTO-SYNC TRIGGERS
 # =============================================================================
 
@@ -605,6 +823,27 @@ def notify_profile_changed(principal_id: str, memory: Dict):
         timer.start()
 
 
+def notify_graph_changed(principal_id: str):
+    """Debounce graph DB sync to avoid upload churn during message bursts."""
+    def _flush_graph_sync(pid: str):
+        with _graph_sync_lock:
+            _graph_sync_timers.pop(pid, None)
+        sync_graph_db_to_ipfs(pid)
+
+    with _graph_sync_lock:
+        existing = _graph_sync_timers.get(principal_id)
+        if existing and existing.is_alive():
+            existing.cancel()
+        timer = threading.Timer(
+            GRAPH_SYNC_DEBOUNCE_SECONDS,
+            _flush_graph_sync,
+            args=(principal_id,),
+        )
+        timer.daemon = True
+        _graph_sync_timers[principal_id] = timer
+        timer.start()
+
+
 def _debounce_manifest_sync(principal_id: str, manifest: Dict):
     """Debounce manifest uploads to reduce IPFS churn during autosave bursts."""
     def _flush_manifest_sync(pid: str):
@@ -632,6 +871,156 @@ def _debounce_manifest_sync(principal_id: str, manifest: Dict):
         timer.daemon = True
         _manifest_sync_timers[principal_id] = timer
         timer.start()
+
+
+# =============================================================================
+# CHAT CHECKPOINT SYNC
+# =============================================================================
+
+def _chat_filename(principal_id: str, chat_id: str) -> str:
+    """IPFS filename for a single encrypted chat blob."""
+    return f"{principal_id[:PRINCIPAL_DISPLAY_LENGTH]}_{chat_id}.json"
+
+
+def sync_chat_to_ipfs(
+    principal_id: str,
+    chat_id: str,
+    chat_data: Dict,
+    title: str = "Untitled",
+    message_count: int = 0,
+    archived: bool = False,
+    pinned: bool = False,
+) -> Optional[str]:
+    """
+    Encrypt and upload a chat snapshot to IPFS, then update manifest.
+
+    This is used by the debounced autosave checkpoint queue.
+    """
+    try:
+        encrypted = encrypt_for_user(chat_data, principal_id)
+        payload = json.dumps(encrypted).encode("utf-8")
+        cid = _upload_with_retry(
+            payload,
+            _chat_filename(principal_id, chat_id),
+            principal_id=principal_id,
+        )
+
+        if not cid:
+            _record_sync_status(principal_id, "chat", False, error="upload returned None")
+            _add_pending_sync(
+                principal_id,
+                f"chat:{chat_id}",
+                sync_chat_to_ipfs,
+                (principal_id, chat_id, chat_data, title, message_count, archived, pinned),
+            )
+            return None
+
+        _record_sync_status(principal_id, "chat", True, cid=cid)
+        update_chat_in_manifest(
+            principal_id=principal_id,
+            chat_id=chat_id,
+            cid=cid,
+            title=title,
+            message_count=message_count,
+            archived=archived,
+            pinned=pinned,
+        )
+        logger.info(
+            "💬 Chat checkpoint synced to IPFS: %s (%s msgs)",
+            chat_id[:12],
+            message_count,
+        )
+        return cid
+    except Exception as e:
+        logger.error("❌ Chat checkpoint sync failed for %s: %s", chat_id[:12], e, exc_info=True)
+        _record_sync_status(principal_id, "chat", False, error=str(e))
+        _add_pending_sync(
+            principal_id,
+            f"chat:{chat_id}",
+            sync_chat_to_ipfs,
+            (principal_id, chat_id, chat_data, title, message_count, archived, pinned),
+        )
+        return None
+
+
+def _flush_chat_sync(principal_id: str, chat_id: str) -> Optional[str]:
+    """Flush the latest queued chat checkpoint for a principal/chat pair."""
+    key = (principal_id, chat_id)
+    with _chat_sync_lock:
+        payload = _chat_sync_latest.pop(key, None)
+        _chat_sync_timers.pop(key, None)
+        _chat_sync_started_at.pop(key, None)
+
+    if not payload:
+        return None
+
+    return sync_chat_to_ipfs(**payload)
+
+
+def queue_chat_sync(
+    principal_id: str,
+    chat_id: str,
+    chat_data: Dict,
+    title: str = "Untitled",
+    message_count: int = 0,
+    archived: bool = False,
+    pinned: bool = False,
+):
+    """
+    Queue a debounced chat checkpoint sync to IPFS.
+
+    Repeated autosaves for the same chat coalesce into one upload.
+    """
+    key = (principal_id, chat_id)
+    now = time.time()
+
+    with _chat_sync_lock:
+        _chat_sync_latest[key] = {
+            "principal_id": principal_id,
+            "chat_id": chat_id,
+            "chat_data": chat_data,
+            "title": title,
+            "message_count": message_count,
+            "archived": archived,
+            "pinned": pinned,
+        }
+
+        started = _chat_sync_started_at.setdefault(key, now)
+        pending_age = now - started
+        delay_seconds = CHAT_CHECKPOINT_DEBOUNCE_SECONDS
+        if pending_age >= CHAT_CHECKPOINT_MAX_WAIT_SECONDS:
+            # Don't delay forever during very active chats.
+            delay_seconds = 0.05
+
+        existing = _chat_sync_timers.get(key)
+        if existing and existing.is_alive():
+            existing.cancel()
+
+        timer = threading.Timer(delay_seconds, _flush_chat_sync, args=(principal_id, chat_id))
+        timer.daemon = True
+        _chat_sync_timers[key] = timer
+        timer.start()
+
+
+def flush_chat_sync_now(principal_id: str, chat_id: str) -> Optional[str]:
+    """Immediately flush any queued chat checkpoint for this chat."""
+    key = (principal_id, chat_id)
+    with _chat_sync_lock:
+        existing = _chat_sync_timers.get(key)
+        if existing and existing.is_alive():
+            existing.cancel()
+    return _flush_chat_sync(principal_id, chat_id)
+
+
+def discard_queued_chat_sync(principal_id: str, chat_id: str):
+    """Cancel and drop any queued autosave checkpoint for a deleted chat."""
+    key = (principal_id, chat_id)
+    with _chat_sync_lock:
+        existing = _chat_sync_timers.pop(key, None)
+        if existing and existing.is_alive():
+            existing.cancel()
+        _chat_sync_latest.pop(key, None)
+        _chat_sync_started_at.pop(key, None)
 
 
 # =============================================================================
@@ -672,21 +1061,46 @@ def ensure_user_data_restored(principal_id: str) -> bool:
     # Restore each artifact
     profile_ok = restore_profile_from_ipfs(principal_id, manifest)
     vector_ok = restore_vector_db_from_ipfs(principal_id, manifest)
+    graph_ok = restore_graph_db_from_ipfs(principal_id, manifest)
 
-    if profile_ok and vector_ok:
+    if profile_ok and vector_ok and graph_ok:
         logger.info(f"✅ User data restore complete for {principal_id[:20]}")
         with _restore_lock:
             _restored_principals.add(principal_id)
     elif profile_ok:
         # Profile is the critical artifact — mark as restored even if vectors fail
-        logger.warning(f"⚠️ Partial restore for {principal_id[:20]}: profile=OK, vectors=FAILED")
+        logger.warning(
+            f"⚠️ Partial restore for {principal_id[:20]}: profile={profile_ok}, vectors={vector_ok}, graph={graph_ok}"
+        )
         with _restore_lock:
             _restored_principals.add(principal_id)
     else:
         # Profile failed — do NOT mark as restored so next request retries
-        logger.error(f"❌ Restore failed for {principal_id[:20]}: profile={profile_ok}, vectors={vector_ok}")
+        logger.error(
+            f"❌ Restore failed for {principal_id[:20]}: profile={profile_ok}, vectors={vector_ok}, graph={graph_ok}"
+        )
 
     return profile_ok
+
+
+def hydrate_user_data_async(principal_id: str):
+    """
+    Kick off restore/hydration in background without blocking request latency.
+    Safe to call on every request.
+    """
+    with _restore_lock:
+        if principal_id in _restored_principals or principal_id in _restore_inflight:
+            return
+        _restore_inflight.add(principal_id)
+
+    def _run():
+        try:
+            ensure_user_data_restored(principal_id)
+        finally:
+            with _restore_lock:
+                _restore_inflight.discard(principal_id)
+
+    threading.Thread(target=_run, daemon=True).start()
 
 
 # =============================================================================
@@ -800,17 +1214,21 @@ def get_storage_stats(principal_id: str) -> Dict:
     chat_count = len(manifest.get("chats", []))
     has_profile = manifest.get("profile", {}).get("cid") is not None
     has_vectors = manifest.get("memoryIndex", {}).get("cid") is not None
+    has_graph = manifest.get("graphIndex", {}).get("cid") is not None
     fact_count = manifest.get("profile", {}).get("factCount", 0)
     msg_count = manifest.get("memoryIndex", {}).get("messageCount", 0)
+    triple_count = manifest.get("graphIndex", {}).get("tripleCount", 0)
 
     return {
         "principal": principal_id[:PRINCIPAL_DISPLAY_LENGTH],
         "chatCount": chat_count,
         "hasProfile": has_profile,
         "hasVectors": has_vectors,
+        "hasGraph": has_graph,
         "factCount": fact_count,
         "messageEmbeddings": msg_count,
+        "graphTriples": triple_count,
         "lastUpdated": manifest.get("lastUpdated"),
-        # CID count = 1 manifest + 1 profile + 1 vectors + N chats
-        "activeCids": (1 if has_profile else 0) + (1 if has_vectors else 0) + chat_count + 1,
+        # CID count = 1 manifest + 1 profile + 1 vectors + 1 graph + N chats
+        "activeCids": (1 if has_profile else 0) + (1 if has_vectors else 0) + (1 if has_graph else 0) + chat_count + 1,
     }

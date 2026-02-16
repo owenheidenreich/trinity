@@ -341,6 +341,65 @@ class TestPipelineIntegration:
         assert "ready" in tokens[0].lower()
         assert len(done_events) == 1
 
+    def test_non_personal_query_omits_identity_prompt_memory(self):
+        """Neutral factual prompts should not inject identity memory into prompt context."""
+        from services.agent import AgentPipeline
+
+        mock_provider = MagicMock()
+        mock_provider.generate_stream.return_value = iter(["answer", {"__done_reason": "stop"}])
+
+        pipeline = AgentPipeline(provider=mock_provider)
+        list(
+            pipeline.process_streaming(
+                question="what is the quadratic formula",
+                context_messages=[],
+                user_memory={
+                    "facts": [
+                        {"text": "User's name is Owen", "category": "identity", "importance": 5},
+                        {"text": "User prefers concise responses", "category": "preferences", "importance": 4},
+                    ]
+                },
+            )
+        )
+
+        mock_provider.generate_stream.assert_called_once()
+        prompt = mock_provider.generate_stream.call_args[0][0]
+        assert "User's name is Owen" not in prompt
+        assert "User prefers concise responses" in prompt
+
+    def test_personal_disclosure_omits_irrelevant_cross_chat_memory(self):
+        """Personal disclosures should not inject unrelated profile/semantic/graph context."""
+        from services.agent import AgentPipeline
+
+        mock_provider = MagicMock()
+        mock_provider.generate_stream.return_value = iter(["ok", {"__done_reason": "stop"}])
+
+        pipeline = AgentPipeline(provider=mock_provider)
+        list(
+            pipeline.process_streaming(
+                question="my favorite games are zelda the wind waker and melee",
+                context_messages=[],
+                user_memory={
+                    "facts": [
+                        {"text": "User's project is Trinity", "category": "work", "importance": 5},
+                    ]
+                },
+                semantic_context=[
+                    {"role": "user", "content": "Let's work on Trinity deployment"},
+                ],
+                graph_context=[
+                    {"subject": "user", "predicate": "builds", "object": "Trinity"},
+                ],
+                disclosure_path=True,
+            )
+        )
+
+        mock_provider.generate_stream.assert_called_once()
+        prompt = mock_provider.generate_stream.call_args[0][0]
+        assert "User's project is Trinity" not in prompt
+        assert "Let's work on Trinity deployment" not in prompt
+        assert "builds Trinity" not in prompt
+
     def test_react_loop_accepts_any_provider(self):
         """ReactLoop should work with any provider implementing chat/chat_stream."""
         try:

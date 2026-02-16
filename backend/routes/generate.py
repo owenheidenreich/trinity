@@ -12,8 +12,12 @@ import requests as requests_lib
 from flask import Blueprint, Response, current_app, jsonify, request, stream_with_context
 
 from config import (
+    AUTO_EXTRACT_ASSISTANT_MEMORY,
+    CANONICAL_GENERATE_ROUTE,
     DEFAULT_MAX_TOKENS,
     DEFAULT_TEMPERATURE,
+    GRAPH_MEMORY_ENABLED,
+    GRAPH_MEMORY_TOP_K,
     GPU_TYPE,
     MAX_DOCUMENT_CONTEXT_CHARS,
     MAX_PROMPT_LENGTH,
@@ -49,6 +53,20 @@ from services import (
 from storage import load_user_memory
 
 generate_bp = Blueprint("generate", __name__)
+
+
+def _enqueue_async_ingestion(principal: str, user_text: str, assistant_text: str = "", chat_id: str = None):
+    """Queue strict async ingestion for facts + triples."""
+    if not principal:
+        return
+    try:
+        from services.memory_ingestion import enqueue_ingestion
+
+        enqueue_ingestion(principal, user_text, source="user", chat_id=chat_id)
+        if assistant_text and AUTO_EXTRACT_ASSISTANT_MEMORY:
+            enqueue_ingestion(principal, assistant_text, source="assistant", chat_id=chat_id)
+    except Exception as e:
+        logger.debug(f"Memory ingestion enqueue skipped: {e}")
 
 
 @generate_bp.route("/generate", methods=["POST"])
@@ -116,8 +134,8 @@ def generate():
         user_memory = None
         if principal:
             try:
-                from services.user_data_store import ensure_user_data_restored
-                ensure_user_data_restored(principal)
+                from services.user_data_store import hydrate_user_data_async
+                hydrate_user_data_async(principal)
             except Exception:
                 pass
             try:
@@ -150,7 +168,7 @@ def generate():
             logger.info(f"🎲 Using deterministic seed: {seed}")
 
         with track_inference(MODEL_NAME, tier=tier) as inference_tracker:
-            provider = get_provider()
+            provider = get_provider(prompt=user_prompt)
             generated_text = provider.generate(
                 prompt=full_prompt,
                 max_tokens=max_length,
@@ -165,6 +183,10 @@ def generate():
             tokens_generated = len(generated_text.split())
             prompt_tokens = 0
             inference_tracker.set_tokens(tokens_generated)
+            try:
+                inference_tracker.set_model(getattr(provider, "model", MODEL_NAME))
+            except Exception:
+                pass
 
         reasoning_result = None
         final_response = generated_text
@@ -183,9 +205,10 @@ def generate():
 
         response_data = {
             "response": final_response,
-            "model": MODEL_NAME,
+            "model": getattr(provider, "model", MODEL_NAME),
             "provider_id": PROVIDER_ID,
             "done": True,
+            "canonical_route": CANONICAL_GENERATE_ROUTE,
         }
 
         if reasoning_result:
@@ -208,22 +231,7 @@ def generate():
         if principal:
             chat_id = data.get("chat_id")
             message_index = data.get("message_index")
-            try:
-                from services.profile_extractor import auto_extract_and_save
-                import threading as _gen_threading
-                _gen_threading.Thread(
-                    target=auto_extract_and_save,
-                    args=(user_prompt, principal),
-                    daemon=True,
-                ).start()
-                if final_response:
-                    _gen_threading.Thread(
-                        target=auto_extract_and_save,
-                        args=(final_response, principal, "assistant"),
-                        daemon=True,
-                    ).start()
-            except Exception:
-                pass
+            _enqueue_async_ingestion(principal, user_prompt, final_response, chat_id=chat_id)
 
             V4_FEATURES_AVAILABLE = current_app.config.get("V4_FEATURES_AVAILABLE", False)
             if V4_FEATURES_AVAILABLE and chat_id:
@@ -236,6 +244,13 @@ def generate():
                         sem_memory.index_message(chat_id, idx + 1, "assistant", final_response)
                 except Exception as idx_error:
                     logger.debug(f"V4.0 indexing skipped in /generate: {idx_error}")
+
+            try:
+                from services.slo_metrics import record_unsolicited_personal_reference
+
+                record_unsolicited_personal_reference(user_prompt, final_response)
+            except Exception:
+                pass
 
         return jsonify(response_data)
 
@@ -269,7 +284,7 @@ def generate_agent():
     Single-pass agentic generation with SSE streaming.
     Detects tools needed → ReAct loop or direct generation.
     """
-    from services.agent import AgentPipeline, is_trivial_smalltalk
+    from services.agent import AgentPipeline, is_personal_disclosure, is_trivial_smalltalk
 
     V4_FEATURES_AVAILABLE = current_app.config.get("V4_FEATURES_AVAILABLE", False)
 
@@ -277,6 +292,7 @@ def generate_agent():
         return jsonify({"error": "Server at capacity"}), 503
 
     start_request()
+    start_time = time.time()
 
     try:
         data = request.json
@@ -289,26 +305,47 @@ def generate_agent():
         chat_id = data.get("chat_id")
         message_index = data.get("message_index")
         fast_path = is_trivial_smalltalk(user_prompt, context_memory)
+        disclosure_path = is_personal_disclosure(user_prompt)
 
         if not user_prompt:
             return jsonify({"error": "No prompt provided"}), 400
 
         user_memory = None
+        graph_context = None
         if principal and not fast_path:
             try:
-                # Ensure IPFS restore has happened (idempotent, no-op if already done)
-                from services.user_data_store import ensure_user_data_restored
-                ensure_user_data_restored(principal)
+                # Hydrate in background; never block first token on IPFS restore.
+                from services.user_data_store import hydrate_user_data_async
+
+                hydrate_user_data_async(principal)
             except Exception:
                 pass
+        if principal and not fast_path and not disclosure_path:
             try:
                 user_memory = load_user_memory(principal)
             except Exception:
                 pass
+            try:
+                if GRAPH_MEMORY_ENABLED:
+                    from services.graph_memory import get_graph_memory
+
+                    graph_context = get_graph_memory(principal).retrieve_relevant(
+                        user_prompt,
+                        limit=GRAPH_MEMORY_TOP_K,
+                    )
+            except Exception as graph_error:
+                logger.debug(f"Graph retrieval skipped: {graph_error}")
 
         enhanced_context = context_memory
         semantic_context = None
-        if V4_FEATURES_AVAILABLE and principal and not fast_path:
+        should_query_semantic = len(context_memory) >= 2
+        if (
+            V4_FEATURES_AVAILABLE
+            and principal
+            and not fast_path
+            and not disclosure_path
+            and should_query_semantic
+        ):
             try:
                 from services.memory import build_enhanced_context
                 enhanced_context, semantic_context = build_enhanced_context(
@@ -320,30 +357,47 @@ def generate_agent():
             except Exception as e:
                 logger.warning(f"⚠️ Semantic memory fallback: {e}")
                 enhanced_context = context_memory
+        elif V4_FEATURES_AVAILABLE and principal and not fast_path and not disclosure_path:
+            logger.debug("🧠 Skipping semantic retrieval on first-turn/new-chat request")
 
-        pipeline = AgentPipeline(provider=get_provider())
+        pipeline = AgentPipeline(provider=get_provider(prompt=user_prompt))
 
-        v4_options = (
-            {"semantic_context": semantic_context, "principal_id": principal}
-            if V4_FEATURES_AVAILABLE
-            else {}
-        )
+        v4_options = {
+            "graph_context": graph_context,
+            "principal_id": principal,
+        }
+        if V4_FEATURES_AVAILABLE:
+            v4_options["semantic_context"] = semantic_context
 
         logger.info(
-            f"🧠 Agent request: {len(user_prompt.split())} words, v4={V4_FEATURES_AVAILABLE}, fast_path={fast_path}"
+            "🧠 Agent request: %s words, v4=%s, fast_path=%s, disclosure=%s",
+            len(user_prompt.split()),
+            V4_FEATURES_AVAILABLE,
+            fast_path,
+            disclosure_path,
         )
 
         def generate_sse():
             try:
                 full_response = ""
+                first_token_recorded = False
                 for event in pipeline.process_streaming(
                     question=user_prompt, context_messages=enhanced_context,
                     user_memory=user_memory,
                     fast_path=fast_path,
+                    disclosure_path=disclosure_path,
                     **v4_options,
                 ):
                     if isinstance(event, dict) and "token" in event:
                         full_response += event["token"]
+                        if not first_token_recorded:
+                            try:
+                                from services.slo_metrics import record_first_token_latency
+
+                                record_first_token_latency((time.time() - start_time) * 1000)
+                            except Exception:
+                                pass
+                            first_token_recorded = True
                     yield f"data: {json.dumps(event)}\n\n"
 
                 if full_response:
@@ -361,22 +415,12 @@ def generate_agent():
                     except Exception as idx_error:
                         logger.debug(f"V4.0 indexing skipped: {idx_error}")
 
-                # Auto-extract profile facts from user message (non-blocking)
                 if principal:
+                    _enqueue_async_ingestion(principal, user_prompt, full_response, chat_id=chat_id)
                     try:
-                        from services.profile_extractor import auto_extract_and_save
-                        import threading
-                        threading.Thread(
-                            target=auto_extract_and_save,
-                            args=(user_prompt, principal),
-                            daemon=True,
-                        ).start()
-                        if full_response:
-                            threading.Thread(
-                                target=auto_extract_and_save,
-                                args=(full_response, principal, "assistant"),
-                                daemon=True,
-                            ).start()
+                        from services.slo_metrics import record_unsolicited_personal_reference
+
+                        record_unsolicited_personal_reference(user_prompt, full_response)
                     except Exception:
                         pass
 

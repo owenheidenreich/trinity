@@ -157,6 +157,42 @@ class TestFormatUserMemory:
         if identity_pos >= 0 and general_pos >= 0:
             assert identity_pos < general_pos
 
+    def test_non_personal_queries_filter_identity_facts(self):
+        """Identity/relationship facts are omitted for neutral factual prompts."""
+        from services.agent import _format_user_memory
+
+        memory = {
+            "facts": [
+                {"text": "User's name is Owen", "category": "identity", "importance": 5},
+                {"text": "User prefers concise answers", "category": "preferences", "importance": 4},
+            ]
+        }
+        result = _format_user_memory(
+            memory,
+            query="what is the quadratic formula",
+            include_personal=False,
+        )
+
+        assert "User's name is Owen" not in result
+        assert "User prefers concise answers" in result
+
+    def test_personal_memory_detector_is_explicit(self):
+        """Only explicit profile recall prompts should trigger full personal memory injection."""
+        from services.agent import _question_requests_personal_memory
+
+        assert _question_requests_personal_memory("what do you know about me")
+        assert _question_requests_personal_memory("what is my name")
+        assert not _question_requests_personal_memory("what is the quadratic formula")
+
+    def test_personal_disclosure_detector(self):
+        """First-person disclosures should be detected without matching generic help requests."""
+        from services.agent import is_personal_disclosure
+
+        assert is_personal_disclosure("my favorite games are zelda and melee")
+        assert is_personal_disclosure("i like sci-fi books")
+        assert not is_personal_disclosure("what is the quadratic formula")
+        assert not is_personal_disclosure("can you help me with python")
+
 
 # ============================================================================
 # B3: build_enhanced_context tuple return
@@ -240,6 +276,32 @@ class TestBuildEnhancedContext:
         )
 
         assert enhanced == msgs
+
+    @patch("services.memory.get_semantic_memory")
+    def test_filters_irrelevant_semantic_items(self, mock_get_mem):
+        """Low-similarity semantic matches are excluded from prompt context."""
+        from services.memory import build_enhanced_context
+
+        mock_mem = MagicMock()
+        mock_mem.retrieve_context.return_value = {
+            "working_memory": [],
+            "semantic_memory": [
+                {"role": "user", "content": "unrelated", "similarity": 0.12, "score": 0.40},
+                {"role": "assistant", "content": "relevant", "similarity": 0.80, "score": 0.85},
+            ],
+            "combined": [],
+        }
+        mock_get_mem.return_value = mock_mem
+
+        _, semantic = build_enhanced_context(
+            query="math formula",
+            principal_id="user",
+            context_messages=[],
+        )
+
+        assert semantic is not None
+        assert len(semantic) == 1
+        assert semantic[0]["content"] == "relevant"
 
 
 # ============================================================================

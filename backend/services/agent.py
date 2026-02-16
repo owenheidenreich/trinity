@@ -80,6 +80,56 @@ _SMALLTALK_CANONICAL = {
     "thx",
 }
 
+_PERSONAL_MEMORY_PATTERNS = [
+    re.compile(r"\bwhat do you know about me\b"),
+    re.compile(r"\bwhat do you remember about me\b"),
+    re.compile(r"\bdo you remember\b"),
+    re.compile(r"\bwho am i\b"),
+    re.compile(r"\bwhat(?:'s| is) my (?:name|job|role|company|goal|preference|preferences)\b"),
+    re.compile(r"\bwhere do i (?:live|work)\b"),
+    re.compile(r"\btell me about me\b"),
+]
+
+_PERSONAL_DISCLOSURE_PATTERNS = [
+    re.compile(r"\bmy name is\b"),
+    re.compile(r"\bmy favorite\b"),
+    re.compile(r"\bi(?:'m| am)\b"),
+    re.compile(r"\bi (?:like|love|enjoy|prefer)\b"),
+    re.compile(r"\bi (?:live|work|study)\b"),
+    re.compile(r"\bmy (?:goal|hobby|job|role|company|project)\b"),
+]
+
+_PERSONAL_DISCLOSURE_NEGATIVE_PATTERNS = [
+    re.compile(r"\bcan you\b"),
+    re.compile(r"\bcould you\b"),
+    re.compile(r"\bwould you\b"),
+    re.compile(r"\bhelp me\b"),
+    re.compile(r"\bhow do i\b"),
+    re.compile(r"\bwhat is\b"),
+    re.compile(r"\bwhy is\b"),
+]
+
+
+def _question_requests_personal_memory(question: str) -> bool:
+    """Return True only when the user explicitly asks for personal/profile recall."""
+    normalized = _normalize_smalltalk_text(question)
+    if not normalized:
+        return False
+
+    return any(pattern.search(normalized) for pattern in _PERSONAL_MEMORY_PATTERNS)
+
+
+def is_personal_disclosure(question: str) -> bool:
+    """Return True for first-person self-disclosure statements (not requests)."""
+    normalized = _normalize_smalltalk_text(question)
+    if not normalized:
+        return False
+    if "?" in (question or ""):
+        return False
+    if any(pattern.search(normalized) for pattern in _PERSONAL_DISCLOSURE_NEGATIVE_PATTERNS):
+        return False
+    return any(pattern.search(normalized) for pattern in _PERSONAL_DISCLOSURE_PATTERNS)
+
 
 def _normalize_smalltalk_text(text: str) -> str:
     normalized = (text or "").strip().lower().replace("\u2019", "'")
@@ -116,18 +166,22 @@ def _estimate_tokens(text: str) -> int:
     return max(1, len(text) // 4)
 
 
-def _format_user_memory(user_memory: Dict, query: str = "") -> str:
+def _format_user_memory(
+    user_memory: Dict,
+    query: str = "",
+    include_personal: bool = True,
+) -> str:
     """Format user memory into a token-budget-aware profile section for the LLM.
 
-    Instead of naively slicing facts[:10], this:
-    1. Filters out deleted facts
-    2. Scores each fact by relevance (to query), importance, and recency
-    3. Always includes identity facts (name, etc.) — they're cheap
-    4. Packs remaining facts into the token budget by score
+    Args:
+        user_memory: User profile payload from storage.
+        query: Current user message used for relevance scoring.
+        include_personal: If False, suppress identity/relationship facts unless query relevance is high.
 
-    Returns a Markdown section for the system prompt.
+    Returns:
+        Markdown section for prompt injection.
     """
-    from config import PROFILE_TOKEN_BUDGET
+    from config import PROFILE_MAX_FACTS, PROFILE_RELEVANCE_FLOOR, PROFILE_TOKEN_BUDGET
 
     if not user_memory or not isinstance(user_memory, dict):
         return ""
@@ -163,6 +217,8 @@ def _format_user_memory(user_memory: Dict, query: str = "") -> str:
             text = fact
             if not text.strip():
                 continue
+            if not include_personal:
+                continue
             score = 0.5 * 0.5 + (3 / 5.0) * 0.3 + 1.0 * 0.2
             scored_facts.append((score, fact, text, "general"))
             continue
@@ -196,8 +252,19 @@ def _format_user_memory(user_memory: Dict, query: str = "") -> str:
 
         # Identity facts get a big boost — always include the user's name
         category = fact.get("category", "general")
-        if category == "identity":
-            score += 1.0
+        if category == "identity" and include_personal:
+            score += 0.35
+
+        if not include_personal and category in {"identity", "relationships"}:
+            continue
+
+        if not include_personal:
+            if category == "preferences":
+                pass
+            elif query_embedding is not None and score < PROFILE_RELEVANCE_FLOOR:
+                continue
+            elif query_embedding is None:
+                continue
 
         scored_facts.append((score, fact, text, category))
 
@@ -211,7 +278,11 @@ def _format_user_memory(user_memory: Dict, query: str = "") -> str:
     lines_by_category = {}
     token_count = 50  # header overhead
 
+    selected_count = 0
     for score, fact, text, category in scored_facts:
+        if selected_count >= PROFILE_MAX_FACTS:
+            break
+
         line = f"- {text}"
         line_tokens = _estimate_tokens(line)
 
@@ -222,6 +293,7 @@ def _format_user_memory(user_memory: Dict, query: str = "") -> str:
             lines_by_category[category] = []
         lines_by_category[category].append(line)
         token_count += line_tokens
+        selected_count += 1
 
     if not lines_by_category:
         return ""
@@ -258,6 +330,25 @@ def _format_semantic_context(semantic_context: Optional[List[Dict]]) -> str:
             lines.append(f"- ({role}, chat {chat_id[:8]}) {content}")
         else:
             lines.append(f"- ({role}) {content}")
+
+    if len(lines) == 1:
+        return ""
+    return "\n".join(lines)
+
+
+def _format_graph_context(graph_context: Optional[List[Dict]]) -> str:
+    """Format graph triples for compact prompt injection."""
+    if not graph_context:
+        return ""
+
+    lines = ["## Relevant long-term relationships"]
+    for triple in graph_context[:6]:
+        subject = triple.get("subject", "user")
+        predicate = triple.get("predicate", "related_to")
+        obj = triple.get("object", "")
+        if not obj:
+            continue
+        lines.append(f"- {subject} {predicate} {obj}")
 
     if len(lines) == 1:
         return ""
@@ -423,6 +514,7 @@ class AgentPipeline:
         context_messages: List[Dict] = None,
         user_memory: Dict = None,
         semantic_context: List[Dict] = None,
+        graph_context: List[Dict] = None,
         principal_id: str = None,
         **kwargs,
     ) -> Generator[Dict, None, None]:
@@ -462,16 +554,33 @@ class AgentPipeline:
             return
 
         tools_needed = self._should_use_react(question)
-        formatted_user_memory = _format_user_memory(user_memory, query=question)
-        formatted_semantic = _format_semantic_context(semantic_context)
-        if formatted_semantic:
-            if formatted_user_memory:
-                formatted_user_memory = f"{formatted_user_memory}\n\n{formatted_semantic}"
-            else:
-                formatted_user_memory = formatted_semantic
+        disclosure_path = bool(kwargs.get("disclosure_path")) or is_personal_disclosure(question)
+        include_personal_memory = _question_requests_personal_memory(question)
+        formatted_user_memory = ""
+
+        if not disclosure_path:
+            formatted_user_memory = _format_user_memory(
+                user_memory,
+                query=question,
+                include_personal=include_personal_memory,
+            )
+            formatted_semantic = _format_semantic_context(semantic_context)
+            formatted_graph = _format_graph_context(graph_context)
+            if formatted_semantic:
+                if formatted_user_memory:
+                    formatted_user_memory = f"{formatted_user_memory}\n\n{formatted_semantic}"
+                else:
+                    formatted_user_memory = formatted_semantic
+            if formatted_graph:
+                if formatted_user_memory:
+                    formatted_user_memory = f"{formatted_user_memory}\n\n{formatted_graph}"
+                else:
+                    formatted_user_memory = formatted_graph
 
         logger.info(
-            f"🧠 Agent streaming: single-pass, tools={tools_needed}"
+            "🧠 Agent streaming: single-pass, tools=%s, disclosure=%s",
+            tools_needed,
+            disclosure_path,
         )
 
         # === WEB SEARCH (if applicable) ===

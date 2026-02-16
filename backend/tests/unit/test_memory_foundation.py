@@ -67,6 +67,8 @@ class TestPendingSyncs:
         """Pending sync is tracked and counted correctly."""
         from services.user_data_store import (
             _add_pending_sync,
+            _chat_sync_latest,
+            _chat_sync_lock,
             _pending_syncs,
             _pending_syncs_lock,
             get_pending_sync_count,
@@ -74,6 +76,8 @@ class TestPendingSyncs:
         # Clear any existing state
         with _pending_syncs_lock:
             _pending_syncs.clear()
+        with _chat_sync_lock:
+            _chat_sync_latest.clear()
 
         mock_fn = MagicMock()
         _add_pending_sync("test-principal", "profile", mock_fn, ("test-principal",))
@@ -83,17 +87,23 @@ class TestPendingSyncs:
         # Clean up
         with _pending_syncs_lock:
             _pending_syncs.clear()
+        with _chat_sync_lock:
+            _chat_sync_latest.clear()
 
     def test_retry_pending_syncs_calls_function(self):
         """Retrying pending syncs calls the queued function."""
         from services.user_data_store import (
             _add_pending_sync,
+            _chat_sync_latest,
+            _chat_sync_lock,
             _pending_syncs,
             _pending_syncs_lock,
             retry_pending_syncs,
         )
         with _pending_syncs_lock:
             _pending_syncs.clear()
+        with _chat_sync_lock:
+            _chat_sync_latest.clear()
 
         mock_fn = MagicMock()
         _add_pending_sync("test-principal", "profile", mock_fn, ("arg1",))
@@ -104,11 +114,15 @@ class TestPendingSyncs:
 
         with _pending_syncs_lock:
             _pending_syncs.clear()
+        with _chat_sync_lock:
+            _chat_sync_latest.clear()
 
     def test_retry_pending_syncs_requeues_on_failure(self):
         """If retry fails, the sync is re-queued."""
         from services.user_data_store import (
             _add_pending_sync,
+            _chat_sync_latest,
+            _chat_sync_lock,
             _pending_syncs,
             _pending_syncs_lock,
             get_pending_sync_count,
@@ -116,6 +130,8 @@ class TestPendingSyncs:
         )
         with _pending_syncs_lock:
             _pending_syncs.clear()
+        with _chat_sync_lock:
+            _chat_sync_latest.clear()
 
         mock_fn = MagicMock(side_effect=Exception("still failing"))
         _add_pending_sync("test-principal", "profile", mock_fn, ("arg1",))
@@ -126,6 +142,8 @@ class TestPendingSyncs:
 
         with _pending_syncs_lock:
             _pending_syncs.clear()
+        with _chat_sync_lock:
+            _chat_sync_latest.clear()
 
     def test_ensure_restore_triggers_async_pending_retry(self):
         """ensure_user_data_restored should not block request path on retry backoff."""
@@ -195,6 +213,60 @@ class TestSyncStatus:
 
         with _sync_status_lock:
             _sync_status.clear()
+
+
+# =============================================================================
+# CHAT CHECKPOINT QUEUE
+# =============================================================================
+
+class TestChatCheckpointQueue:
+    """Test debounced chat checkpoint queue helpers."""
+
+    def test_flush_now_syncs_latest_payload(self):
+        """flush_chat_sync_now should sync only the latest queued autosave payload."""
+        from services.user_data_store import flush_chat_sync_now, queue_chat_sync
+
+        with patch("services.user_data_store.sync_chat_to_ipfs", return_value="cid-latest") as mock_sync:
+            queue_chat_sync(
+                principal_id="test-principal",
+                chat_id="chat-1",
+                chat_data={"chatId": "chat-1", "messages": [{"role": "user", "content": "old"}]},
+                title="Old",
+                message_count=1,
+            )
+            queue_chat_sync(
+                principal_id="test-principal",
+                chat_id="chat-1",
+                chat_data={"chatId": "chat-1", "messages": [{"role": "user", "content": "new"}]},
+                title="New",
+                message_count=1,
+            )
+
+            cid = flush_chat_sync_now("test-principal", "chat-1")
+
+        assert cid == "cid-latest"
+        assert mock_sync.call_count == 1
+        assert mock_sync.call_args.kwargs["title"] == "New"
+        assert mock_sync.call_args.kwargs["chat_data"]["messages"][0]["content"] == "new"
+
+    def test_discard_queued_chat_sync_drops_pending_payload(self):
+        """Discarding a queued checkpoint should prevent later flush sync."""
+        from services.user_data_store import discard_queued_chat_sync, flush_chat_sync_now, queue_chat_sync
+
+        queue_chat_sync(
+            principal_id="test-principal",
+            chat_id="chat-2",
+            chat_data={"chatId": "chat-2", "messages": []},
+            title="Discard Me",
+            message_count=0,
+        )
+        discard_queued_chat_sync("test-principal", "chat-2")
+
+        with patch("services.user_data_store.sync_chat_to_ipfs") as mock_sync:
+            cid = flush_chat_sync_now("test-principal", "chat-2")
+
+        assert cid is None
+        mock_sync.assert_not_called()
 
 
 # =============================================================================

@@ -83,3 +83,37 @@ def get_storage_status():
         })
     except ImportError:
         return jsonify({"error": "User data store module not available"}), 503
+
+
+@admin_bp.route("/admin/storage/rollback/<principal_id>", methods=["POST"])
+@require_admin
+def rollback_storage_manifest(principal_id):
+    """Rollback a principal's manifest to the previous (or requested) version."""
+    try:
+        from flask import request
+        from services.user_data_store import rollback_manifest
+
+        payload = request.get_json(silent=True) or {}
+        target_version = payload.get("targetVersion")
+        ok = rollback_manifest(principal_id, target_version=target_version)
+        if not ok:
+            return jsonify({"success": False, "error": "Rollback target not found or restore failed"}), 404
+        return jsonify({"success": True, "principal": principal_id, "targetVersion": target_version})
+    except ImportError:
+        return jsonify({"error": "User data store module not available"}), 503
+
+
+@admin_bp.route("/admin/slo/status")
+@require_admin
+def get_slo_status():
+    """Get current SLO snapshot + ingestion queue state."""
+    try:
+        from services.memory_ingestion import get_ingestion_stats
+        from services.slo_metrics import get_slo_snapshot
+
+        return jsonify({
+            "slo": get_slo_snapshot(),
+            "ingestion": get_ingestion_stats(),
+        })
+    except ImportError:
+        return jsonify({"error": "SLO or ingestion modules not available"}), 503

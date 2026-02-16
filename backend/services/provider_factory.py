@@ -8,45 +8,63 @@ Usage:
 """
 
 import logging
-from typing import Optional
+from typing import Dict, Optional, Tuple
 
 from .llm_provider import LLMProvider
 
 logger = logging.getLogger(__name__)
 
-# Singleton instance
-_provider_instance: Optional[LLMProvider] = None
+# Provider instances keyed by backend/host/model/ctx.
+_provider_instances: Dict[Tuple[str, str, str, int], LLMProvider] = {}
 
 
-def create_provider() -> LLMProvider:
+def create_provider(model_name: Optional[str] = None) -> LLMProvider:
     """Create a new LLMProvider instance.
 
     Returns:
         An OllamaProvider instance.
     """
-    from config import MODEL_NAME, NUM_CTX, OLLAMA_HOST
+    from config import MODEL_BACKEND, MODEL_NAME, NUM_CTX, OLLAMA_HOST
 
     from .ollama_provider import OllamaProvider
 
+    resolved_model = model_name or MODEL_NAME
     provider = OllamaProvider(
         host=OLLAMA_HOST,
-        model=MODEL_NAME,
+        model=resolved_model,
         num_ctx=NUM_CTX,
     )
-    logger.info(f"🔧 Created OllamaProvider → {OLLAMA_HOST} ({MODEL_NAME})")
+    logger.info(f"🔧 Created provider ({MODEL_BACKEND}) → {OLLAMA_HOST} ({resolved_model})")
 
     return provider
 
 
-def get_provider() -> LLMProvider:
-    """Get or create the singleton provider instance."""
-    global _provider_instance
-    if _provider_instance is None:
-        _provider_instance = create_provider()
-    return _provider_instance
+def get_provider(
+    prompt: str = "",
+    use_case: Optional[str] = None,
+    model_name: Optional[str] = None,
+) -> LLMProvider:
+    """Get or create a cached provider instance for the selected model."""
+    from config import MODEL_BACKEND, MODEL_NAME, MODEL_ROUTING_ENABLED, NUM_CTX, OLLAMA_HOST
+
+    selected_model = model_name or MODEL_NAME
+    if model_name is None and MODEL_ROUTING_ENABLED:
+        try:
+            from .model_router import choose_model_for_prompt
+
+            selected_model = choose_model_for_prompt(prompt or "", use_case=use_case)
+        except Exception as e:
+            logger.debug(f"Model routing fallback to default model: {e}")
+            selected_model = MODEL_NAME
+
+    key = (MODEL_BACKEND, OLLAMA_HOST, selected_model, NUM_CTX)
+    provider = _provider_instances.get(key)
+    if provider is None:
+        provider = create_provider(model_name=selected_model)
+        _provider_instances[key] = provider
+    return provider
 
 
 def reset_provider():
-    """Reset the singleton provider (for testing or config changes)."""
-    global _provider_instance
-    _provider_instance = None
+    """Reset cached providers (for testing or config changes)."""
+    _provider_instances.clear()

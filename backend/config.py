@@ -54,11 +54,18 @@ http_session = create_http_session()
 # ===== SERVER CONFIGURATION =====
 PROVIDER_ID = os.getenv("PROVIDER_ID", "local-mac-mini")
 MODEL_NAME = os.getenv("MODEL_NAME", "qwen2.5-coder:32b")
+# Model routing: use a conversational model for general chat, coder model for code tasks.
+MODEL_ROUTING_ENABLED = os.getenv("MODEL_ROUTING_ENABLED", "true").lower() == "true"
+CONVERSATION_MODEL_NAME = os.getenv("CONVERSATION_MODEL_NAME", MODEL_NAME)
+CODER_MODEL_NAME = os.getenv("CODER_MODEL_NAME", MODEL_NAME)
 MODEL_BACKEND = os.getenv("MODEL_BACKEND", "ollama")
 GPU_TYPE = os.getenv("GPU_TYPE", "CPU")
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 MAX_QUEUE_SIZE = int(os.getenv("MAX_QUEUE_SIZE", "10"))
 CHATS_DIR = os.getenv("CHATS_DIR", "/var/lib/trinity/chats")
+# Canonical architecture paths
+CANONICAL_FRONTEND_PATH = "src-react"
+CANONICAL_GENERATE_ROUTE = "/generate/agent"
 
 # ===== LIGHTHOUSE / FILECOIN CONFIGURATION =====
 LIGHTHOUSE_API_KEY = os.getenv("LIGHTHOUSE_API_KEY", "")
@@ -118,6 +125,10 @@ MAX_ARCHIVED_CHATS = 20              # Maximum archived chats per user
 IPFS_SCAN_LIMIT = 50                 # Max uploads to scan when listing chats
 CHAT_INACTIVE_DAYS = 7               # Days before auto-delete
 PRINCIPAL_DISPLAY_LENGTH = 16         # Chars of principal shown in logs/filenames
+# Debounce window before autosaved chats checkpoint to IPFS
+CHAT_CHECKPOINT_DEBOUNCE_SECONDS = int(os.getenv("CHAT_CHECKPOINT_DEBOUNCE_SECONDS", "45"))
+# Hard cap for how long autosave writes can stay unsynced during active chats
+CHAT_CHECKPOINT_MAX_WAIT_SECONDS = int(os.getenv("CHAT_CHECKPOINT_MAX_WAIT_SECONDS", "180"))
 
 # ===== SESSION LIMITS =====
 MIN_SESSION_HOURS = 1
@@ -146,12 +157,24 @@ SEMANTIC_MEMORY_SIZE = int(os.getenv("SEMANTIC_MEMORY_SIZE", "8"))
 RECENCY_WEIGHT = 0.3
 # User profile token budget — max tokens for profile section in prompt
 PROFILE_TOKEN_BUDGET = int(os.getenv("PROFILE_TOKEN_BUDGET", "2500"))
+# Minimum score needed for non-preference facts on non-personal queries
+PROFILE_RELEVANCE_FLOOR = float(os.getenv("PROFILE_RELEVANCE_FLOOR", "0.52"))
+# Hard cap for total facts packed into prompt memory section
+PROFILE_MAX_FACTS = int(os.getenv("PROFILE_MAX_FACTS", "12"))
 # Profile categories for structured user data
 PROFILE_CATEGORIES = ["identity", "work", "interests", "preferences", "relationships"]
 # Dedup merge threshold — update existing fact instead of skipping
 DEDUP_MERGE_THRESHOLD = 0.85
 # Dedup skip threshold — too similar to save at all
 DEDUP_SKIP_THRESHOLD = 0.95
+# Whether assistant-generated text is eligible for auto profile extraction
+AUTO_EXTRACT_ASSISTANT_MEMORY = os.getenv("AUTO_EXTRACT_ASSISTANT_MEMORY", "false").lower() == "true"
+# Async ingestion worker for memory/profile/graph updates
+MEMORY_INGESTION_ENABLED = os.getenv("MEMORY_INGESTION_ENABLED", "true").lower() == "true"
+MEMORY_INGESTION_QUEUE_MAXSIZE = int(os.getenv("MEMORY_INGESTION_QUEUE_MAXSIZE", "2000"))
+# Graph memory (Kuzu-backed where available)
+GRAPH_MEMORY_ENABLED = os.getenv("GRAPH_MEMORY_ENABLED", "true").lower() == "true"
+GRAPH_MEMORY_TOP_K = int(os.getenv("GRAPH_MEMORY_TOP_K", "6"))
 
 # ===== TOOL CONFIGURATION =====
 # Enable code execution (RestrictedPython sandbox)

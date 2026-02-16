@@ -20,6 +20,11 @@ export function newChat() {
         return;
     }
 
+    // Ensure any in-flight generation from a previous chat is cancelled.
+    API.cancelRequest();
+    State.setGenerating(false);
+    UI.setGenerating(false, State);
+
     UI.clearMessages();
     UI.resetInput();
     State.reset();

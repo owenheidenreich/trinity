@@ -14,10 +14,13 @@ from flask import Blueprint, jsonify, request
 from config import LIGHTHOUSE_GATEWAY, MAX_ARCHIVED_CHATS, PRINCIPAL_DISPLAY_LENGTH, http_session, logger
 from icp_auth import require_auth
 from services.user_data_store import (
+    discard_queued_chat_sync,
     decrypt_for_user,
     encrypt_for_user,
     ensure_user_data_restored,
+    flush_chat_sync_now,
     load_manifest,
+    queue_chat_sync,
     remove_chat_from_manifest,
     save_manifest,
     sync_manifest_to_ipfs,
@@ -27,7 +30,7 @@ from services.user_data_store import (
 # routes have moved to manifest-first lookup.
 from lighthouse import download_from_ipfs, get_lighthouse_uploads, upload_to_ipfs
 from middleware import storage_rate_limit, track_error, track_storage
-from storage import load_metadata, load_user_memory, save_metadata, save_user_memory
+from storage import get_user_dir, load_metadata, load_user_memory, save_metadata, save_user_memory
 from validation import validate_chat_id, validate_cid, validate_principal_id
 
 chat_bp = Blueprint("chat", __name__)
@@ -101,13 +104,50 @@ def _get_chat_manifest(principal_id: str) -> Dict:
     return manifest
 
 
+def _chat_cache_path(principal_id: str, chat_id: str):
+    """Path for local encrypted chat snapshot."""
+    return get_user_dir(principal_id) / f"{chat_id}.json"
+
+
+def _save_local_chat_snapshot(principal_id: str, chat_data: Dict):
+    """Persist encrypted chat snapshot locally (hot path, low-latency)."""
+    encrypted = encrypt_for_user(chat_data, principal_id)
+    with open(_chat_cache_path(principal_id, chat_data["chatId"]), "w") as f:
+        json.dump(encrypted, f)
+
+
+def _load_local_chat_snapshot(principal_id: str, chat_id: str):
+    """Load and decrypt local chat snapshot if present."""
+    path = _chat_cache_path(principal_id, chat_id)
+    if not path.exists():
+        return None
+
+    try:
+        with open(path, "r") as f:
+            encrypted = json.load(f)
+        return decrypt_for_user(encrypted, principal_id)
+    except Exception as e:
+        logger.warning("⚠️ Failed reading local chat snapshot %s: %s", chat_id[:12], e)
+        return None
+
+
+def _delete_local_chat_snapshot(principal_id: str, chat_id: str):
+    """Delete local cached snapshot for a chat (best-effort)."""
+    path = _chat_cache_path(principal_id, chat_id)
+    if path.exists():
+        try:
+            path.unlink()
+        except Exception as e:
+            logger.debug("Local chat snapshot delete failed for %s: %s", chat_id[:12], e)
+
+
 # ===== AUTOSAVE =====
 
 @chat_bp.route("/chat/autosave", methods=["POST"])
 @require_auth
 @storage_rate_limit
 def autosave_chat():
-    """Save chat - encrypts and uploads directly to IPFS via Lighthouse"""
+    """Save chat locally and queue a debounced IPFS checkpoint."""
     with track_storage("autosave_chat"):
         try:
             principal = request.principal
@@ -133,7 +173,7 @@ def autosave_chat():
 
             logger.debug(f"   chatId: {chat_id}, messages: {len(messages)}")
 
-            # Prepare chat data for encryption
+            # Prepare chat snapshot payload
             chat_data = {
                 "chatId": chat_id,
                 "messages": messages,
@@ -142,29 +182,8 @@ def autosave_chat():
                 "savedAt": int(time.time() * 1000),
             }
 
-            # Encrypt content
-            encrypted = encrypt_for_user(chat_data, principal)
-            encrypted_json = json.dumps(encrypted)
-
-            # Upload to IPFS (source of truth)
-            lighthouse_filename = f"{principal[:PRINCIPAL_DISPLAY_LENGTH]}_{chat_id}.json"
-            cid = upload_to_ipfs(
-                encrypted_json.encode("utf-8"), lighthouse_filename, principal_id=principal
-            )
-
-            if not cid:
-                logger.error(f"❌ IPFS upload failed for chat {chat_id[:8]}")
-                # Still return partial success so the frontend stops retrying.
-                # The chat is saved locally in IndexedDB; IPFS sync can retry later.
-                return jsonify({
-                    "success": True,
-                    "chatId": chat_id,
-                    "savedAt": int(time.time() * 1000),
-                    "cid": None,
-                    "warning": "IPFS upload failed — saved locally only",
-                }), 200
-
-            logger.info(f"☁️  Saved to IPFS: {cid[:16]}...")
+            # Hot path: always persist encrypted snapshot locally first.
+            _save_local_chat_snapshot(principal, chat_data)
 
             _ensure_restored(principal)
             manifest = _get_chat_manifest(principal)
@@ -172,10 +191,11 @@ def autosave_chat():
                 (c for c in manifest.get("chats", []) if c.get("chatId") == chat_id),
                 None,
             )
+            existing_cid = manifest_chat.get("cid") if manifest_chat else None
             archived = bool(manifest_chat.get("archived", False)) if manifest_chat else False
             pinned = bool(manifest_chat.get("pinned", False)) if manifest_chat else False
 
-            # Update metadata with CID for later retrieval
+            # Update metadata cache for sidebar/status/export paths.
             user_metadata = load_metadata(principal)
 
             # Read title from top-level (frontend sends it there) or metadata fallback
@@ -197,17 +217,17 @@ def autosave_chat():
             chat_entry["messageCount"] = len(messages)
             chat_entry["pinned"] = pinned
             chat_entry["isArchived"] = archived
-            if cid:
-                chat_entry["cid"] = cid
+            if existing_cid:
+                chat_entry["cid"] = existing_cid
 
             save_metadata(principal, user_metadata)
 
-            # Update unified manifest
+            # Keep manifest metadata fresh now; CID is updated by queued sync.
             try:
                 update_chat_in_manifest(
                     principal_id=principal,
                     chat_id=chat_id,
-                    cid=cid,
+                    cid=existing_cid,
                     title=chat_title,
                     message_count=len(messages),
                     archived=archived,
@@ -216,6 +236,17 @@ def autosave_chat():
             except Exception as manifest_err:
                 logger.warning(f"⚠️ Manifest update failed: {manifest_err}")
 
+            # Queue debounced chat checkpoint to IPFS.
+            queue_chat_sync(
+                principal_id=principal,
+                chat_id=chat_id,
+                chat_data=chat_data,
+                title=chat_title,
+                message_count=len(messages),
+                archived=archived,
+                pinned=pinned,
+            )
+
             logger.info(f"💾 Autosaved chat {chat_id[:8]}... ({len(messages)} msgs)")
 
             return jsonify(
@@ -223,7 +254,8 @@ def autosave_chat():
                     "success": True,
                     "chatId": chat_id,
                     "savedAt": int(time.time() * 1000),
-                    "cid": cid,
+                    "cid": existing_cid,
+                    "syncQueued": True,
                     "nextAutoDeleteAt": int(time.time() * 1000) + (7 * 24 * 60 * 60 * 1000),
                 }
             )
@@ -261,13 +293,18 @@ def list_chats():
 @require_auth
 @storage_rate_limit
 def get_chat(chat_id):
-    """Load specific chat from IPFS"""
+    """Load specific chat (local snapshot first, then IPFS)."""
     try:
         principal = request.principal
 
         if not validate_chat_id(chat_id):
             logger.warning(f"⚠️ Invalid chatId format in GET: {chat_id[:20]}...")
             return jsonify({"error": "Invalid chatId format"}), 400
+
+        local_chat = _load_local_chat_snapshot(principal, chat_id)
+        if local_chat:
+            logger.info(f"📁 Loaded chat from local snapshot: {chat_id[:8]}...")
+            return jsonify(local_chat)
 
         logger.info(f"🔍 Fetching chat from manifest/IPFS: {chat_id[:8]}...")
         _ensure_restored(principal)
@@ -333,6 +370,9 @@ def delete_chat(chat_id):
 
         if manifest_entry:
             remove_chat_from_manifest(principal, chat_id)
+
+        discard_queued_chat_sync(principal, chat_id)
+        _delete_local_chat_snapshot(principal, chat_id)
 
         # Keep local metadata cache aligned for status/export endpoints
         user_metadata = load_metadata(principal)
@@ -411,6 +451,14 @@ def archive_chat(chat_id):
         manifest = _get_chat_manifest(principal)
         chat_entry = next((c for c in manifest.get("chats", []) if c.get("chatId") == chat_id), None)
 
+        if not chat_entry or not chat_entry.get("cid"):
+            flushed_cid = flush_chat_sync_now(principal, chat_id)
+            if flushed_cid:
+                manifest = _get_chat_manifest(principal)
+                chat_entry = next(
+                    (c for c in manifest.get("chats", []) if c.get("chatId") == chat_id),
+                    None,
+                )
         if not chat_entry or not chat_entry.get("cid"):
             return jsonify({"error": "Chat not found on IPFS"}), 404
 
@@ -806,17 +854,23 @@ def export_user_data():
                 cid = chat_meta.get("cid")
                 if not chat_id:
                     continue
-                if not cid:
-                    continue
 
-                # Load chat from IPFS via manifest CID
-                try:
-                    raw = download_from_ipfs(cid)
-                    if not raw:
-                        continue
-                    encrypted = json.loads(raw.decode("utf-8"))
-                    chat_data = decrypt_for_user(encrypted, principal)
-                except Exception:
+                chat_data = None
+
+                if cid:
+                    # Load chat from IPFS via manifest CID.
+                    try:
+                        raw = download_from_ipfs(cid)
+                        if raw:
+                            encrypted = json.loads(raw.decode("utf-8"))
+                            chat_data = decrypt_for_user(encrypted, principal)
+                    except Exception:
+                        chat_data = None
+
+                # Fall back to local snapshot for unsynced/new checkpoints.
+                if chat_data is None:
+                    chat_data = _load_local_chat_snapshot(principal, chat_id)
+                if chat_data is None:
                     continue
 
                 title = chat_data.get("title", chat_meta.get("title", "Untitled"))

@@ -12,6 +12,31 @@ from services.vector_store import get_vector_store
 
 logger = logging.getLogger(__name__)
 
+# Relevance floor for semantic snippets injected into prompts.
+# Keeps unrelated historical chatter from hijacking direct questions.
+SEMANTIC_MIN_SIMILARITY = 0.45
+SEMANTIC_MIN_COMBINED = 0.55
+
+
+def _is_relevant_semantic_item(item: Dict) -> bool:
+    """Return True when a retrieved semantic item is relevant enough for prompt injection."""
+    similarity = item.get("similarity")
+    score = item.get("score")
+
+    if similarity is not None:
+        try:
+            return float(similarity) >= SEMANTIC_MIN_SIMILARITY
+        except Exception:
+            pass
+
+    if score is not None:
+        try:
+            return float(score) >= SEMANTIC_MIN_COMBINED
+        except Exception:
+            pass
+
+    return False
+
 
 class SemanticMemory:
     """
@@ -263,8 +288,11 @@ def build_enhanced_context(
         context = memory.retrieve_context(query, chat_id)
 
         if context["semantic_memory"]:
-            semantic_items = context["semantic_memory"]
-            logger.info(f"📚 Semantic retrieval: {len(semantic_items)} items")
+            filtered = [item for item in context["semantic_memory"] if _is_relevant_semantic_item(item)]
+            semantic_items = filtered or None
+            logger.info(
+                f"📚 Semantic retrieval: {len(context['semantic_memory'])} raw, {len(filtered)} relevant"
+            )
 
     except Exception as e:
         logger.warning(f"Semantic memory retrieval failed, using fallback: {e}")
