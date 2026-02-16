@@ -7,14 +7,24 @@ All chat/user endpoints require Ed25519 auth via @require_auth.
 
 import json
 import time
-from typing import Dict, Optional
+from typing import Dict
 
 from flask import Blueprint, jsonify, request
 
-from config import LIGHTHOUSE_GATEWAY, MAX_ARCHIVED_CHATS, IPFS_SCAN_LIMIT, PRINCIPAL_DISPLAY_LENGTH, http_session, logger
-from encryption import EncryptionUtils
-from icp_auth import require_admin, require_auth
-from services.user_data_store import encrypt_for_user, decrypt_for_user
+from config import LIGHTHOUSE_GATEWAY, MAX_ARCHIVED_CHATS, PRINCIPAL_DISPLAY_LENGTH, http_session, logger
+from icp_auth import require_auth
+from services.user_data_store import (
+    decrypt_for_user,
+    encrypt_for_user,
+    ensure_user_data_restored,
+    load_manifest,
+    remove_chat_from_manifest,
+    save_manifest,
+    sync_manifest_to_ipfs,
+    update_chat_in_manifest,
+)
+# Keep get_lighthouse_uploads import for test patch compatibility while
+# routes have moved to manifest-first lookup.
 from lighthouse import download_from_ipfs, get_lighthouse_uploads, upload_to_ipfs
 from middleware import storage_rate_limit, track_error, track_storage
 from storage import load_metadata, load_user_memory, save_metadata, save_user_memory
@@ -25,118 +35,70 @@ chat_bp = Blueprint("chat", __name__)
 
 # ===== HELPER =====
 
-_NON_CHAT_UPLOAD_SUFFIXES = {"metadata", "canary", "master_bundle"}
 
-
-def _upload_prefix(principal_id: str) -> str:
-    return f"{principal_id[:PRINCIPAL_DISPLAY_LENGTH]}_"
-
-
-def _extract_upload_suffix(filename: str, principal_id: str) -> Optional[str]:
-    """Return the filename suffix after the principal prefix (without .json)."""
-    if not filename or not filename.endswith(".json"):
-        return None
-
-    prefix = _upload_prefix(principal_id)
-    if not filename.startswith(prefix):
-        return None
-
-    return filename[len(prefix):-5]
-
-
-def _extract_chat_id_from_upload(filename: str, principal_id: str) -> Optional[str]:
-    """Extract a valid chat ID from an upload filename, excluding non-chat artifacts."""
-    suffix = _extract_upload_suffix(filename, principal_id)
-    if not suffix or suffix in _NON_CHAT_UPLOAD_SUFFIXES:
-        return None
-    if not validate_chat_id(suffix):
-        return None
-    return suffix
-
-
-def _is_metadata_upload(filename: str, principal_id: str) -> bool:
-    return _extract_upload_suffix(filename, principal_id) == "metadata"
-
-
-def _upload_created_at(upload: Dict) -> int:
-    """Normalize Lighthouse createdAt values for stable sorting."""
+def _ensure_restored(principal_id: str):
+    """Ensure local cache has been restored from IPFS manifest for this session."""
     try:
-        return int(upload.get("createdAt", 0) or 0)
-    except (TypeError, ValueError):
-        return 0
-
-
-def update_master_bundle(principal_id: str, user_metadata: Dict = None) -> Optional[str]:
-    """
-    Create/update master bundle containing index of all archived chats.
-    This is the single CID that gives access to all user's archives.
-
-    Args:
-        principal_id: User's principal ID
-        user_metadata: Optional pre-loaded metadata (loads if not provided)
-
-    Returns:
-        New master bundle CID on success, None on failure
-    """
-    try:
-        if user_metadata is None:
-            user_metadata = load_metadata(principal_id)
-
-        # Build manifest of all archived chats
-        archived_chats = [
-            {
-                "chatId": c["chatId"],
-                "title": c.get("title", "Untitled"),
-                "cid": c.get("cid"),
-                "archivedAt": c.get("archivedAt"),
-                "messageCount": c.get("messageCount", 0),
-            }
-            for c in user_metadata.get("chats", [])
-            if c.get("isArchived") and c.get("cid")
-        ]
-
-        if not archived_chats:
-            logger.info(f"No archived chats with CIDs for {principal_id[:20]}...")
-            return None
-
-        # Create master bundle manifest
-        manifest = {
-            "version": "1.0",
-            "type": "master_bundle",
-            "principal": principal_id,
-            "createdAt": int(time.time() * 1000),
-            "bundleVersion": user_metadata.get("lastBundleVersion", 0) + 1,
-            "chats": archived_chats,
-            "chatCount": len(archived_chats),
-        }
-
-        # Encrypt manifest with principal ID
-        encrypted_manifest = encrypt_for_user(manifest, principal_id)
-
-        # Upload master bundle
-        bundle_filename = f"{principal_id[:20]}_master_bundle.json"
-        bundle_data = json.dumps(encrypted_manifest).encode("utf-8")
-
-        bundle_cid = upload_to_ipfs(
-            bundle_data, bundle_filename, principal_id=principal_id, is_master_bundle=True
-        )
-
-        if bundle_cid:
-            # Update local metadata with new bundle CID
-            user_metadata["currentBundleCID"] = bundle_cid
-            user_metadata["lastBundleVersion"] = manifest["bundleVersion"]
-            user_metadata["lastSyncedAt"] = int(time.time() * 1000)
-            save_metadata(principal_id, user_metadata)
-
-            logger.info(
-                f'✅ Master bundle updated: {bundle_cid} (v{manifest["bundleVersion"]}, {len(archived_chats)} chats)'
-            )
-
-        return bundle_cid
-
+        ensure_user_data_restored(principal_id)
     except Exception as e:
-        logger.error(f"❌ Master bundle update error: {e}", exc_info=True)
-        return None
+        logger.warning(f"⚠️ Data restore check failed: {e}")
+
+
+def _format_manifest_chat(chat: Dict) -> Dict:
+    """Normalize manifest chat entry to API shape expected by frontend."""
+    return {
+        "chatId": chat.get("chatId"),
+        "title": chat.get("title", "Untitled"),
+        "cid": chat.get("cid"),
+        "lastUpdated": chat.get("lastUpdated", 0),
+        "messageCount": chat.get("messageCount", 0),
+        "pinned": chat.get("pinned", False),
+        "isArchived": chat.get("archived", False),
+        "archived": chat.get("archived", False),
+        "archivedAt": chat.get("archivedAt"),
+        "createdAt": chat.get("createdAt"),
+    }
+
+
+def _get_chat_manifest(principal_id: str) -> Dict:
+    """
+    Load chat manifest and opportunistically hydrate from local metadata cache
+    when manifest chat entries are missing.
+    """
+    manifest = load_manifest(principal_id)
+    if manifest.get("chats"):
+        return manifest
+
+    metadata = load_metadata(principal_id)
+    cache_chats = metadata.get("chats", [])
+    if not cache_chats:
+        return manifest
+
+    migrated = []
+    now_ms = int(time.time() * 1000)
+    for chat in cache_chats:
+        chat_id = chat.get("chatId")
+        if not chat_id or not validate_chat_id(chat_id):
+            continue
+
+        migrated.append({
+            "chatId": chat_id,
+            "cid": chat.get("cid"),
+            "title": chat.get("title", "Untitled"),
+            "createdAt": chat.get("createdAt", now_ms),
+            "lastUpdated": chat.get("lastUpdated", now_ms),
+            "messageCount": chat.get("messageCount", 0),
+            "pinned": chat.get("pinned", False),
+            "archived": chat.get("archived", chat.get("isArchived", False)),
+            "archivedAt": chat.get("archivedAt"),
+        })
+
+    if migrated:
+        manifest["chats"] = migrated
+        save_manifest(principal_id, manifest)
+        sync_manifest_to_ipfs(principal_id, manifest)
+
+    return manifest
 
 
 # ===== AUTOSAVE =====
@@ -204,6 +166,15 @@ def autosave_chat():
 
             logger.info(f"☁️  Saved to IPFS: {cid[:16]}...")
 
+            _ensure_restored(principal)
+            manifest = _get_chat_manifest(principal)
+            manifest_chat = next(
+                (c for c in manifest.get("chats", []) if c.get("chatId") == chat_id),
+                None,
+            )
+            archived = bool(manifest_chat.get("archived", False)) if manifest_chat else False
+            pinned = bool(manifest_chat.get("pinned", False)) if manifest_chat else False
+
             # Update metadata with CID for later retrieval
             user_metadata = load_metadata(principal)
 
@@ -216,7 +187,7 @@ def autosave_chat():
                     "chatId": chat_id,
                     "title": chat_title,
                     "createdAt": int(time.time() * 1000),
-                    "isArchived": False,
+                    "isArchived": archived,
                 }
                 user_metadata["chats"].append(chat_entry)
 
@@ -224,38 +195,26 @@ def autosave_chat():
             chat_entry["title"] = chat_title
             chat_entry["lastUpdated"] = metadata.get("updatedAt", int(time.time() * 1000))
             chat_entry["messageCount"] = len(messages)
+            chat_entry["pinned"] = pinned
+            chat_entry["isArchived"] = archived
             if cid:
                 chat_entry["cid"] = cid
 
             save_metadata(principal, user_metadata)
 
-            # Update unified manifest (replaces legacy metadata IPFS sync)
+            # Update unified manifest
             try:
-                from services.user_data_store import update_chat_in_manifest
                 update_chat_in_manifest(
                     principal_id=principal,
                     chat_id=chat_id,
                     cid=cid,
                     title=chat_title,
                     message_count=len(messages),
-                    archived=chat_entry.get("isArchived", False),
-                    pinned=chat_entry.get("pinned", False),
+                    archived=archived,
+                    pinned=pinned,
                 )
             except Exception as manifest_err:
                 logger.warning(f"⚠️ Manifest update failed: {manifest_err}")
-
-            # Also sync metadata to IPFS (legacy — kept for backward compat)
-            try:
-                metadata_filename = f"{principal[:PRINCIPAL_DISPLAY_LENGTH]}_metadata.json"
-                metadata_encrypted = encrypt_for_user(user_metadata, principal)
-                upload_to_ipfs(
-                    json.dumps(metadata_encrypted).encode("utf-8"),
-                    metadata_filename,
-                    principal_id=principal,
-                    is_master_bundle=True,
-                )
-            except Exception as meta_sync_error:
-                logger.warning(f"⚠️  Metadata sync failed: {meta_sync_error}")
 
             logger.info(f"💾 Autosaved chat {chat_id[:8]}... ({len(messages)} msgs)")
 
@@ -281,59 +240,13 @@ def autosave_chat():
 @require_auth
 @storage_rate_limit
 def list_chats():
-    """List all chats for user - fetches from IPFS via Lighthouse"""
+    """List all chats for user from the manifest (authoritative source)."""
     try:
         principal = request.principal
 
-        logger.info(f"🔍 Fetching chat list from IPFS for {principal[:PRINCIPAL_DISPLAY_LENGTH]}...")
-
-        chats = []
-        try:
-            uploads = sorted(
-                get_lighthouse_uploads(principal),
-                key=_upload_created_at,
-                reverse=True,
-            )
-            metadata_cid = None
-
-            for upload in uploads:
-                filename = upload.get("fileName", "")
-                if _is_metadata_upload(filename, principal):
-                    metadata_cid = upload.get("cid")
-                    break
-
-            if metadata_cid:
-                logger.info(f"☁️  Found metadata on IPFS: {metadata_cid[:16]}...")
-                gateway_url = f"{LIGHTHOUSE_GATEWAY}/ipfs/{metadata_cid}"
-                response = http_session.get(gateway_url, timeout=30)
-
-                if response.status_code == 200:
-                    encrypted_metadata = response.json()
-                    recovered_metadata = decrypt_for_user(encrypted_metadata, principal)
-                    chats = recovered_metadata.get("chats", [])
-                    logger.info(f"✅ Retrieved {len(chats)} chats from IPFS")
-            else:
-                seen_ids = {}
-                for upload in uploads[:IPFS_SCAN_LIMIT]:
-                    filename = upload.get("fileName", "")
-                    chat_id = _extract_chat_id_from_upload(filename, principal)
-                    if not chat_id:
-                        continue
-                    # Deduplicate by chatId — keep most recent (first seen in sorted uploads)
-                    if chat_id not in seen_ids:
-                        seen_ids[chat_id] = {
-                            "chatId": chat_id,
-                            "title": "Recovered Chat",
-                            "cid": upload.get("cid"),
-                            "lastUpdated": upload.get("createdAt", 0),
-                            "isArchived": False,
-                        }
-                chats = list(seen_ids.values())
-                if chats:
-                    logger.info(f"✅ Found {len(chats)} individual chats on IPFS")
-
-        except Exception as ipfs_error:
-            logger.warning(f"⚠️  IPFS fetch failed: {ipfs_error}")
+        _ensure_restored(principal)
+        manifest = _get_chat_manifest(principal)
+        chats = [_format_manifest_chat(chat) for chat in manifest.get("chats", [])]
 
         chats.sort(key=lambda x: x.get("lastUpdated", 0), reverse=True)
 
@@ -356,23 +269,14 @@ def get_chat(chat_id):
             logger.warning(f"⚠️ Invalid chatId format in GET: {chat_id[:20]}...")
             return jsonify({"error": "Invalid chatId format"}), 400
 
-        logger.info(f"🔍 Fetching chat from IPFS: {chat_id[:8]}...")
-
-        cid = None
-        try:
-            uploads = sorted(
-                get_lighthouse_uploads(principal),
-                key=_upload_created_at,
-                reverse=True,
-            )
-            for upload in uploads:
-                filename = upload.get("fileName", "")
-                resolved_chat_id = _extract_chat_id_from_upload(filename, principal)
-                if resolved_chat_id == chat_id:
-                    cid = upload.get("cid")
-                    break
-        except Exception as e:
-            logger.warning(f"Could not search Lighthouse uploads: {e}")
+        logger.info(f"🔍 Fetching chat from manifest/IPFS: {chat_id[:8]}...")
+        _ensure_restored(principal)
+        manifest = _get_chat_manifest(principal)
+        chat_entry = next(
+            (c for c in manifest.get("chats", []) if c.get("chatId") == chat_id),
+            None,
+        )
+        cid = chat_entry.get("cid") if chat_entry else None
 
         if cid:
             logger.info(f"☁️  Found CID: {cid[:16]}..., downloading from IPFS")
@@ -411,47 +315,29 @@ def delete_chat(chat_id):
             logger.warning(f"⚠️ Invalid chatId format in DELETE: {chat_id[:20]}...")
             return jsonify({"error": "Invalid chatId format"}), 400
 
-        uploads = get_lighthouse_uploads(principal)
-        metadata_cid = None
-        for upload in uploads:
-            filename = upload.get("fileName", "")
-            if _is_metadata_upload(filename, principal):
-                metadata_cid = upload.get("cid")
-                break
+        _ensure_restored(principal)
+        manifest = _get_chat_manifest(principal)
+        manifest_entry = next(
+            (c for c in manifest.get("chats", []) if c.get("chatId") == chat_id),
+            None,
+        )
 
-        if metadata_cid:
-            gateway_url = f"{LIGHTHOUSE_GATEWAY}/ipfs/{metadata_cid}"
-            response = http_session.get(gateway_url, timeout=30)
-            if response.status_code == 200:
-                encrypted_metadata = response.json()
-                user_metadata = decrypt_for_user(encrypted_metadata, principal)
+        # Check if chat is pinned — prevent deletion of pinned chats
+        if manifest_entry and manifest_entry.get("pinned"):
+            return jsonify({
+                "error": {
+                    "code": 400,
+                    "message": "Cannot delete a pinned chat. Unpin it first.",
+                }
+            }), 400
 
-                # Check if chat is pinned — prevent deletion of pinned chats
-                chat_entry = next(
-                    (c for c in user_metadata.get("chats", []) if c["chatId"] == chat_id), None
-                )
-                if chat_entry and chat_entry.get("pinned"):
-                    return jsonify({
-                        "error": {
-                            "code": 400,
-                            "message": "Cannot delete a pinned chat. Unpin it first.",
-                        }
-                    }), 400
+        if manifest_entry:
+            remove_chat_from_manifest(principal, chat_id)
 
-                # Remove chat from list
-                user_metadata["chats"] = [
-                    c for c in user_metadata.get("chats", []) if c["chatId"] != chat_id
-                ]
-
-                # Upload updated metadata to IPFS
-                metadata_filename = f"{principal[:PRINCIPAL_DISPLAY_LENGTH]}_metadata.json"
-                metadata_encrypted = encrypt_for_user(user_metadata, principal)
-                upload_to_ipfs(
-                    json.dumps(metadata_encrypted).encode("utf-8"),
-                    metadata_filename,
-                    principal_id=principal,
-                    is_master_bundle=True,
-                )
+        # Keep local metadata cache aligned for status/export endpoints
+        user_metadata = load_metadata(principal)
+        user_metadata["chats"] = [c for c in user_metadata.get("chats", []) if c.get("chatId") != chat_id]
+        save_metadata(principal, user_metadata)
 
         logger.info(f"🗑️  Chat deleted from index: {chat_id[:8]}...")
 
@@ -475,30 +361,24 @@ def toggle_pin(chat_id):
         if not validate_chat_id(chat_id):
             return jsonify({"error": "Invalid chatId format"}), 400
 
-        user_metadata = load_metadata(principal)
-
-        chat_entry = next(
-            (c for c in user_metadata.get("chats", []) if c["chatId"] == chat_id), None
-        )
+        _ensure_restored(principal)
+        manifest = _get_chat_manifest(principal)
+        chat_entry = next((c for c in manifest.get("chats", []) if c.get("chatId") == chat_id), None)
 
         if not chat_entry:
             return jsonify({"error": "Chat not found"}), 404
 
         chat_entry["pinned"] = not chat_entry.get("pinned", False)
-        save_metadata(principal, user_metadata)
+        save_manifest(principal, manifest)
+        sync_manifest_to_ipfs(principal, manifest)
 
-        # Sync metadata to IPFS
-        try:
-            metadata_filename = f"{principal[:PRINCIPAL_DISPLAY_LENGTH]}_metadata.json"
-            metadata_encrypted = encrypt_for_user(user_metadata, principal)
-            upload_to_ipfs(
-                json.dumps(metadata_encrypted).encode("utf-8"),
-                metadata_filename,
-                principal_id=principal,
-                is_master_bundle=True,
-            )
-        except Exception as sync_err:
-            logger.warning(f"⚠️ Pin metadata sync failed: {sync_err}")
+        # Keep local metadata cache aligned for status/export endpoints
+        user_metadata = load_metadata(principal)
+        meta_entry = next((c for c in user_metadata.get("chats", []) if c.get("chatId") == chat_id), None)
+        if meta_entry:
+            meta_entry["pinned"] = chat_entry["pinned"]
+            meta_entry["isArchived"] = chat_entry.get("archived", False)
+        save_metadata(principal, user_metadata)
 
         logger.info(f"📌 Chat {'pinned' if chat_entry['pinned'] else 'unpinned'}: {chat_id[:8]}...")
 
@@ -527,49 +407,18 @@ def archive_chat(chat_id):
             logger.warning(f"⚠️ Invalid chatId format in archive: {chat_id[:20]}...")
             return jsonify({"error": "Invalid chatId format"}), 400
 
-        uploads = sorted(
-            get_lighthouse_uploads(principal),
-            key=_upload_created_at,
-            reverse=True,
-        )
-        metadata_cid = None
-        chat_cid = None
+        _ensure_restored(principal)
+        manifest = _get_chat_manifest(principal)
+        chat_entry = next((c for c in manifest.get("chats", []) if c.get("chatId") == chat_id), None)
 
-        for upload in uploads:
-            filename = upload.get("fileName", "")
-            if _is_metadata_upload(filename, principal):
-                metadata_cid = upload.get("cid")
-            resolved_chat_id = _extract_chat_id_from_upload(filename, principal)
-            if resolved_chat_id == chat_id:
-                chat_cid = upload.get("cid")
-
-        if not chat_cid:
+        if not chat_entry or not chat_entry.get("cid"):
             return jsonify({"error": "Chat not found on IPFS"}), 404
 
-        # Load metadata from IPFS
-        user_metadata = {"chats": []}
-        if metadata_cid:
-            gateway_url = f"{LIGHTHOUSE_GATEWAY}/ipfs/{metadata_cid}"
-            response = http_session.get(gateway_url, timeout=30)
-            if response.status_code == 200:
-                encrypted_metadata = response.json()
-                user_metadata = decrypt_for_user(encrypted_metadata, principal)
-
-        chat_entry = next(
-            (c for c in user_metadata.get("chats", []) if c["chatId"] == chat_id), None
-        )
-
-        if not chat_entry:
-            chat_entry = {"chatId": chat_id, "cid": chat_cid}
-            user_metadata.setdefault("chats", []).append(chat_entry)
-
-        if chat_entry.get("isArchived"):
+        if chat_entry.get("archived", False):
             return jsonify({"error": "Chat is already archived"}), 400
 
         # Hard limit: Maximum 20 archived chats
-        archived_count = sum(
-            1 for c in user_metadata.get("chats", []) if c.get("isArchived", False)
-        )
+        archived_count = sum(1 for c in manifest.get("chats", []) if c.get("archived", False))
         if archived_count >= MAX_ARCHIVED_CHATS:
             return (
                 jsonify(
@@ -582,27 +431,26 @@ def archive_chat(chat_id):
                 400,
             )
 
-        chat_entry["isArchived"] = True
+        chat_entry["archived"] = True
         chat_entry["archivedAt"] = int(time.time() * 1000)
-        chat_entry["cid"] = chat_cid
+        save_manifest(principal, manifest)
+        sync_manifest_to_ipfs(principal, manifest)
 
-        # Upload updated metadata to IPFS
-        metadata_filename = f"{principal[:PRINCIPAL_DISPLAY_LENGTH]}_metadata.json"
-        metadata_encrypted = encrypt_for_user(user_metadata, principal)
-        new_metadata_cid = upload_to_ipfs(
-            json.dumps(metadata_encrypted).encode("utf-8"),
-            metadata_filename,
-            principal_id=principal,
-            is_master_bundle=True,
-        )
+        # Keep local metadata cache aligned for status/export endpoints
+        user_metadata = load_metadata(principal)
+        meta_entry = next((c for c in user_metadata.get("chats", []) if c.get("chatId") == chat_id), None)
+        if meta_entry:
+            meta_entry["isArchived"] = True
+            meta_entry["archivedAt"] = chat_entry["archivedAt"]
+        save_metadata(principal, user_metadata)
 
-        logger.info(f"✅ Chat archived: {chat_id[:8]}... CID: {chat_cid[:16]}...")
+        logger.info(f"✅ Chat archived: {chat_id[:8]}... CID: {chat_entry['cid'][:16]}...")
 
         return jsonify(
             {
                 "success": True,
                 "chatId": chat_id,
-                "cid": chat_cid,
+                "cid": chat_entry["cid"],
                 "archivedAt": chat_entry["archivedAt"],
                 "archivedCount": archived_count + 1,
             }
@@ -618,50 +466,33 @@ def archive_chat(chat_id):
 @chat_bp.route("/chat/recover-archives", methods=["GET"])
 @require_auth
 def recover_archives():
-    """Recover all archived chats for the authenticated user."""
+    """List archived chats from the manifest."""
     try:
         principal = request.principal
         logger.info(f"🔍 Recovering archives for {principal[:20]}...")
 
-        user_metadata = load_metadata(principal)
-        local_bundle_cid = user_metadata.get("currentBundleCID")
+        _ensure_restored(principal)
+        manifest = _get_chat_manifest(principal)
+        archived_chats = [
+            _format_manifest_chat(chat)
+            for chat in manifest.get("chats", [])
+            if chat.get("archived", False) and chat.get("cid")
+        ]
 
-        uploads = get_lighthouse_uploads(principal_id=principal)
+        archived_chats.sort(key=lambda x: x.get("archivedAt", 0), reverse=True)
 
-        if not uploads and not local_bundle_cid:
+        if not archived_chats:
             return jsonify(
                 {"success": True, "message": "No archived chats found", "archives": [], "count": 0}
             )
 
-        bundle_cid = local_bundle_cid
-
-        if not bundle_cid:
-            return jsonify(
-                {"success": True, "message": "No master bundle found", "archives": [], "count": 0}
-            )
-
-        logger.info(f"📥 Downloading master bundle: {bundle_cid}")
-
-        bundle_data = download_from_ipfs(bundle_cid)
-
-        if not bundle_data:
-            return (
-                jsonify({"error": "Failed to download master bundle from IPFS", "cid": bundle_cid}),
-                500,
-            )
-
-        encrypted_manifest = json.loads(bundle_data.decode("utf-8"))
-        manifest = decrypt_for_user(encrypted_manifest, principal)
-
-        logger.info(f'✅ Recovered {manifest.get("chatCount", 0)} archived chats')
+        logger.info(f"✅ Recovered {len(archived_chats)} archived chats")
 
         return jsonify(
             {
                 "success": True,
-                "masterBundleCID": bundle_cid,
-                "bundleVersion": manifest.get("bundleVersion", 0),
-                "archives": manifest.get("chats", []),
-                "count": manifest.get("chatCount", 0),
+                "archives": archived_chats,
+                "count": len(archived_chats),
                 "recoveredAt": int(time.time() * 1000),
             }
         )
@@ -753,10 +584,11 @@ def get_user_status():
         principal = request.principal
         ip = request.remote_addr or "unknown"
 
-        user_metadata = load_metadata(principal)
-        chats = user_metadata.get("chats", [])
+        _ensure_restored(principal)
+        manifest = _get_chat_manifest(principal)
+        chats = manifest.get("chats", [])
         pinned_count = sum(1 for c in chats if c.get("pinned"))
-        archived_count = sum(1 for c in chats if c.get("isArchived"))
+        archived_count = sum(1 for c in chats if c.get("archived"))
 
         # Rate limit info (lazy import — only used in this endpoint)
         from middleware.rate_limit import get_rate_limit_info, request_counts, RATE_LIMIT, RATE_WINDOW
@@ -967,27 +799,23 @@ def export_user_data():
             zf.writestr("profile.json", json.dumps(profile_export, indent=2))
 
             # 2. Chats
-            metadata = load_metadata(principal)
-            chats = metadata.get("chats", [])
-            for chat_meta in chats:
+            _ensure_restored(principal)
+            manifest = _get_chat_manifest(principal)
+            for chat_meta in manifest.get("chats", []):
                 chat_id = chat_meta.get("chatId", "")
+                cid = chat_meta.get("cid")
                 if not chat_id:
                     continue
+                if not cid:
+                    continue
 
-                # Try to load chat from disk
+                # Load chat from IPFS via manifest CID
                 try:
-                    from storage import get_user_dir
-                    chat_path = get_user_dir(principal) / f"{chat_id}.json"
-                    if chat_path.exists():
-                        with open(chat_path, "r") as cf:
-                            raw = json.load(cf)
-                        # Decrypt if needed
-                        if isinstance(raw, dict) and "encryption" in raw:
-                            chat_data = decrypt_for_user(raw, principal)
-                        else:
-                            chat_data = raw
-                    else:
+                    raw = download_from_ipfs(cid)
+                    if not raw:
                         continue
+                    encrypted = json.loads(raw.decode("utf-8"))
+                    chat_data = decrypt_for_user(encrypted, principal)
                 except Exception:
                     continue
 
@@ -1017,12 +845,7 @@ def export_user_data():
                 zf.writestr(f"chats/{chat_id}.json", json.dumps(json_export, indent=2))
 
             # 3. Manifest (IPFS CIDs for verification)
-            try:
-                from services.user_data_store import load_manifest
-                manifest = load_manifest(principal)
-                zf.writestr("manifest.json", json.dumps(manifest, indent=2))
-            except Exception:
-                zf.writestr("manifest.json", json.dumps({"note": "No IPFS manifest available"}))
+            zf.writestr("manifest.json", json.dumps(manifest, indent=2))
 
             # 4. README
             readme = """Trinity Data Export
@@ -1078,8 +901,9 @@ def get_user_stats():
     try:
         principal = request.principal
 
+        _ensure_restored(principal)
         memory = load_user_memory(principal)
-        metadata = load_metadata(principal)
+        manifest = _get_chat_manifest(principal)
 
         all_facts = memory.get("facts", [])
         active_facts = [f for f in all_facts if not f.get("deleted", False)]
@@ -1092,16 +916,8 @@ def get_user_stats():
             categories[cat] = categories.get(cat, 0) + 1
 
         # Chat stats
-        chats = metadata.get("chats", [])
+        chats = manifest.get("chats", [])
         total_messages = sum(c.get("messageCount", 0) for c in chats)
-
-        # IPFS stats
-        manifest = None
-        try:
-            from services.user_data_store import load_manifest
-            manifest = load_manifest(principal)
-        except Exception:
-            pass
 
         stats = {
             "profile": {
@@ -1121,7 +937,9 @@ def get_user_stats():
                 "vectorDbCid": manifest.get("memoryIndex", {}).get("cid") if manifest else None,
                 "totalBytes": manifest.get("totalBytes", 0) if manifest else 0,
                 "lastSynced": manifest.get("lastUpdated") if manifest else None,
-                "archivedChats": len(manifest.get("chats", [])) if manifest else 0,
+                "archivedChats": sum(
+                    1 for c in manifest.get("chats", []) if c.get("archived", False)
+                ) if manifest else 0,
             },
             "encryption": {
                 "algorithm": "AES-256-GCM",

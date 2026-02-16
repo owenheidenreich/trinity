@@ -564,71 +564,41 @@ class TestSendToMemoryPipeline:
 
 
 # ============================================================================
-# 9. RECOVERED CHAT DEDUP — Bug #1 (fallback scan deduplication)
+# 9. MANIFEST-FIRST CHAT LISTING
 # ============================================================================
 
 
-class TestRecoveredChatDedup:
-    """When no metadata file is found, dedup by chatId in fallback scan."""
+class TestManifestChatListing:
+    """Chat list should come from manifest, not upload fallback scans."""
 
-    def test_fallback_scan_deduplicates(self, client, mock_auth):
-        """Multiple uploads for the same chatId should produce one entry."""
-        # Simulate uploads list from Lighthouse with duplicate chatIds
-        fake_uploads = [
-            {"cid": "bafk_1", "fileName": f"{PRINCIPAL_A[:16]}_chat-x.json", "createdAt": 2000},
-            {"cid": "bafk_2", "fileName": f"{PRINCIPAL_A[:16]}_chat-x.json", "createdAt": 1000},
-            {"cid": "bafk_3", "fileName": f"{PRINCIPAL_A[:16]}_chat-y.json", "createdAt": 3000},
-        ]
-
-        headers = _auth_headers(PRINCIPAL_A)
-        with patch("routes.chat.get_lighthouse_uploads", return_value=fake_uploads):
-            resp = client.get("/chat/list", headers=headers)
-            data = resp.get_json()
-            # Should have exactly 2 unique chatIds: chat-x and chat-y
-            assert data["count"] == 2
-            chat_ids = [c["chatId"] for c in data["chats"]]
-            assert "chat-x" in chat_ids
-            assert "chat-y" in chat_ids
-
-    def test_recovered_chats_titled_correctly(self, client, mock_auth):
-        """Fallback chats should be titled 'Recovered Chat'."""
-        fake_uploads = [
-            {"cid": "bafk_1", "fileName": f"{PRINCIPAL_A[:16]}_chat-z.json", "createdAt": 1000},
-        ]
+    def test_manifest_chats_sorted_by_last_updated(self, client, mock_auth):
+        fake_manifest = {
+            "chats": [
+                {"chatId": "chat-a", "title": "A", "cid": "cid-a", "lastUpdated": 1000, "archived": False},
+                {"chatId": "chat-b", "title": "B", "cid": "cid-b", "lastUpdated": 2000, "archived": True},
+            ]
+        }
 
         headers = _auth_headers(PRINCIPAL_A)
-        with patch("routes.chat.get_lighthouse_uploads", return_value=fake_uploads):
+        with patch("routes.chat.ensure_user_data_restored", return_value=True), \
+             patch("routes.chat.load_manifest", return_value=fake_manifest):
             resp = client.get("/chat/list", headers=headers)
             data = resp.get_json()
-            assert data["chats"][0]["title"] == "Recovered Chat"
 
-    def test_fallback_ignores_canary_and_bundle_artifacts(self, client, mock_auth):
-        """Passphrase canary and bundle files must never appear as chats."""
-        fake_uploads = [
-            {"cid": "bafk_canary", "fileName": f"{PRINCIPAL_A[:20]}_canary.json", "createdAt": 4000},
-            {"cid": "bafk_bundle", "fileName": f"{PRINCIPAL_A[:20]}_master_bundle.json", "createdAt": 3000},
-            {"cid": "bafk_chat", "fileName": f"{PRINCIPAL_A[:16]}_chat-real.json", "createdAt": 1000},
-        ]
+        assert data["count"] == 2
+        assert data["chats"][0]["chatId"] == "chat-b"
+        assert data["chats"][0]["isArchived"] is True
+        assert data["chats"][1]["chatId"] == "chat-a"
 
+    def test_empty_manifest_returns_empty_sidebar(self, client, mock_auth):
         headers = _auth_headers(PRINCIPAL_A)
-        with patch("routes.chat.get_lighthouse_uploads", return_value=fake_uploads):
+        with patch("routes.chat.ensure_user_data_restored", return_value=True), \
+             patch("routes.chat.load_manifest", return_value={"chats": []}):
             resp = client.get("/chat/list", headers=headers)
             data = resp.get_json()
-            assert data["count"] == 1
-            assert data["chats"][0]["chatId"] == "chat-real"
 
-    def test_new_user_with_only_canary_has_empty_sidebar(self, client, mock_auth):
-        """A fresh account with only passphrase canary should list zero chats."""
-        fake_uploads = [
-            {"cid": "bafk_canary", "fileName": f"{PRINCIPAL_A[:20]}_canary.json", "createdAt": 1000},
-        ]
-
-        headers = _auth_headers(PRINCIPAL_A)
-        with patch("routes.chat.get_lighthouse_uploads", return_value=fake_uploads):
-            resp = client.get("/chat/list", headers=headers)
-            data = resp.get_json()
-            assert data["count"] == 0
-            assert data["chats"] == []
+        assert data["count"] == 0
+        assert data["chats"] == []
 
 
 # ============================================================================

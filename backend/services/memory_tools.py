@@ -261,7 +261,7 @@ def tool_recall_memory(params: Dict, principal_id: str) -> Tuple[bool, str]:
 
         memory = load_user_memory(principal_id)
         facts = memory.get("facts", [])
-        active_facts = [f for f in facts if not f.get("deleted", False)]
+        active_facts = [f for f in facts if not f.get("deleted", False) and not f.get("invalid_at")]
 
         if not active_facts:
             return True, "No memories saved yet."
@@ -336,7 +336,7 @@ def tool_search_memory(params: Dict, principal_id: str) -> Tuple[bool, str]:
 
         memory = load_user_memory(principal_id)
         facts = memory.get("facts", [])
-        active_facts = [f for f in facts if not f.get("deleted", False)]
+        active_facts = [f for f in facts if not f.get("deleted", False) and not f.get("invalid_at")]
 
         if not active_facts:
             return True, "No memories saved yet."
@@ -428,7 +428,7 @@ def tool_update_memory(params: Dict, principal_id: str) -> Tuple[bool, str]:
         best_idx = -1
         best_sim = 0.0
         for i, fact in enumerate(facts):
-            if fact.get("deleted", False):
+            if fact.get("deleted", False) or fact.get("invalid_at"):
                 continue
             emb = fact.get("embedding")
             if emb is None:
@@ -502,7 +502,7 @@ def tool_forget_memory(params: Dict, principal_id: str) -> Tuple[bool, str]:
         best_idx = -1
         best_sim = 0.0
         for i, fact in enumerate(facts):
-            if fact.get("deleted", False):
+            if fact.get("deleted", False) or fact.get("invalid_at"):
                 continue
             emb = fact.get("embedding")
             if emb is None:

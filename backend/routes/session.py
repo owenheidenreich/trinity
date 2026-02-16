@@ -117,7 +117,7 @@ def funding_status():
         },
         "ipfs": {
             "gateway": LIGHTHOUSE_GATEWAY,
-            "storage_info": "Lighthouse free tier: 1GB",
+            "storage_info": "Lighthouse plan limits vary; check your dashboard usage.",
             "learn_more": "https://docs.ipfs.tech/concepts/what-is-ipfs/",
         },
         "donations": {

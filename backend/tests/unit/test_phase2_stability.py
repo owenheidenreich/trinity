@@ -363,30 +363,13 @@ class TestChatPinFeature:
         """Cannot delete a pinned chat — must unpin first."""
         chat_id = str(uuid.uuid4())
         headers = make_auth_headers(keypair, f"/chat/{chat_id}")
-
-        # Mock IPFS returns metadata with pinned chat
-        mock_ipfs_resp = MagicMock()
-        mock_ipfs_resp.status_code = 200
-        mock_ipfs_resp.json.return_value = {
-            "encryption": {"kdf": "pbkdf2"},
-            "ciphertext": "test",
-        }
-
-        from encryption import EncryptionUtils
         metadata = {
             "chats": [{"chatId": chat_id, "title": "Test", "pinned": True}],
             "principalId": keypair["principal"],
         }
 
-        with patch("routes.chat.get_lighthouse_uploads") as mock_uploads, \
-             patch("routes.chat.http_session") as mock_session, \
-             patch("routes.chat.EncryptionUtils.decrypt_chat") as mock_decrypt:
-            mock_uploads.return_value = [
-                {"fileName": f"{keypair['principal'][:16]}_metadata.json", "cid": "QmMeta123"}
-            ]
-            mock_session.get.return_value = mock_ipfs_resp
-            mock_decrypt.return_value = metadata
-
+        with patch("routes.chat.load_manifest", return_value={"chats": []}), \
+             patch("routes.chat.load_metadata", return_value=metadata):
             response = client.delete(f"/chat/{chat_id}", headers=headers)
 
         assert response.status_code == 400

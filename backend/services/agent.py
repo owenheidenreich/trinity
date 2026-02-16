@@ -55,6 +55,61 @@ SEARCH_TIMEOUT = 30      # Web search timeout
 _THINK_OPEN = re.compile(r"<think>", re.IGNORECASE)
 _THINK_CLOSE = re.compile(r"</think>", re.IGNORECASE)
 
+_SMALLTALK_NORMALIZE = re.compile(r"[^\w\s']")
+_SMALLTALK_MAX_WORDS = 6
+_SMALLTALK_CANONICAL = {
+    "hi",
+    "hello",
+    "hello there",
+    "hey",
+    "hey there",
+    "hi there",
+    "good morning",
+    "good afternoon",
+    "good evening",
+    "morning",
+    "afternoon",
+    "evening",
+    "sup",
+    "whats up",
+    "what's up",
+    "how are you",
+    "how are you doing",
+    "thanks",
+    "thank you",
+    "thx",
+}
+
+
+def _normalize_smalltalk_text(text: str) -> str:
+    normalized = (text or "").strip().lower().replace("\u2019", "'")
+    normalized = _SMALLTALK_NORMALIZE.sub(" ", normalized)
+    return " ".join(normalized.split())
+
+
+def is_trivial_smalltalk(question: str, context_messages: Optional[List[Dict]] = None) -> bool:
+    """Return True for low-value phatic messages that should use a fast path."""
+    normalized = _normalize_smalltalk_text(question)
+    if not normalized:
+        return False
+
+    if len(normalized.split()) > _SMALLTALK_MAX_WORDS:
+        return False
+
+    # Keep this conservative: only clear greetings/acknowledgements.
+    return normalized in _SMALLTALK_CANONICAL
+
+
+def _smalltalk_fast_response(question: str) -> str:
+    """Generate a concise non-LLM response for trivial greetings."""
+    normalized = _normalize_smalltalk_text(question)
+
+    if normalized in {"thanks", "thank you", "thx"}:
+        return "You're welcome. What do you want to work on next?"
+    if normalized in {"how are you", "how are you doing"}:
+        return "Doing well and ready to help. What are we tackling?"
+    return "Hey. I'm here and ready when you are."
+
 
 def _estimate_tokens(text: str) -> int:
     """Rough token estimate: ~4 chars per token for English text."""
@@ -181,6 +236,32 @@ def _format_user_memory(user_memory: Dict, query: str = "") -> str:
             sections.extend(lines_by_category[cat])
 
     return "## What you know about this user\n" + "\n".join(sections)
+
+
+def _format_semantic_context(semantic_context: Optional[List[Dict]]) -> str:
+    """Format semantic retrieval results for prompt injection."""
+    if not semantic_context:
+        return ""
+
+    lines = ["## Relevant past conversation"]
+
+    for item in semantic_context[:8]:
+        role = item.get("role", "unknown")
+        content = (item.get("content") or "").strip()
+        if not content:
+            continue
+        if len(content) > 280:
+            content = content[:277] + "..."
+
+        chat_id = item.get("chat_id")
+        if chat_id:
+            lines.append(f"- ({role}, chat {chat_id[:8]}) {content}")
+        else:
+            lines.append(f"- ({role}) {content}")
+
+    if len(lines) == 1:
+        return ""
+    return "\n".join(lines)
 
 
 # ============================================================================
@@ -364,7 +445,30 @@ class AgentPipeline:
         record_complexity("single_pass")
         record_routing("agent")
 
+        fast_path = bool(kwargs.get("fast_path")) or is_trivial_smalltalk(question, context_messages)
+        if fast_path:
+            logger.info("⚡ Agent fast-path: trivial smalltalk")
+            yield format_phase_update("executing")
+            full_response = _smalltalk_fast_response(question)
+            yield {"token": full_response}
+            total_time = time.time() - start_time
+            response = AgentResponse(
+                answer=full_response,
+                search_performed=False,
+                search_query=None,
+                total_time_seconds=round(total_time, 2),
+            )
+            yield {"done": True, "response": response.to_dict(), "done_reason": "stop"}
+            return
+
         tools_needed = self._should_use_react(question)
+        formatted_user_memory = _format_user_memory(user_memory, query=question)
+        formatted_semantic = _format_semantic_context(semantic_context)
+        if formatted_semantic:
+            if formatted_user_memory:
+                formatted_user_memory = f"{formatted_user_memory}\n\n{formatted_semantic}"
+            else:
+                formatted_user_memory = formatted_semantic
 
         logger.info(
             f"🧠 Agent streaming: single-pass, tools={tools_needed}"
@@ -396,7 +500,7 @@ class AgentPipeline:
                 for event in self._get_react_loop(principal_id).execute_streaming(
                     question=question,
                     context_messages=context_messages,
-                    user_memory=_format_user_memory(user_memory, query=question),
+                    user_memory=formatted_user_memory,
                     search_context=search_context,
                     max_tokens=MAX_TOKENS,
                     timeout=TIMEOUT,
@@ -407,12 +511,12 @@ class AgentPipeline:
             else:
                 # Direct single-pass generation
                 prompt = build_system_prompt(
-                    question, context_messages, _format_user_memory(user_memory, query=question), search_context
+                    question, context_messages, formatted_user_memory, search_context
                 )
                 filtered_parts = []
                 for token in self._filter_think_blocks(
                     self.client.generate_stream(
-                        prompt, MAX_TOKENS, timeout=TIMEOUT
+                        prompt, kwargs.get("max_tokens", MAX_TOKENS), timeout=TIMEOUT
                     ),
                     filtered_parts,
                 ):

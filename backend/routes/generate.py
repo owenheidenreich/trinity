@@ -229,14 +229,11 @@ def generate():
             if V4_FEATURES_AVAILABLE and chat_id:
                 try:
                     from services.memory import get_semantic_memory
-                    from services.user_data_store import notify_message_indexed
                     sem_memory = get_semantic_memory(principal)
                     idx = message_index if message_index is not None else 0
                     sem_memory.index_message(chat_id, idx, "user", user_prompt)
-                    notify_message_indexed(principal)
                     if final_response:
                         sem_memory.index_message(chat_id, idx + 1, "assistant", final_response)
-                        notify_message_indexed(principal)
                 except Exception as idx_error:
                     logger.debug(f"V4.0 indexing skipped in /generate: {idx_error}")
 
@@ -272,7 +269,7 @@ def generate_agent():
     Single-pass agentic generation with SSE streaming.
     Detects tools needed → ReAct loop or direct generation.
     """
-    from services.agent import AgentPipeline
+    from services.agent import AgentPipeline, is_trivial_smalltalk
 
     V4_FEATURES_AVAILABLE = current_app.config.get("V4_FEATURES_AVAILABLE", False)
 
@@ -291,12 +288,13 @@ def generate_agent():
         principal = data.get("principal")
         chat_id = data.get("chat_id")
         message_index = data.get("message_index")
+        fast_path = is_trivial_smalltalk(user_prompt, context_memory)
 
         if not user_prompt:
             return jsonify({"error": "No prompt provided"}), 400
 
         user_memory = None
-        if principal:
+        if principal and not fast_path:
             try:
                 # Ensure IPFS restore has happened (idempotent, no-op if already done)
                 from services.user_data_store import ensure_user_data_restored
@@ -310,7 +308,7 @@ def generate_agent():
 
         enhanced_context = context_memory
         semantic_context = None
-        if V4_FEATURES_AVAILABLE and principal:
+        if V4_FEATURES_AVAILABLE and principal and not fast_path:
             try:
                 from services.memory import build_enhanced_context
                 enhanced_context, semantic_context = build_enhanced_context(
@@ -331,14 +329,18 @@ def generate_agent():
             else {}
         )
 
-        logger.info(f"🧠 Agent request: {len(user_prompt.split())} words, v4={V4_FEATURES_AVAILABLE}")
+        logger.info(
+            f"🧠 Agent request: {len(user_prompt.split())} words, v4={V4_FEATURES_AVAILABLE}, fast_path={fast_path}"
+        )
 
         def generate_sse():
             try:
                 full_response = ""
                 for event in pipeline.process_streaming(
                     question=user_prompt, context_messages=enhanced_context,
-                    user_memory=user_memory, **v4_options,
+                    user_memory=user_memory,
+                    fast_path=fast_path,
+                    **v4_options,
                 ):
                     if isinstance(event, dict) and "token" in event:
                         full_response += event["token"]
@@ -351,14 +353,11 @@ def generate_agent():
                 if V4_FEATURES_AVAILABLE and principal and chat_id:
                     try:
                         from services.memory import get_semantic_memory
-                        from services.user_data_store import notify_message_indexed
                         sem_memory = get_semantic_memory(principal)
                         idx = message_index if message_index is not None else 0
                         sem_memory.index_message(chat_id, idx, "user", user_prompt)
-                        notify_message_indexed(principal)
                         if full_response:
                             sem_memory.index_message(chat_id, idx + 1, "assistant", full_response)
-                            notify_message_indexed(principal)
                     except Exception as idx_error:
                         logger.debug(f"V4.0 indexing skipped: {idx_error}")
 

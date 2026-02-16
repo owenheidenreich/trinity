@@ -60,6 +60,18 @@ _vector_sync_timestamps: Dict[str, float] = {}
 VECTOR_SYNC_INTERVAL = 60  # seconds between auto-syncs
 VECTOR_SYNC_MESSAGE_THRESHOLD = 10  # messages indexed before auto-sync
 
+# Debounce state for profile uploads
+_profile_sync_timers: Dict[str, threading.Timer] = {}
+_profile_sync_latest: Dict[str, Dict] = {}
+_profile_sync_lock = threading.Lock()
+PROFILE_SYNC_DEBOUNCE_SECONDS = 15
+
+# Debounce state for chat manifest uploads
+_manifest_sync_timers: Dict[str, threading.Timer] = {}
+_manifest_sync_latest: Dict[str, Dict] = {}
+_manifest_sync_lock = threading.Lock()
+MANIFEST_SYNC_DEBOUNCE_SECONDS = 5
+
 # =============================================================================
 # RETRY LOGIC — at-least-once IPFS delivery
 # =============================================================================
@@ -67,6 +79,8 @@ VECTOR_SYNC_MESSAGE_THRESHOLD = 10  # messages indexed before auto-sync
 # Pending syncs: {(principal_id, artifact_type): {data for retry}}
 _pending_syncs: Dict[tuple, Dict] = {}
 _pending_syncs_lock = threading.Lock()
+_pending_retry_inflight: set = set()
+_pending_retry_lock = threading.Lock()
 
 # Sync status tracking per principal
 _sync_status: Dict[str, Dict] = {}
@@ -149,6 +163,24 @@ def retry_pending_syncs(principal_id: str):
                 logger.warning(f"⚠️ Pending sync retry failed for {artifact_type}: {e}")
                 # Re-queue if still failing
                 _add_pending_sync(principal_id, artifact_type, pending["func"], pending["args"])
+
+
+def _retry_pending_syncs_async(principal_id: str):
+    """Run pending-sync retries in background so request latency stays predictable."""
+    with _pending_retry_lock:
+        if principal_id in _pending_retry_inflight:
+            return
+        _pending_retry_inflight.add(principal_id)
+
+    def _run():
+        try:
+            retry_pending_syncs(principal_id)
+        finally:
+            with _pending_retry_lock:
+                _pending_retry_inflight.discard(principal_id)
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
 
 
 def get_all_sync_status() -> Dict:
@@ -544,15 +576,62 @@ def notify_message_indexed(principal_id: str):
 def notify_profile_changed(principal_id: str, memory: Dict):
     """
     Called after user profile (facts/preferences) is saved locally.
-    Immediately syncs to IPFS — profile changes are critical.
+    Debounces sync to avoid uploading on every tiny memory mutation burst.
     """
-    # Run sync in background thread to not block the request
-    thread = threading.Thread(
-        target=sync_profile_to_ipfs,
-        args=(principal_id, memory),
-        daemon=True,
-    )
-    thread.start()
+    def _flush_profile_sync(pid: str):
+        with _profile_sync_lock:
+            latest_memory = _profile_sync_latest.pop(pid, None)
+            _profile_sync_timers.pop(pid, None)
+
+        if latest_memory is None:
+            return
+
+        sync_profile_to_ipfs(pid, latest_memory)
+
+    with _profile_sync_lock:
+        _profile_sync_latest[principal_id] = memory
+
+        existing = _profile_sync_timers.get(principal_id)
+        if existing and existing.is_alive():
+            existing.cancel()
+
+        timer = threading.Timer(
+            PROFILE_SYNC_DEBOUNCE_SECONDS,
+            _flush_profile_sync,
+            args=(principal_id,),
+        )
+        timer.daemon = True
+        _profile_sync_timers[principal_id] = timer
+        timer.start()
+
+
+def _debounce_manifest_sync(principal_id: str, manifest: Dict):
+    """Debounce manifest uploads to reduce IPFS churn during autosave bursts."""
+    def _flush_manifest_sync(pid: str):
+        with _manifest_sync_lock:
+            latest_manifest = _manifest_sync_latest.pop(pid, None)
+            _manifest_sync_timers.pop(pid, None)
+
+        if latest_manifest is None:
+            return
+
+        sync_manifest_to_ipfs(pid, latest_manifest)
+
+    with _manifest_sync_lock:
+        _manifest_sync_latest[principal_id] = manifest
+
+        existing = _manifest_sync_timers.get(principal_id)
+        if existing and existing.is_alive():
+            existing.cancel()
+
+        timer = threading.Timer(
+            MANIFEST_SYNC_DEBOUNCE_SECONDS,
+            _flush_manifest_sync,
+            args=(principal_id,),
+        )
+        timer.daemon = True
+        _manifest_sync_timers[principal_id] = timer
+        timer.start()
 
 
 # =============================================================================
@@ -569,8 +648,8 @@ def ensure_user_data_restored(principal_id: str) -> bool:
     Returns:
         True if data is available (or user is new)
     """
-    # Always retry any pending syncs, even on repeat calls
-    retry_pending_syncs(principal_id)
+    # Retry any pending syncs in background to avoid request-path stalls.
+    _retry_pending_syncs_async(principal_id)
 
     with _restore_lock:
         if principal_id in _restored_principals:
@@ -655,6 +734,7 @@ def update_chat_in_manifest(
     chat_entry["pinned"] = pinned
 
     save_manifest(principal_id, manifest)
+    _debounce_manifest_sync(principal_id, manifest)
 
     # Unpin old chat CID (debounced — don't unpin on every autosave keystroke)
     if old_cid and old_cid != cid:

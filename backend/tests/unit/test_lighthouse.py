@@ -238,6 +238,55 @@ class TestGetLighthouseUploads:
             files = get_lighthouse_uploads()
             assert files == []
 
+    def test_listing_paginates_with_last_key(self):
+        from lighthouse import get_lighthouse_uploads
+
+        page1 = MagicMock()
+        page1.status_code = 200
+        page1.json.return_value = {
+            "fileList": [
+                {"fileName": "page1.json", "cid": "cid-1", "createdAt": 1000},
+            ],
+            "lastKey": "cursor-1",
+        }
+
+        page2 = MagicMock()
+        page2.status_code = 200
+        page2.json.return_value = {
+            "fileList": [
+                {"fileName": "page2.json", "cid": "cid-2", "createdAt": 2000},
+            ],
+        }
+
+        with patch("lighthouse.requests.get", side_effect=[page1, page2]) as mock_get:
+            files = get_lighthouse_uploads("principal-123")
+
+        assert len(files) == 2
+        assert files[0]["cid"] == "cid-2"  # sorted newest first
+        assert files[1]["cid"] == "cid-1"
+        assert mock_get.call_count == 2
+        second_call = mock_get.call_args_list[1]
+        params = second_call.kwargs.get("params", second_call[1].get("params", {}))
+        assert params.get("lastKey") == "cursor-1"
+
+    def test_listing_stops_on_repeated_cursor(self):
+        from lighthouse import get_lighthouse_uploads
+
+        repeated = MagicMock()
+        repeated.status_code = 200
+        repeated.json.return_value = {
+            "fileList": [
+                {"fileName": "one.json", "cid": "cid-1", "createdAt": 1000},
+            ],
+            "lastKey": "same-cursor",
+        }
+
+        with patch("lighthouse.requests.get", side_effect=[repeated, repeated]) as mock_get:
+            files = get_lighthouse_uploads("principal-123")
+
+        assert len(files) == 2  # both pages were consumed before cursor-stability stop
+        assert mock_get.call_count == 2
+
 
 # =============================================================================
 # get_user_vector_cid TESTS

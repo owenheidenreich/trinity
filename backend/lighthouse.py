@@ -1,6 +1,6 @@
 """
 Trinity Backend - IPFS Storage Module
-IPFS pinning via Lighthouse (free 1GB tier)
+IPFS pinning via Lighthouse (plan-dependent quotas)
 
 v4.0: Added vector database sync for persistence across Akash redeployments
 """
@@ -13,6 +13,16 @@ from config import LIGHTHOUSE_API, LIGHTHOUSE_API_KEY, LIGHTHOUSE_GATEWAY, LIGHT
 
 logger = logging.getLogger(__name__)
 
+_LIST_MAX_PAGES = 200
+
+
+def _created_at_key(upload: dict) -> int:
+    """Normalize createdAt values for stable sorting."""
+    try:
+        return int(upload.get("createdAt", 0) or 0)
+    except (TypeError, ValueError):
+        return 0
+
 
 def upload_to_ipfs(
     file_data: bytes, filename: str, principal_id: str = None, is_master_bundle: bool = False
@@ -20,8 +30,7 @@ def upload_to_ipfs(
     """
     Upload file to IPFS via Lighthouse.
 
-    Lighthouse provides free IPFS pinning (1GB). Content is available
-    immediately via IPFS gateways.
+    Content is available immediately via IPFS gateways.
 
     Args:
         file_data: The encrypted data to upload
@@ -87,21 +96,37 @@ def get_lighthouse_uploads(principal_id: str = None, file_type: str = None) -> l
 
     try:
         headers = {"Authorization": f"Bearer {LIGHTHOUSE_API_KEY}"}
+        url = f"{LIGHTHOUSE_API}/api/user/files_uploaded"
+        files = []
+        last_key = None
 
-        response = requests.get(
-            f"{LIGHTHOUSE_API}/api/user/files_uploaded", headers=headers, timeout=30
-        )
+        for page_idx in range(_LIST_MAX_PAGES):
+            params = {}
+            if last_key:
+                params["lastKey"] = last_key
 
-        if response.status_code == 200:
-            result = response.json()
-            files = result.get("fileList", [])
-            files.sort(key=lambda x: x.get("createdAt", 0), reverse=True)
+            response = requests.get(url, headers=headers, params=params, timeout=30)
 
-            logger.info(f"📦 Found {len(files)} files in Lighthouse storage")
-            return files
-        else:
-            logger.error(f"Lighthouse listing failed: {response.status_code} - {response.text}")
-            return []
+            if response.status_code != 200:
+                logger.error(f"Lighthouse listing failed: {response.status_code} - {response.text}")
+                return []
+
+            result = response.json() or {}
+            page_files = result.get("fileList", []) or []
+            files.extend(page_files)
+
+            next_key = result.get("lastKey")
+            if not page_files or not next_key or next_key == last_key:
+                break
+            last_key = next_key
+
+            if page_idx == _LIST_MAX_PAGES - 1:
+                logger.warning("Reached Lighthouse listing page cap (%s pages)", _LIST_MAX_PAGES)
+
+        files.sort(key=_created_at_key, reverse=True)
+
+        logger.info(f"📦 Found {len(files)} files in Lighthouse storage")
+        return files
 
     except requests.Timeout:
         logger.error("Lighthouse listing timed out")

@@ -309,6 +309,38 @@ class TestPipelineIntegration:
         assert len(done_signals) == 1
         assert done_signals[0]["__done_reason"] == "stop"
 
+    def test_smalltalk_detection_is_conservative(self):
+        """Only truly trivial phatic messages should use the fast path."""
+        from services.agent import is_trivial_smalltalk
+
+        assert is_trivial_smalltalk("hello")
+        assert is_trivial_smalltalk("thanks!")
+        assert not is_trivial_smalltalk("hello can you summarize this file")
+
+    def test_smalltalk_fast_path_skips_llm_call(self):
+        """Fast-path greetings should not call the LLM at all."""
+        from services.agent import AgentPipeline
+
+        mock_provider = MagicMock()
+        pipeline = AgentPipeline(provider=mock_provider)
+
+        events = list(
+            pipeline.process_streaming(
+                question="hello",
+                context_messages=[],
+                user_memory={},
+                fast_path=True,
+            )
+        )
+
+        mock_provider.generate_stream.assert_not_called()
+        tokens = [e["token"] for e in events if isinstance(e, dict) and "token" in e]
+        done_events = [e for e in events if isinstance(e, dict) and e.get("done")]
+
+        assert len(tokens) == 1
+        assert "ready" in tokens[0].lower()
+        assert len(done_events) == 1
+
     def test_react_loop_accepts_any_provider(self):
         """ReactLoop should work with any provider implementing chat/chat_stream."""
         try:

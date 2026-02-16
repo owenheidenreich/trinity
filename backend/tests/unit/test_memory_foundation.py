@@ -127,6 +127,30 @@ class TestPendingSyncs:
         with _pending_syncs_lock:
             _pending_syncs.clear()
 
+    def test_ensure_restore_triggers_async_pending_retry(self):
+        """ensure_user_data_restored should not block request path on retry backoff."""
+        from services.user_data_store import (
+            _restore_lock,
+            _restored_principals,
+            ensure_user_data_restored,
+        )
+        principal = "test-principal"
+
+        with _restore_lock:
+            _restored_principals.discard(principal)
+
+        with patch("services.user_data_store._retry_pending_syncs_async") as mock_async, \
+             patch("services.user_data_store.load_manifest", return_value={"profile": {"cid": None}}), \
+             patch("services.user_data_store.restore_profile_from_ipfs", return_value=True), \
+             patch("services.user_data_store.restore_vector_db_from_ipfs", return_value=True):
+            ok = ensure_user_data_restored(principal)
+
+        assert ok is True
+        mock_async.assert_called_once_with(principal)
+
+        with _restore_lock:
+            _restored_principals.discard(principal)
+
 
 class TestSyncStatus:
     """Test sync status recording for monitoring."""
