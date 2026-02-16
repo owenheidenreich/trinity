@@ -6,9 +6,9 @@
     "match": "**/*",
     "security_policy": "standard",
     "headers": {
-      // CSP matches the <meta> tag in index.html — belt-and-suspenders
-      // React build bundles everything (no CDN), so script-src is 'self' only
-      "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://api.dubya.ai https://*.workers.dev https://gateway.lighthouse.storage https://ipfs.io https://dweb.link https://cloudflare-ipfs.com https://*.icp0.io; font-src 'self' data:; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';",
+      // Keep canister HTTP CSP aligned with src-react/index.html meta CSP.
+      // This policy must allow WASM compilation (hash-wasm Argon2) and ICP gateway calls.
+      "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://api.dubya.ai https://*.workers.dev https://gateway.lighthouse.storage https://ipfs.io https://dweb.link https://cloudflare-ipfs.com https://*.icp0.io wss://*.icp0.io https://ic0.app https://*.ic0.app https://icp-api.io https://*.icp-api.io; font-src 'self' data:; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';",
       "X-Content-Type-Options": "nosniff",
       "Referrer-Policy": "strict-origin-when-cross-origin",
       "Permissions-Policy": "camera=(), microphone=(), geolocation=()"

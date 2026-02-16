@@ -8,6 +8,10 @@
 // ENDPOINTS:
 // - generate: Main LLM inference endpoint (replaces Cloudflare Worker)
 // - health: Health check for Akash backend
+// - register_username: Register username -> principal mapping (signed)
+// - lookup_username: Resolve username -> principal
+// - is_username_available: Username availability check
+// - get_username_for_principal: Resolve principal -> username
 // - set_akash_url: Update Akash backend URL (controller only)
 // - get_akash_url: Get current Akash backend URL
 // - get_canister_info: Debug info
@@ -85,6 +89,11 @@ type Result_Nat = variant {
     Err : text;
 };
 
+type Result_Bool = variant {
+    Ok : bool;
+    Err : text;
+};
+
 // HTTP types for transform function
 type HttpHeader = record {
     name : text;
@@ -120,6 +129,12 @@ service : (opt text) -> {
     // Main endpoints
     health : () -> (Result_Health);
     generate : (GenerateRequest, AuthHeaders, text) -> (Result_Generate);
+
+    // Username registry
+    register_username : (text, text, text, text, text) -> (Result_Unit);
+    lookup_username : (text) -> (opt text) query;
+    is_username_available : (text) -> (Result_Bool) query;
+    get_username_for_principal : (text) -> (opt text) query;
     
     // Transform function for HTTP outcalls
     transform_response : (TransformArgs) -> (HttpResponsePayload) query;

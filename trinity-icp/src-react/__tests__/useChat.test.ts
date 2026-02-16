@@ -24,12 +24,18 @@ const mockState: Record<string, unknown> = {
   ],
   setGenerating: mockSetGenerating,
   userMemory: { name: 'Test User' },
+  generateChatId: vi.fn(() => 'chat-generated'),
 };
 
 vi.mock('../store', () => {
+  const setState = (partial: Record<string, unknown> | ((state: Record<string, unknown>) => Record<string, unknown>)) => {
+    const next = typeof partial === 'function' ? partial(mockState) : partial;
+    Object.assign(mockState, next);
+  };
+
   const store = Object.assign(
     (selector: (s: Record<string, unknown>) => unknown) => selector(mockState),
-    { getState: () => mockState }
+    { getState: () => mockState, setState }
   );
   return { useStore: store };
 });
@@ -85,6 +91,8 @@ describe('useChat', () => {
   let fetchSpy: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
+    mockState.currentChatId = 'chat-123';
+    (mockState.generateChatId as ReturnType<typeof vi.fn>).mockReturnValue('chat-generated');
     fetchSpy = vi.fn();
     vi.stubGlobal('fetch', fetchSpy);
     mockSetGenerating.mockClear();
@@ -165,6 +173,27 @@ describe('useChat', () => {
         { role: 'assistant', content: 'Hi there' },
       ],
     });
+  });
+
+  it('generates a chat id when none exists', async () => {
+    mockState.currentChatId = null;
+    (mockState.generateChatId as ReturnType<typeof vi.fn>).mockReturnValue('chat-new');
+
+    const sseResponse = createSSEResponse([
+      'data: {"done": true, "done_reason": "stop"}',
+    ]);
+    fetchSpy.mockResolvedValue(sseResponse);
+
+    const { result } = renderHook(() => useChat());
+    const buildAuth = makeBuildAuthHeaders();
+
+    await act(async () => {
+      await result.current.send('Test prompt', buildAuth);
+    });
+
+    const callBody = JSON.parse((fetchSpy.mock.calls[0]?.[1] as { body: string })?.body ?? '{}');
+    expect(callBody.chat_id).toBe('chat-new');
+    expect(mockState.currentChatId).toBe('chat-new');
   });
 
   it('handles phase events', async () => {

@@ -41,11 +41,14 @@ def keypair():
     """Generate a test Ed25519 keypair."""
     signing_key = SigningKey.generate()
     verify_key = signing_key.verify_key
+    from icp_auth import principal_from_public_key
+
+    public_key_hex = verify_key.encode().hex()
     return {
         "signing_key": signing_key,
         "verify_key": verify_key,
-        "public_key_hex": verify_key.encode().hex(),
-        "principal": "test-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx-tst",
+        "public_key_hex": public_key_hex,
+        "principal": principal_from_public_key(bytes.fromhex(public_key_hex)),
     }
 
 
@@ -63,6 +66,20 @@ def make_auth_headers(keypair, endpoint, nonce=None):
         "ICP-Nonce": nonce,
         "Content-Type": "application/json",
     }
+
+
+# Keep tests isolated from shared module-level counters.
+@pytest.fixture(autouse=True)
+def reset_rate_limit_state():
+    from middleware.rate_limit import request_counts, storage_request_counts, token_usage_tracking
+
+    request_counts.clear()
+    storage_request_counts.clear()
+    token_usage_tracking.clear()
+    yield
+    request_counts.clear()
+    storage_request_counts.clear()
+    token_usage_tracking.clear()
 
 
 # =============================================================================

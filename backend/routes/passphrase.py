@@ -12,6 +12,7 @@ from flask import Blueprint, jsonify, request
 from encryption import EncryptionUtils
 from icp_auth import require_auth
 from lighthouse import download_from_ipfs, get_lighthouse_uploads, upload_to_ipfs
+from middleware import rate_limit
 from services.session_manager import (
     clear_session,
     get_session_passphrase,
@@ -77,7 +78,19 @@ def setup_passphrase():
     cid = upload_to_ipfs(canary_data, filename, principal_id=principal)
 
     if not cid:
-        return jsonify({"success": False, "error": "Failed to upload canary to IPFS"}), 500
+        # Degraded mode: Lighthouse unavailable/quota exceeded.
+        # Keep the user unblocked for this server session even if canary persistence failed.
+        set_session_passphrase(principal, passphrase)
+        logger.warning(
+            "Passphrase canary upload failed for %s; continuing in local-session-only mode",
+            principal[:20],
+        )
+        return jsonify({
+            "success": True,
+            "canary_cid": None,
+            "storage": "local_session_only",
+            "warning": "IPFS unavailable. Passphrase is unlocked for this server session only.",
+        })
 
     # Store passphrase in session
     set_session_passphrase(principal, passphrase)
@@ -88,6 +101,7 @@ def setup_passphrase():
 
 @passphrase_bp.route("/api/passphrase/unlock", methods=["POST"])
 @require_auth
+@rate_limit
 def unlock_passphrase():
     """Unlock session with passphrase. Verifies against stored canary."""
     principal = request.principal
@@ -150,7 +164,18 @@ def change_passphrase():
     cid = upload_to_ipfs(canary_data, filename, principal_id=principal)
 
     if not cid:
-        return jsonify({"success": False, "error": "Failed to upload new canary"}), 500
+        # Degraded mode mirrors setup(): do not brick active users when IPFS is down.
+        set_session_passphrase(principal, new_passphrase)
+        logger.warning(
+            "Passphrase re-encryption upload failed for %s; updated session only",
+            principal[:20],
+        )
+        return jsonify({
+            "success": True,
+            "canary_cid": None,
+            "storage": "local_session_only",
+            "warning": "IPFS unavailable. New passphrase is active for this server session only.",
+        })
 
     # Update session
     set_session_passphrase(principal, new_passphrase)

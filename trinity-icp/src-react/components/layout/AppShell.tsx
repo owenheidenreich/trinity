@@ -134,11 +134,11 @@ export function AppShell() {
 
       addMessage('user', prompt);
 
-      let activeChatId = currentChatId;
+      const { currentChatId: latestChatId, generateChatId } = useStore.getState();
+      let activeChatId = latestChatId;
       if (!activeChatId) {
-        activeChatId = useStore.getState().generateChatId();
+        activeChatId = generateChatId();
         setCurrentChatId(activeChatId);
-        useStore.setState({ currentChatId: activeChatId });
       }
 
       const result = await chat.send(prompt, auth.buildAuthHeaders);
@@ -162,7 +162,7 @@ export function AppShell() {
 
       autosave.scheduleAutosave(auth.buildAuthHeaders);
     },
-    [addMessage, currentChatId, setCurrentChatId, chat, auth.buildAuthHeaders, autosave]
+    [addMessage, setCurrentChatId, chat, auth.buildAuthHeaders, autosave]
   );
 
   // Load a specific chat
@@ -317,15 +317,16 @@ export function AppShell() {
     await chat.continueGeneration(auth.buildAuthHeaders);
     const finalTokens = chat.getTokens();
     if (finalTokens) {
-      const lastIdx = chatHistory.length - 1;
-      if (lastIdx >= 0 && chatHistory[lastIdx]?.role === 'assistant') {
-        const updated = [...chatHistory];
+      const currentHistory = useStore.getState().chatHistory;
+      const lastIdx = currentHistory.length - 1;
+      if (lastIdx >= 0 && currentHistory[lastIdx]?.role === 'assistant') {
+        const updated = [...currentHistory];
         updated[lastIdx] = { ...updated[lastIdx]!, content: finalTokens };
         setChatHistory(updated);
       }
     }
     autosave.scheduleAutosave(auth.buildAuthHeaders);
-  }, [chat, auth.buildAuthHeaders, chatHistory, setChatHistory, autosave]);
+  }, [chat, auth.buildAuthHeaders, setChatHistory, autosave]);
 
   // Show welcome modal if not authenticated or passphrase not unlocked
   const needsAuth =

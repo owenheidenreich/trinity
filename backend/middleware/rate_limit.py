@@ -268,7 +268,11 @@ def get_user_id() -> str:
     Priority: principal > session header > IP address
     """
     # Try to get principal from various sources
-    principal = request.headers.get("X-ICP-Principal")
+    principal = (
+        getattr(request, "principal", None)
+        or request.headers.get("ICP-Principal")
+        or request.headers.get("X-ICP-Principal")
+    )
     if principal:
         return f"principal:{principal}"
 

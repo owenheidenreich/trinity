@@ -6,6 +6,7 @@ Created: February 5, 2026
 """
 
 import time
+import uuid
 from typing import Callable, Dict
 
 import pytest
@@ -27,13 +28,17 @@ def test_keypair() -> Dict:
     """
     signing_key = SigningKey.generate()
     verify_key = signing_key.verify_key
+    from icp_auth import principal_from_public_key
+
+    public_key_hex = verify_key.encode().hex()
+    principal = principal_from_public_key(bytes.fromhex(public_key_hex))
 
     return {
         "signing_key": signing_key,
         "verify_key": verify_key,
         "private_key_hex": signing_key.encode().hex(),
-        "public_key_hex": verify_key.encode().hex(),
-        "principal": "test-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx-xxx",
+        "public_key_hex": public_key_hex,
+        "principal": principal,
     }
 
 
@@ -44,13 +49,17 @@ def second_keypair() -> Dict:
     """
     signing_key = SigningKey.generate()
     verify_key = signing_key.verify_key
+    from icp_auth import principal_from_public_key
+
+    public_key_hex = verify_key.encode().hex()
+    principal = principal_from_public_key(bytes.fromhex(public_key_hex))
 
     return {
         "signing_key": signing_key,
         "verify_key": verify_key,
         "private_key_hex": signing_key.encode().hex(),
-        "public_key_hex": verify_key.encode().hex(),
-        "principal": "other-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx-xxx",
+        "public_key_hex": public_key_hex,
+        "principal": principal,
     }
 
 
@@ -63,8 +72,8 @@ def create_signature(test_keypair) -> Callable:
         signature = create_signature(principal, timestamp, endpoint)
     """
 
-    def _create_signature(principal: str, timestamp: str, endpoint: str) -> str:
-        message = f"{principal}:{timestamp}:{endpoint}"
+    def _create_signature(principal: str, timestamp: str, endpoint: str, nonce: str) -> str:
+        message = f"{principal}:{timestamp}:{endpoint}:{nonce}"
         signed = test_keypair["signing_key"].sign(message.encode("utf-8"))
         return signed.signature.hex()
 
@@ -84,14 +93,16 @@ def auth_headers(test_keypair, create_signature) -> Callable:
     def _auth_headers(endpoint: str, timestamp: str = None) -> Dict[str, str]:
         if timestamp is None:
             timestamp = str(int(time.time() * 1000))
+        nonce = str(uuid.uuid4())
 
-        signature = create_signature(test_keypair["principal"], timestamp, endpoint)
+        signature = create_signature(test_keypair["principal"], timestamp, endpoint, nonce)
 
         return {
             "ICP-Principal": test_keypair["principal"],
             "ICP-Signature": signature,
             "ICP-Timestamp": timestamp,
             "ICP-PublicKey": test_keypair["public_key_hex"],
+            "ICP-Nonce": nonce,
         }
 
     return _auth_headers
@@ -106,14 +117,16 @@ def expired_auth_headers(test_keypair, create_signature) -> Callable:
     def _expired_headers(endpoint: str) -> Dict[str, str]:
         # 120 seconds ago (well past the 60s window)
         old_timestamp = str(int((time.time() - 120) * 1000))
+        nonce = str(uuid.uuid4())
 
-        signature = create_signature(test_keypair["principal"], old_timestamp, endpoint)
+        signature = create_signature(test_keypair["principal"], old_timestamp, endpoint, nonce)
 
         return {
             "ICP-Principal": test_keypair["principal"],
             "ICP-Signature": signature,
             "ICP-Timestamp": old_timestamp,
             "ICP-PublicKey": test_keypair["public_key_hex"],
+            "ICP-Nonce": nonce,
         }
 
     return _expired_headers
@@ -128,14 +141,16 @@ def future_auth_headers(test_keypair, create_signature) -> Callable:
     def _future_headers(endpoint: str) -> Dict[str, str]:
         # 120 seconds in the future
         future_timestamp = str(int((time.time() + 120) * 1000))
+        nonce = str(uuid.uuid4())
 
-        signature = create_signature(test_keypair["principal"], future_timestamp, endpoint)
+        signature = create_signature(test_keypair["principal"], future_timestamp, endpoint, nonce)
 
         return {
             "ICP-Principal": test_keypair["principal"],
             "ICP-Signature": signature,
             "ICP-Timestamp": future_timestamp,
             "ICP-PublicKey": test_keypair["public_key_hex"],
+            "ICP-Nonce": nonce,
         }
 
     return _future_headers

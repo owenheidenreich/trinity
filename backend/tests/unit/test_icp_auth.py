@@ -16,6 +16,7 @@ Test Priority Legend:
 # Import the module under test
 import sys
 import time
+import uuid
 from pathlib import Path
 
 import pytest
@@ -48,8 +49,9 @@ class TestVerifyICPSignature:
         principal = test_keypair["principal"]
         timestamp = str(int(time.time() * 1000))
         endpoint = "/chat/autosave"
+        nonce = str(uuid.uuid4())
 
-        signature = create_signature(principal, timestamp, endpoint)
+        signature = create_signature(principal, timestamp, endpoint, nonce)
 
         success, error = verify_icp_signature(
             principal=principal,
@@ -57,6 +59,7 @@ class TestVerifyICPSignature:
             timestamp=timestamp,
             endpoint=endpoint,
             public_key_hex=test_keypair["public_key_hex"],
+            nonce=nonce,
         )
 
         assert success is True, f"Valid signature should verify. Error: {error}"
@@ -75,8 +78,9 @@ class TestVerifyICPSignature:
         # 120 seconds ago - well past the 60s window
         old_timestamp = str(int((time.time() - 120) * 1000))
         endpoint = "/chat/autosave"
+        nonce = str(uuid.uuid4())
 
-        signature = create_signature(principal, old_timestamp, endpoint)
+        signature = create_signature(principal, old_timestamp, endpoint, nonce)
 
         success, error = verify_icp_signature(
             principal=principal,
@@ -84,6 +88,7 @@ class TestVerifyICPSignature:
             timestamp=old_timestamp,
             endpoint=endpoint,
             public_key_hex=test_keypair["public_key_hex"],
+            nonce=nonce,
         )
 
         assert success is False, "Expired timestamp should be rejected"
@@ -101,6 +106,7 @@ class TestVerifyICPSignature:
         principal = test_keypair["principal"]
         timestamp = str(int(time.time() * 1000))
         endpoint = "/chat/autosave"
+        nonce = str(uuid.uuid4())
 
         # Invalid signature - wrong length (should be 64 bytes = 128 hex chars)
         invalid_signature = "deadbeef" * 8  # Only 32 bytes
@@ -111,6 +117,7 @@ class TestVerifyICPSignature:
             timestamp=timestamp,
             endpoint=endpoint,
             public_key_hex=test_keypair["public_key_hex"],
+            nonce=nonce,
         )
 
         assert success is False, "Invalid signature should be rejected"
@@ -127,9 +134,10 @@ class TestVerifyICPSignature:
         principal = test_keypair["principal"]
         timestamp = str(int(time.time() * 1000))
         endpoint = "/chat/autosave"
+        nonce = str(uuid.uuid4())
 
         # Sign with second_keypair but try to verify with test_keypair's public key
-        message = f"{principal}:{timestamp}:{endpoint}"
+        message = f"{principal}:{timestamp}:{endpoint}:{nonce}"
         signed = second_keypair["signing_key"].sign(message.encode("utf-8"))
         wrong_signature = signed.signature.hex()
 
@@ -139,11 +147,38 @@ class TestVerifyICPSignature:
             timestamp=timestamp,
             endpoint=endpoint,
             public_key_hex=test_keypair["public_key_hex"],  # Different key!
+            nonce=nonce,
         )
 
         assert success is False, "Signature from wrong key should be rejected"
         assert error is not None
         assert "invalid" in error.lower(), f"Error should mention invalid: {error}"
+
+    @pytest.mark.p0
+    @pytest.mark.security
+    def test_principal_mismatch_rejected(self, test_keypair, second_keypair, create_signature):
+        """
+        P0: Public key must be cryptographically bound to the claimed principal.
+        """
+        spoofed_principal = second_keypair["principal"]
+        timestamp = str(int(time.time() * 1000))
+        endpoint = "/chat/autosave"
+        nonce = str(uuid.uuid4())
+
+        signature = create_signature(spoofed_principal, timestamp, endpoint, nonce)
+
+        success, error = verify_icp_signature(
+            principal=spoofed_principal,
+            signature_hex=signature,
+            timestamp=timestamp,
+            endpoint=endpoint,
+            public_key_hex=test_keypair["public_key_hex"],
+            nonce=nonce,
+        )
+
+        assert success is False
+        assert error is not None
+        assert "principal" in error.lower()
 
     @pytest.mark.p0
     @pytest.mark.security
@@ -158,9 +193,10 @@ class TestVerifyICPSignature:
         timestamp = str(int(time.time() * 1000))
         original_endpoint = "/chat/list"
         tampered_endpoint = "/chat/delete"
+        nonce = str(uuid.uuid4())
 
         # Sign for /chat/list
-        signature = create_signature(principal, timestamp, original_endpoint)
+        signature = create_signature(principal, timestamp, original_endpoint, nonce)
 
         # Try to verify for /chat/delete
         success, error = verify_icp_signature(
@@ -169,6 +205,7 @@ class TestVerifyICPSignature:
             timestamp=timestamp,
             endpoint=tampered_endpoint,  # Different endpoint!
             public_key_hex=test_keypair["public_key_hex"],
+            nonce=nonce,
         )
 
         assert success is False, "Tampered endpoint should be rejected"
@@ -190,8 +227,9 @@ class TestVerifyICPSignature:
         # 120 seconds in the future
         future_timestamp = str(int((time.time() + 120) * 1000))
         endpoint = "/chat/autosave"
+        nonce = str(uuid.uuid4())
 
-        signature = create_signature(principal, future_timestamp, endpoint)
+        signature = create_signature(principal, future_timestamp, endpoint, nonce)
 
         success, error = verify_icp_signature(
             principal=principal,
@@ -199,6 +237,7 @@ class TestVerifyICPSignature:
             timestamp=future_timestamp,
             endpoint=endpoint,
             public_key_hex=test_keypair["public_key_hex"],
+            nonce=nonce,
         )
 
         assert success is False, "Future timestamp should be rejected"
@@ -212,6 +251,7 @@ class TestVerifyICPSignature:
         principal = test_keypair["principal"]
         invalid_timestamp = "not-a-number"
         endpoint = "/chat/autosave"
+        nonce = str(uuid.uuid4())
 
         success, error = verify_icp_signature(
             principal=principal,
@@ -219,6 +259,7 @@ class TestVerifyICPSignature:
             timestamp=invalid_timestamp,
             endpoint=endpoint,
             public_key_hex=test_keypair["public_key_hex"],
+            nonce=nonce,
         )
 
         assert success is False, "Invalid timestamp format should be rejected"
@@ -233,7 +274,8 @@ class TestVerifyICPSignature:
         principal = test_keypair["principal"]
         timestamp = str(int(time.time() * 1000))
         endpoint = "/chat/autosave"
-        signature = create_signature(principal, timestamp, endpoint)
+        nonce = str(uuid.uuid4())
+        signature = create_signature(principal, timestamp, endpoint, nonce)
 
         # Invalid hex (odd number of characters)
         invalid_public_key = "abc"
@@ -244,6 +286,7 @@ class TestVerifyICPSignature:
             timestamp=timestamp,
             endpoint=endpoint,
             public_key_hex=invalid_public_key,
+            nonce=nonce,
         )
 
         assert success is False
@@ -257,7 +300,8 @@ class TestVerifyICPSignature:
         principal = test_keypair["principal"]
         timestamp = str(int(time.time() * 1000))
         endpoint = "/chat/autosave"
-        signature = create_signature(principal, timestamp, endpoint)
+        nonce = str(uuid.uuid4())
+        signature = create_signature(principal, timestamp, endpoint, nonce)
 
         # 16 bytes instead of 32
         short_public_key = "ab" * 16
@@ -268,6 +312,7 @@ class TestVerifyICPSignature:
             timestamp=timestamp,
             endpoint=endpoint,
             public_key_hex=short_public_key,
+            nonce=nonce,
         )
 
         assert success is False
@@ -282,7 +327,8 @@ class TestVerifyICPSignature:
         principal = test_keypair["principal"]
         timestamp = str(int(time.time() * 1000))
         endpoint = "/chat/autosave"
-        signature = create_signature(principal, timestamp, endpoint)
+        nonce = str(uuid.uuid4())
+        signature = create_signature(principal, timestamp, endpoint, nonce)
 
         success, error = verify_icp_signature(
             principal=principal,
@@ -290,6 +336,7 @@ class TestVerifyICPSignature:
             timestamp=timestamp,
             endpoint=endpoint,
             public_key_hex=None,  # No public key
+            nonce=nonce,
         )
 
         assert success is False
@@ -309,8 +356,9 @@ class TestVerifyICPSignature:
         # 59 seconds ago - just within the 60s window
         boundary_timestamp = str(int((time.time() - 59) * 1000))
         endpoint = "/chat/autosave"
+        nonce = str(uuid.uuid4())
 
-        signature = create_signature(principal, boundary_timestamp, endpoint)
+        signature = create_signature(principal, boundary_timestamp, endpoint, nonce)
 
         success, error = verify_icp_signature(
             principal=principal,
@@ -318,6 +366,7 @@ class TestVerifyICPSignature:
             timestamp=boundary_timestamp,
             endpoint=endpoint,
             public_key_hex=test_keypair["public_key_hex"],
+            nonce=nonce,
         )
 
         assert success is True, f"59s old timestamp should be valid. Error: {error}"
@@ -331,8 +380,9 @@ class TestVerifyICPSignature:
         # 61 seconds ago - just outside the 60s window
         boundary_timestamp = str(int((time.time() - 61) * 1000))
         endpoint = "/chat/autosave"
+        nonce = str(uuid.uuid4())
 
-        signature = create_signature(principal, boundary_timestamp, endpoint)
+        signature = create_signature(principal, boundary_timestamp, endpoint, nonce)
 
         success, error = verify_icp_signature(
             principal=principal,
@@ -340,6 +390,7 @@ class TestVerifyICPSignature:
             timestamp=boundary_timestamp,
             endpoint=endpoint,
             public_key_hex=test_keypair["public_key_hex"],
+            nonce=nonce,
         )
 
         assert success is False, "61s old timestamp should be rejected"
@@ -352,8 +403,9 @@ class TestVerifyICPSignature:
         principal = test_keypair["principal"]
         timestamp = str(int(time.time() * 1000))
         endpoint = "/chat/test-chat-123/delete?confirm=true"
+        nonce = str(uuid.uuid4())
 
-        signature = create_signature(principal, timestamp, endpoint)
+        signature = create_signature(principal, timestamp, endpoint, nonce)
 
         success, error = verify_icp_signature(
             principal=principal,
@@ -361,6 +413,7 @@ class TestVerifyICPSignature:
             timestamp=timestamp,
             endpoint=endpoint,
             public_key_hex=test_keypair["public_key_hex"],
+            nonce=nonce,
         )
 
         assert success is True, f"Special char endpoint should work. Error: {error}"
@@ -459,6 +512,25 @@ class TestVerifyRequestAuth:
             assert success is False
             assert principal is None
             assert "timestamp" in error.lower()
+
+    @pytest.mark.p1
+    def test_missing_nonce_header(self, app, test_keypair):
+        """
+        P1: Missing ICP-Nonce header should fail with specific error.
+        """
+        with app.test_request_context(
+            headers={
+                "ICP-Principal": test_keypair["principal"],
+                "ICP-Signature": "abc",
+                "ICP-Timestamp": str(int(time.time() * 1000)),
+                "ICP-PublicKey": test_keypair["public_key_hex"],
+            }
+        ):
+            success, principal, error = verify_request_auth()
+
+            assert success is False
+            assert principal is None
+            assert "nonce" in error.lower()
 
 
 # =============================================================================

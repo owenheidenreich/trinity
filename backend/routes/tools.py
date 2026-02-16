@@ -25,6 +25,7 @@ from config import (
     http_session,
     logger,
 )
+from icp_auth import require_auth
 from middleware import rate_limit
 from routes.shared import (
     FuturesTimeoutError,
@@ -279,6 +280,8 @@ def upload_document():
 
 
 @tools_bp.route("/tools/documents/query", methods=["POST"])
+@require_auth
+@rate_limit
 def query_document():
     """Query an uploaded document using Ollama."""
     try:
@@ -315,6 +318,8 @@ Answer:"""
 
 
 @tools_bp.route("/tools/transcript/clean", methods=["POST"])
+@require_auth
+@rate_limit
 def clean_transcript():
     """Clean and polish a transcript."""
     try:

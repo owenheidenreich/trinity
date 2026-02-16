@@ -38,6 +38,7 @@ from middleware import (
     track_error,
     track_inference,
 )
+from middleware.rate_limit import get_user_id, record_token_usage, token_quota
 from routes.shared import error_response
 from services import (
     build_prompt_with_context,
@@ -52,6 +53,7 @@ generate_bp = Blueprint("generate", __name__)
 
 @generate_bp.route("/generate", methods=["POST"])
 @rate_limit
+@token_quota(estimated_tokens=1200)
 @icp_idempotent
 def generate():
     """
@@ -175,6 +177,7 @@ def generate():
             )
 
         latency_ms = (time.time() - start_time) * 1000
+        record_token_usage(get_user_id(), tokens_generated)
         record_request(True, tokens_generated, latency_ms)
         logger.info(f"[{PROVIDER_ID}] Generated {tokens_generated} tokens in {latency_ms:.0f}ms")
 
@@ -263,6 +266,7 @@ def generate():
 
 @generate_bp.route("/generate/agent", methods=["POST"])
 @rate_limit
+@token_quota(estimated_tokens=1500)
 def generate_agent():
     """
     Single-pass agentic generation with SSE streaming.
@@ -340,6 +344,8 @@ def generate_agent():
                         full_response += event["token"]
                     yield f"data: {json.dumps(event)}\n\n"
 
+                if full_response:
+                    record_token_usage(get_user_id(), len(full_response.split()))
                 record_request(True, 0, 0)
 
                 if V4_FEATURES_AVAILABLE and principal and chat_id:

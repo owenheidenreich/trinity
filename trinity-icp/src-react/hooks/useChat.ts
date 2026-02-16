@@ -48,11 +48,6 @@ export function useChat(): UseChatReturn {
   /** Get current tokens (ref-based, avoids stale closures) */
   const getTokens = useCallback(() => tokensRef.current, []);
 
-  // Store selectors
-  const principal = useStore((s) => s.principal);
-  const contextMemory = useStore((s) => s.contextMemory);
-  const currentChatId = useStore((s) => s.currentChatId);
-  const chatHistory = useStore((s) => s.chatHistory);
   const setGenerating = useStore((s) => s.setGenerating);
 
   /** Process SSE events from the stream */
@@ -113,16 +108,23 @@ export function useChat(): UseChatReturn {
         const headers = await buildAuthHeaders('/generate/agent');
         if (!headers) throw new Error('Authentication required');
 
+        const state = useStore.getState();
+        let chatId = state.currentChatId;
+        if (!chatId) {
+          chatId = state.generateChatId();
+          useStore.setState({ currentChatId: chatId });
+        }
+
         const body = {
           prompt,
-          principal,
-          context_messages: contextMemory.map((m: ChatMessage) => ({
+          principal: state.principal,
+          context_messages: state.contextMemory.map((m: ChatMessage) => ({
             role: m.role,
             content: m.content,
           })),
-          chat_id: currentChatId,
-          message_index: chatHistory.length,
-          user_memory: useStore.getState().userMemory || {},
+          chat_id: chatId,
+          message_index: state.chatHistory.length,
+          user_memory: state.userMemory || {},
         };
 
         const response = await fetch(`${CONFIG.API_URL}/generate/agent`, {
@@ -164,14 +166,7 @@ export function useChat(): UseChatReturn {
         abortRef.current = null;
       }
     },
-    [
-      principal,
-      contextMemory,
-      currentChatId,
-      chatHistory.length,
-      setGenerating,
-      processEvents,
-    ]
+    [setGenerating, processEvents]
   );
 
   /** Continue from a truncated response (done_reason === 'length') */
@@ -196,16 +191,23 @@ export function useChat(): UseChatReturn {
         const headers = await buildAuthHeaders('/generate/agent');
         if (!headers) throw new Error('Authentication required');
 
+        const state = useStore.getState();
+        let chatId = state.currentChatId;
+        if (!chatId) {
+          chatId = state.generateChatId();
+          useStore.setState({ currentChatId: chatId });
+        }
+
         const body = {
           prompt: continuePrompt,
-          principal,
-          context_messages: contextMemory.map((m: ChatMessage) => ({
+          principal: state.principal,
+          context_messages: state.contextMemory.map((m: ChatMessage) => ({
             role: m.role,
             content: m.content,
           })),
-          chat_id: currentChatId,
-          message_index: chatHistory.length,
-          user_memory: useStore.getState().userMemory || {},
+          chat_id: chatId,
+          message_index: state.chatHistory.length,
+          user_memory: state.userMemory || {},
         };
 
         const response = await fetch(`${CONFIG.API_URL}/generate/agent`, {
@@ -248,7 +250,7 @@ export function useChat(): UseChatReturn {
         abortRef.current = null;
       }
     },
-    [principal, contextMemory, currentChatId, chatHistory.length, setGenerating]
+    [setGenerating]
   );
 
   /** Abort current stream */

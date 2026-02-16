@@ -25,6 +25,47 @@ chat_bp = Blueprint("chat", __name__)
 
 # ===== HELPER =====
 
+_NON_CHAT_UPLOAD_SUFFIXES = {"metadata", "canary", "master_bundle"}
+
+
+def _upload_prefix(principal_id: str) -> str:
+    return f"{principal_id[:PRINCIPAL_DISPLAY_LENGTH]}_"
+
+
+def _extract_upload_suffix(filename: str, principal_id: str) -> Optional[str]:
+    """Return the filename suffix after the principal prefix (without .json)."""
+    if not filename or not filename.endswith(".json"):
+        return None
+
+    prefix = _upload_prefix(principal_id)
+    if not filename.startswith(prefix):
+        return None
+
+    return filename[len(prefix):-5]
+
+
+def _extract_chat_id_from_upload(filename: str, principal_id: str) -> Optional[str]:
+    """Extract a valid chat ID from an upload filename, excluding non-chat artifacts."""
+    suffix = _extract_upload_suffix(filename, principal_id)
+    if not suffix or suffix in _NON_CHAT_UPLOAD_SUFFIXES:
+        return None
+    if not validate_chat_id(suffix):
+        return None
+    return suffix
+
+
+def _is_metadata_upload(filename: str, principal_id: str) -> bool:
+    return _extract_upload_suffix(filename, principal_id) == "metadata"
+
+
+def _upload_created_at(upload: Dict) -> int:
+    """Normalize Lighthouse createdAt values for stable sorting."""
+    try:
+        return int(upload.get("createdAt", 0) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def update_master_bundle(principal_id: str, user_metadata: Dict = None) -> Optional[str]:
     """
     Create/update master bundle containing index of all archived chats.
@@ -248,12 +289,16 @@ def list_chats():
 
         chats = []
         try:
-            uploads = get_lighthouse_uploads(principal)
+            uploads = sorted(
+                get_lighthouse_uploads(principal),
+                key=_upload_created_at,
+                reverse=True,
+            )
             metadata_cid = None
 
             for upload in uploads:
                 filename = upload.get("fileName", "")
-                if principal[:PRINCIPAL_DISPLAY_LENGTH] in filename and "metadata" in filename:
+                if _is_metadata_upload(filename, principal):
                     metadata_cid = upload.get("cid")
                     break
 
@@ -271,19 +316,18 @@ def list_chats():
                 seen_ids = {}
                 for upload in uploads[:IPFS_SCAN_LIMIT]:
                     filename = upload.get("fileName", "")
-                    if principal[:PRINCIPAL_DISPLAY_LENGTH] in filename and "metadata" not in filename:
-                        parts = filename.replace(".json", "").split("_")
-                        if len(parts) >= 2:
-                            chat_id = parts[-1]
-                            # Deduplicate by chatId — keep most recent (first seen in sorted uploads)
-                            if chat_id not in seen_ids:
-                                seen_ids[chat_id] = {
-                                    "chatId": chat_id,
-                                    "title": "Recovered Chat",
-                                    "cid": upload.get("cid"),
-                                    "lastUpdated": upload.get("createdAt", 0),
-                                    "isArchived": False,
-                                }
+                    chat_id = _extract_chat_id_from_upload(filename, principal)
+                    if not chat_id:
+                        continue
+                    # Deduplicate by chatId — keep most recent (first seen in sorted uploads)
+                    if chat_id not in seen_ids:
+                        seen_ids[chat_id] = {
+                            "chatId": chat_id,
+                            "title": "Recovered Chat",
+                            "cid": upload.get("cid"),
+                            "lastUpdated": upload.get("createdAt", 0),
+                            "isArchived": False,
+                        }
                 chats = list(seen_ids.values())
                 if chats:
                     logger.info(f"✅ Found {len(chats)} individual chats on IPFS")
@@ -316,10 +360,15 @@ def get_chat(chat_id):
 
         cid = None
         try:
-            uploads = get_lighthouse_uploads(principal)
+            uploads = sorted(
+                get_lighthouse_uploads(principal),
+                key=_upload_created_at,
+                reverse=True,
+            )
             for upload in uploads:
                 filename = upload.get("fileName", "")
-                if chat_id in filename and "metadata" not in filename:
+                resolved_chat_id = _extract_chat_id_from_upload(filename, principal)
+                if resolved_chat_id == chat_id:
                     cid = upload.get("cid")
                     break
         except Exception as e:
@@ -366,7 +415,7 @@ def delete_chat(chat_id):
         metadata_cid = None
         for upload in uploads:
             filename = upload.get("fileName", "")
-            if principal[:PRINCIPAL_DISPLAY_LENGTH] in filename and "metadata" in filename:
+            if _is_metadata_upload(filename, principal):
                 metadata_cid = upload.get("cid")
                 break
 
@@ -478,15 +527,20 @@ def archive_chat(chat_id):
             logger.warning(f"⚠️ Invalid chatId format in archive: {chat_id[:20]}...")
             return jsonify({"error": "Invalid chatId format"}), 400
 
-        uploads = get_lighthouse_uploads(principal)
+        uploads = sorted(
+            get_lighthouse_uploads(principal),
+            key=_upload_created_at,
+            reverse=True,
+        )
         metadata_cid = None
         chat_cid = None
 
         for upload in uploads:
             filename = upload.get("fileName", "")
-            if principal[:PRINCIPAL_DISPLAY_LENGTH] in filename and "metadata" in filename:
+            if _is_metadata_upload(filename, principal):
                 metadata_cid = upload.get("cid")
-            if chat_id in filename and "metadata" not in filename:
+            resolved_chat_id = _extract_chat_id_from_upload(filename, principal)
+            if resolved_chat_id == chat_id:
                 chat_cid = upload.get("cid")
 
         if not chat_cid:

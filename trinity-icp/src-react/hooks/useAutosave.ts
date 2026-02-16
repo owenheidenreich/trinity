@@ -7,7 +7,7 @@ import { useStore } from '../store';
 import { IndexedDBStorage } from '../utils/indexedDB';
 import CONFIG from '../config';
 import Logger from '../utils/logger';
-import type { AuthHeaders } from '../types';
+import type { AuthHeaders, ChatMessage } from '../types';
 
 const DEBOUNCE_MS = 2_000;
 const MAX_RETRIES = 5;
@@ -22,16 +22,12 @@ export function useAutosave(onSaveSuccess?: () => void) {
   const onSaveSuccessRef = useRef(onSaveSuccess);
   onSaveSuccessRef.current = onSaveSuccess;
 
-  const chatHistory = useStore((s) => s.chatHistory);
-  const currentChatId = useStore((s) => s.currentChatId);
-  const principal = useStore((s) => s.principal);
-  const isAuthenticated = useStore((s) => s.isAuthenticated);
   const setAutosaveStatus = useStore((s) => s.setAutosaveStatus);
   const setUnsavedChanges = useStore((s) => s.setUnsavedChanges);
 
   /** Generate a concise chat title from the first user message */
-  const generateTitle = useCallback((): string => {
-    const firstUserMsg = chatHistory.find((m) => m.role === 'user');
+  const generateTitle = useCallback((messages: ChatMessage[]): string => {
+    const firstUserMsg = messages.find((m) => m.role === 'user');
     if (!firstUserMsg) return 'New Chat';
 
     // Strip file attachment prefix if present
@@ -80,27 +76,32 @@ export function useAutosave(onSaveSuccess?: () => void) {
     }
 
     return title || 'New Chat';
-  }, [chatHistory]);
+  }, []);
 
   /** Execute the actual save operation */
   const executeSave = useCallback(
     async (
       buildAuthHeaders: (endpoint: string) => Promise<AuthHeaders | null>
     ): Promise<boolean> => {
+      const state = useStore.getState();
+      const { currentChatId, isAuthenticated, chatHistory, principal } = state;
+
       if (!currentChatId || !isAuthenticated || chatHistory.length === 0) {
         return false;
       }
 
+      const title = generateTitle(chatHistory);
+
       const chatData = {
         chatId: currentChatId,
-        title: generateTitle(),
+        title,
         messages: chatHistory.map((m) => ({
           role: m.role,
           content: m.content,
           timestamp: m.timestamp,
         })),
         metadata: {
-          title: generateTitle(),
+          title,
           createdAt: chatHistory[0]?.timestamp ?? Date.now(),
           updatedAt: Date.now(),
           messageCount: chatHistory.length,
@@ -186,21 +187,14 @@ export function useAutosave(onSaveSuccess?: () => void) {
         return false;
       }
     },
-    [
-      currentChatId,
-      isAuthenticated,
-      chatHistory,
-      principal,
-      generateTitle,
-      setAutosaveStatus,
-      setUnsavedChanges,
-    ]
+    [generateTitle, setAutosaveStatus, setUnsavedChanges]
   );
 
   /** Schedule an autosave with debounce */
   const scheduleAutosave = useCallback(
     (buildAuthHeaders: (endpoint: string) => Promise<AuthHeaders | null>) => {
-      if (!isAuthenticated || chatHistory.length === 0) return;
+      const state = useStore.getState();
+      if (!state.isAuthenticated || !state.currentChatId || state.chatHistory.length === 0) return;
 
       // Clear existing timer
       if (timerRef.current) {
@@ -211,7 +205,7 @@ export function useAutosave(onSaveSuccess?: () => void) {
         void executeSave(buildAuthHeaders);
       }, DEBOUNCE_MS);
     },
-    [isAuthenticated, chatHistory.length, executeSave]
+    [executeSave]
   );
 
   /** Retry all pending sync items */

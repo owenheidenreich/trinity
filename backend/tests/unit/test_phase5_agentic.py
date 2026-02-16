@@ -381,6 +381,28 @@ class TestRunCommand:
         assert success is False
         assert "not allowed" in output.lower()
 
+    def test_command_runner_uses_no_shell(self, tmp_path):
+        """run_command must pass argv with shell disabled to prevent injection."""
+        from services.code_executor import _execute_run_command
+
+        tracker = MagicMock()
+        tracker.set_status = MagicMock()
+
+        with patch("services.code_executor.WORKSPACE_ROOT", str(tmp_path)), patch(
+            "services.code_executor.subprocess.run"
+        ) as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="ok", stderr="")
+
+            _execute_run_command(
+                {"command": "python3 -c \"print('ok')\"; whoami"},
+                tracker,
+            )
+
+        _, kwargs = mock_run.call_args
+        args = mock_run.call_args.args[0]
+        assert kwargs["shell"] is False
+        assert isinstance(args, list)
+
 
 # ============================================================================
 # Tool Routing Tests

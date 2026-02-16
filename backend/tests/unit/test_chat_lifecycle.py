@@ -15,6 +15,7 @@ import json
 import os
 import shutil
 import time
+import uuid
 from pathlib import Path
 from typing import Callable, Dict
 from unittest.mock import MagicMock, patch
@@ -44,6 +45,7 @@ def _auth_headers(principal: str):
         "ICP-Signature": "deadbeef" * 16,
         "ICP-PublicKey": "aabb" * 16,
         "ICP-Timestamp": str(int(time.time() * 1000)),
+        "ICP-Nonce": str(uuid.uuid4()),
         "Content-Type": "application/json",
     }
 
@@ -599,6 +601,34 @@ class TestRecoveredChatDedup:
             resp = client.get("/chat/list", headers=headers)
             data = resp.get_json()
             assert data["chats"][0]["title"] == "Recovered Chat"
+
+    def test_fallback_ignores_canary_and_bundle_artifacts(self, client, mock_auth):
+        """Passphrase canary and bundle files must never appear as chats."""
+        fake_uploads = [
+            {"cid": "bafk_canary", "fileName": f"{PRINCIPAL_A[:20]}_canary.json", "createdAt": 4000},
+            {"cid": "bafk_bundle", "fileName": f"{PRINCIPAL_A[:20]}_master_bundle.json", "createdAt": 3000},
+            {"cid": "bafk_chat", "fileName": f"{PRINCIPAL_A[:16]}_chat-real.json", "createdAt": 1000},
+        ]
+
+        headers = _auth_headers(PRINCIPAL_A)
+        with patch("routes.chat.get_lighthouse_uploads", return_value=fake_uploads):
+            resp = client.get("/chat/list", headers=headers)
+            data = resp.get_json()
+            assert data["count"] == 1
+            assert data["chats"][0]["chatId"] == "chat-real"
+
+    def test_new_user_with_only_canary_has_empty_sidebar(self, client, mock_auth):
+        """A fresh account with only passphrase canary should list zero chats."""
+        fake_uploads = [
+            {"cid": "bafk_canary", "fileName": f"{PRINCIPAL_A[:20]}_canary.json", "createdAt": 1000},
+        ]
+
+        headers = _auth_headers(PRINCIPAL_A)
+        with patch("routes.chat.get_lighthouse_uploads", return_value=fake_uploads):
+            resp = client.get("/chat/list", headers=headers)
+            data = resp.get_json()
+            assert data["count"] == 0
+            assert data["chats"] == []
 
 
 # ============================================================================

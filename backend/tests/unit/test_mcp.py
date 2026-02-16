@@ -6,9 +6,12 @@ and MCP client manager.
 """
 
 import json
+import time
+import uuid
 from unittest.mock import MagicMock, patch
 
 import pytest
+from nacl.signing import SigningKey
 
 
 # ============================================================================
@@ -209,6 +212,28 @@ class TestMCPRoute:
         app.register_blueprint(mcp_bp)
         return app.test_client()
 
+    @pytest.fixture
+    def mcp_auth_headers(self):
+        """Build valid auth headers for /mcp route tests."""
+        from icp_auth import principal_from_public_key
+
+        signing_key = SigningKey.generate()
+        verify_key = signing_key.verify_key
+        public_key_bytes = bytes(verify_key)
+        principal = principal_from_public_key(public_key_bytes)
+        timestamp = str(int(time.time() * 1000))
+        nonce = str(uuid.uuid4())
+        message = f"{principal}:{timestamp}:/mcp:{nonce}"
+        signature = signing_key.sign(message.encode("utf-8")).signature.hex()
+
+        return {
+            "ICP-Principal": principal,
+            "ICP-Signature": signature,
+            "ICP-Timestamp": timestamp,
+            "ICP-PublicKey": public_key_bytes.hex(),
+            "ICP-Nonce": nonce,
+        }
+
     def test_get_mcp_info(self, client):
         response = client.get("/mcp")
         assert response.status_code == 200
@@ -216,25 +241,34 @@ class TestMCPRoute:
         assert data["name"] == "trinity"
         assert "protocolVersion" in data
 
-    def test_post_initialize(self, client):
+    def test_post_requires_auth(self, client):
+        response = client.post(
+            "/mcp",
+            json={"jsonrpc": "2.0", "id": 0, "method": "ping", "params": {}},
+        )
+        assert response.status_code == 401
+
+    def test_post_initialize(self, client, mcp_auth_headers):
         response = client.post(
             "/mcp",
             json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+            headers=mcp_auth_headers,
         )
         assert response.status_code == 200
         data = response.get_json()
         assert data["result"]["serverInfo"]["name"] == "trinity"
 
-    def test_post_tools_list(self, client):
+    def test_post_tools_list(self, client, mcp_auth_headers):
         response = client.post(
             "/mcp",
             json={"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
+            headers=mcp_auth_headers,
         )
         assert response.status_code == 200
         data = response.get_json()
         assert len(data["result"]["tools"]) == 15  # 8 original + 5 filesystem + 2 memory (update/forget)
 
-    def test_post_tools_call(self, client):
+    def test_post_tools_call(self, client, mcp_auth_headers):
         response = client.post(
             "/mcp",
             json={
@@ -246,19 +280,25 @@ class TestMCPRoute:
                     "arguments": {"expression": "10 * 5"},
                 },
             },
+            headers=mcp_auth_headers,
         )
         assert response.status_code == 200
         data = response.get_json()
         assert data["result"]["content"][0]["text"] == "50"
         assert data["result"]["isError"] is False
 
-    def test_post_invalid_json(self, client):
-        response = client.post("/mcp", data="not json", content_type="application/json")
+    def test_post_invalid_json(self, client, mcp_auth_headers):
+        response = client.post(
+            "/mcp",
+            data="not json",
+            content_type="application/json",
+            headers=mcp_auth_headers,
+        )
         assert response.status_code == 400
         data = response.get_json()
         assert "Parse error" in data["error"]["message"]
 
-    def test_post_notification_returns_204(self, client):
+    def test_post_notification_returns_204(self, client, mcp_auth_headers):
         response = client.post(
             "/mcp",
             json={
@@ -266,8 +306,23 @@ class TestMCPRoute:
                 "method": "notifications/initialized",
                 "params": {},
             },
+            headers=mcp_auth_headers,
         )
         assert response.status_code == 204
+
+    def test_signed_principal_used_not_spoofed_header(self, client, mcp_auth_headers):
+        with patch("services.mcp_server.handle_mcp_message") as mock_handle:
+            mock_handle.return_value = {"jsonrpc": "2.0", "id": 1, "result": {}}
+
+            response = client.post(
+                "/mcp",
+                json={"jsonrpc": "2.0", "id": 1, "method": "ping", "params": {}},
+                headers={**mcp_auth_headers, "X-Principal-Id": "spoofed-user"},
+            )
+
+        assert response.status_code == 200
+        kwargs = mock_handle.call_args.kwargs
+        assert kwargs["context"]["principal_id"] == mcp_auth_headers["ICP-Principal"]
 
     @patch("routes.mcp.MCP_SERVER_ENABLED", False)
     def test_disabled_get_returns_503(self, client):

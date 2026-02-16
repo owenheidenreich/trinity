@@ -15,11 +15,11 @@
     <!-- Content Security Policy -->
     <meta http-equiv="Content-Security-Policy" content="
         default-src 'self';
-        script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://cdn.filestackcontent.com;
+        script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://cdn.filestackcontent.com;
         style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://fonts.googleapis.com;
         font-src 'self' https://cdn.jsdelivr.net https://fonts.gstatic.com;
         img-src 'self' data: https: blob:;
-        connect-src 'self' https://api.dubya.ai https://*.workers.dev https://gateway.lighthouse.storage https://api.lighthouse.storage https://*.icp0.io wss://*.icp0.io https://cdnjs.cloudflare.com;
+        connect-src 'self' https://api.dubya.ai https://*.workers.dev https://gateway.lighthouse.storage https://api.lighthouse.storage https://*.icp0.io wss://*.icp0.io https://ic0.app https://*.ic0.app https://icp-api.io https://*.icp-api.io https://cdnjs.cloudflare.com;
         frame-src 'none';
         object-src 'none';
         base-uri 'self';

@@ -28,7 +28,10 @@ from config import (
     GPU_TYPE,
     logger,
 )
+from encryption import EncryptionUtils
 from services.provider_factory import get_provider
+from services.session_manager import get_session_passphrase
+from storage import save_metadata
 
 # Route blueprints
 from routes import ALL_BLUEPRINTS
@@ -272,7 +275,35 @@ def cleanup_inactive_chats():
 
             try:
                 with open(metadata_path, "r") as f:
-                    metadata = json.load(f)
+                    raw_metadata = json.load(f)
+
+                if isinstance(raw_metadata, dict) and "encryption" in raw_metadata:
+                    passphrase = get_session_passphrase(principal_id)
+                    kdf_source = raw_metadata.get("encryption", {}).get("kdf_source")
+
+                    # Avoid accidental data loss for locked passphrase-protected users.
+                    if kdf_source == "passphrase" and not passphrase:
+                        logger.info(
+                            "Skipping cleanup for %s: passphrase-locked metadata",
+                            principal_id[:16],
+                        )
+                        continue
+
+                    try:
+                        metadata = EncryptionUtils.decrypt_auto(
+                            raw_metadata,
+                            passphrase=passphrase,
+                            principal_id=principal_id,
+                        )
+                    except ValueError as e:
+                        logger.warning(
+                            "Skipping cleanup for %s: metadata decrypt failed (%s)",
+                            principal_id[:16],
+                            e,
+                        )
+                        continue
+                else:
+                    metadata = raw_metadata
 
                 chats_to_keep = []
 
@@ -295,8 +326,7 @@ def cleanup_inactive_chats():
                         chats_to_keep.append(chat)
 
                 metadata["chats"] = chats_to_keep
-                with open(metadata_path, "w") as f:
-                    json.dump(metadata, f, indent=2)
+                save_metadata(principal_id, metadata)
 
             except Exception as e:
                 logger.error(f"Error processing user {principal_id}: {e}")

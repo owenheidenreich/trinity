@@ -3,21 +3,29 @@ Trinity ICP Authentication Verification Module
 Verifies Ed25519 signatures from ICP Principal IDs
 """
 
+import base64
+import hashlib
 import logging
 import time
+import zlib
 from functools import wraps
 from typing import Optional, Tuple
 
 from cachetools import TTLCache
-from flask import g, jsonify, request
+from flask import jsonify, request
 
-from config import ADMIN_PRINCIPALS
+from config import ADMIN_PRINCIPALS, AUTH_TIMESTAMP_WINDOW_MS
 
 logger = logging.getLogger(__name__)
 
-# Track used nonces for 65 seconds (slightly longer than auth window)
+# Track used nonces slightly longer than auth window
 # This prevents replay attacks even within the valid timestamp window
-used_nonces = TTLCache(maxsize=10000, ttl=65)
+NONCE_TTL_SECONDS = max(65, int(AUTH_TIMESTAMP_WINDOW_MS / 1000) + 5)
+used_nonces = TTLCache(maxsize=10000, ttl=NONCE_TTL_SECONDS)
+
+# Ed25519 SubjectPublicKeyInfo DER prefix:
+# 30 2a 30 05 06 03 2b 65 70 03 21 00 || <32-byte raw key>
+_ED25519_DER_PREFIX = bytes.fromhex("302a300506032b6570032100")
 
 # Will need to install: pip install cryptography
 try:
@@ -30,25 +38,29 @@ except ImportError:
     CRYPTO_AVAILABLE = False
 
 
-def principal_to_public_key(principal: str) -> bytes:
+def principal_from_public_key(public_key_bytes: bytes) -> str:
     """
-    Extract Ed25519 public key from ICP Principal ID
-
-    ICP Principal format: base32-encoded DER public key with checksum
-    This is a simplified extraction - may need adjustment for production
+    Derive ICP self-authenticating principal text from a raw Ed25519 public key.
     """
-    # Remove dashes from principal
-    principal.replace("-", "")
+    if len(public_key_bytes) != 32:
+        raise ValueError(f"Invalid public key length: {len(public_key_bytes)} (expected 32)")
 
-    # ICP uses custom base32 encoding - for now, we'll need the public key
-    # sent separately or extracted from the identity during login
-    # TODO: Implement proper Principal -> PublicKey extraction
+    der_key = _ED25519_DER_PREFIX + public_key_bytes
+    principal_bytes = hashlib.sha224(der_key).digest() + b"\x02"
+    checksum = (zlib.crc32(principal_bytes) & 0xFFFFFFFF).to_bytes(4, "big")
 
-    # For Phase 2 testing, we'll require the public key to be sent in headers
-    raise NotImplementedError(
-        "Principal to public key extraction not yet implemented. "
-        "For Phase 2, send 'ICP-PublicKey' header with DER-encoded public key."
+    encoded = (
+        base64.b32encode(checksum + principal_bytes)
+        .decode("ascii")
+        .lower()
+        .rstrip("=")
     )
+    return "-".join(encoded[i : i + 5] for i in range(0, len(encoded), 5))
+
+
+def _normalize_principal(principal: str) -> str:
+    """Normalize principal text for safe equality comparison."""
+    return (principal or "").strip().lower()
 
 
 def verify_icp_signature(
@@ -67,8 +79,8 @@ def verify_icp_signature(
         signature_hex: Hex-encoded signature
         timestamp: Unix timestamp in milliseconds (as string)
         endpoint: Request endpoint (e.g., "/chat/autosave")
-        public_key_hex: Optional hex-encoded public key (32 bytes)
-        nonce: Random unique identifier to prevent replay attacks
+        public_key_hex: Hex-encoded public key (32 bytes)
+        nonce: Random unique identifier to prevent replay attacks (required)
 
     Returns:
         (success: bool, error_message: Optional[str])
@@ -83,49 +95,52 @@ def verify_icp_signature(
         current_ms = int(time.time() * 1000)
         time_diff = abs(current_ms - timestamp_ms)
 
-        # SECURITY: 60-second window to prevent replay attacks
-        # Balance between security and network latency tolerance
-        # (30s was too tight - users hitting 31s due to network delays)
-        if time_diff > 60000:  # 60 seconds in milliseconds
+        if time_diff > AUTH_TIMESTAMP_WINDOW_MS:
             logger.warning(f"⚠️ Timestamp expired: {time_diff}ms difference")
             return False, "Request timestamp expired"
     except ValueError:
         return False, "Invalid timestamp format"
 
+    if not nonce:
+        return False, "Missing nonce"
+
     # 2. Check nonce hasn't been used (prevents replay within valid timestamp window)
-    if nonce:
-        nonce_key = f"{principal}:{nonce}"
-        if nonce_key in used_nonces:
-            logger.warning(f"⚠️ Nonce already used: {nonce[:16]}... (replay attack detected)")
-            return False, "Nonce already used (replay attack detected)"
+    nonce_key = f"{principal}:{nonce}"
+    if nonce_key in used_nonces:
+        logger.warning(f"⚠️ Nonce already used: {nonce[:16]}... (replay attack detected)")
+        return False, "Nonce already used (replay attack detected)"
 
     # 3. Reconstruct the signed message
-    # If nonce is provided, it's included in the message
-    if nonce:
-        message = f"{principal}:{timestamp}:{endpoint}:{nonce}"
-    else:
-        # Legacy format without nonce (for backward compatibility during migration)
-        message = f"{principal}:{timestamp}:{endpoint}"
+    message = f"{principal}:{timestamp}:{endpoint}:{nonce}"
     message_bytes = message.encode("utf-8")
 
     logger.info(f"🔍 Verifying signature for message: {message[:80]}...")
 
     # 4. Get public key
     if not public_key_hex:
-        # Try to extract from Principal (not yet implemented)
-        try:
-            public_key_bytes = principal_to_public_key(principal)
-        except NotImplementedError:
-            return False, "Public key required - send 'ICP-PublicKey' header"
-    else:
-        try:
-            public_key_bytes = bytes.fromhex(public_key_hex)
-            if len(public_key_bytes) != 32:
-                return False, f"Invalid public key length: {len(public_key_bytes)} (expected 32)"
-        except ValueError:
-            return False, "Invalid public key hex format"
+        return False, "Public key required - send 'ICP-PublicKey' header"
+    try:
+        public_key_bytes = bytes.fromhex(public_key_hex)
+        if len(public_key_bytes) != 32:
+            return False, f"Invalid public key length: {len(public_key_bytes)} (expected 32)"
+    except ValueError:
+        return False, "Invalid public key hex format"
 
-    # 5. Convert signature from hex to bytes
+    # 5. Bind principal to public key (prevents principal spoofing).
+    try:
+        expected_principal = principal_from_public_key(public_key_bytes)
+    except ValueError as e:
+        return False, str(e)
+
+    if _normalize_principal(principal) != _normalize_principal(expected_principal):
+        logger.warning(
+            "❌ Principal/public key mismatch: got %s expected %s",
+            principal[:20],
+            expected_principal[:20],
+        )
+        return False, "Principal does not match public key"
+
+    # 6. Convert signature from hex to bytes
     try:
         signature_bytes = bytes.fromhex(signature_hex)
         if len(signature_bytes) != 64:
@@ -133,7 +148,7 @@ def verify_icp_signature(
     except ValueError:
         return False, "Invalid signature hex format"
 
-    # 6. Verify signature
+    # 7. Verify signature
     # NOTE: Ed25519PublicKey.verify() uses constant-time comparison internally
     # to prevent timing attacks. The cryptography library handles this correctly.
     try:
@@ -141,8 +156,7 @@ def verify_icp_signature(
         public_key.verify(signature_bytes, message_bytes)
 
         # Mark nonce as used AFTER successful verification
-        if nonce:
-            used_nonces[nonce_key] = True
+        used_nonces[nonce_key] = True
 
         logger.info(f"✅ Signature verified for principal: {principal[:20]}...")
         return True, None
@@ -162,12 +176,16 @@ def verify_request_auth() -> Tuple[bool, Optional[str], Optional[str]]:
     Returns:
         (success: bool, principal: Optional[str], error_message: Optional[str])
     """
+    def _header(name: str) -> Optional[str]:
+        # Prefer canonical header names, keep X-ICP-* for compatibility.
+        return request.headers.get(name) or request.headers.get(f"X-{name}")
+
     # Extract headers
-    principal = request.headers.get("ICP-Principal")
-    signature = request.headers.get("ICP-Signature")
-    timestamp = request.headers.get("ICP-Timestamp")
-    public_key = request.headers.get("ICP-PublicKey")
-    nonce = request.headers.get("ICP-Nonce")  # Replay protection
+    principal = _header("ICP-Principal")
+    signature = _header("ICP-Signature")
+    timestamp = _header("ICP-Timestamp")
+    public_key = _header("ICP-PublicKey")
+    nonce = _header("ICP-Nonce")
 
     # Check required headers
     if not principal:
@@ -176,8 +194,12 @@ def verify_request_auth() -> Tuple[bool, Optional[str], Optional[str]]:
         return False, None, "Missing ICP-Signature header"
     if not timestamp:
         return False, None, "Missing ICP-Timestamp header"
+    if not public_key:
+        return False, None, "Missing ICP-PublicKey header"
+    if not nonce:
+        return False, None, "Missing ICP-Nonce header"
 
-    # Verify signature (nonce is optional for backward compatibility)
+    # Verify signature
     success, error = verify_icp_signature(
         principal=principal,
         signature_hex=signature,

@@ -9,7 +9,7 @@ Endpoints:
     GET  /mcp  — Server info and capabilities
 
 Authentication: Uses Trinity's standard Ed25519 auth when available,
-falls back to unauthenticated access for local development.
+required for tool access on POST /mcp.
 """
 
 import logging
@@ -17,6 +17,8 @@ import logging
 from flask import Blueprint, Response, jsonify, request
 
 from config import MCP_SERVER_ENABLED
+from icp_auth import verify_request_auth
+from middleware import rate_limit
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +49,7 @@ def mcp_info():
 
 
 @mcp_bp.route("/mcp", methods=["POST"])
+@rate_limit
 def mcp_endpoint():
     """
     Handle MCP JSON-RPC 2.0 messages.
@@ -63,6 +66,15 @@ def mcp_endpoint():
             "id": None,
             "error": {"code": -32000, "message": "MCP server is disabled"},
         }), 503
+
+    success, principal, error = verify_request_auth()
+    if not success:
+        return jsonify({
+            "jsonrpc": "2.0",
+            "id": None,
+            "error": {"code": -32001, "message": "Authentication required", "details": error},
+        }), 401
+    request.principal = principal
 
     message = request.get_json(silent=True)
     if not message:
@@ -89,9 +101,7 @@ def mcp_endpoint():
 def _get_context_from_request() -> dict:
     """Extract context (principal_id) from the request if authenticated."""
     context = {}
-
-    # Try to get principal from Trinity's auth system
-    principal_id = request.headers.get("X-Principal-Id")
+    principal_id = getattr(request, "principal", None)
     if principal_id:
         context["principal_id"] = principal_id
 

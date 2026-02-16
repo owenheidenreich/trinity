@@ -8,11 +8,11 @@ These tests use mocked external dependencies (Ollama) to test
 the full integration of all backend components.
 """
 
-import hashlib
 import json
 import os
 import sys
 import time
+import uuid
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -79,12 +79,14 @@ def auth_headers():
     verify_key = signing_key.verify_key
     public_key_bytes = bytes(verify_key)
 
-    # Create a fake principal (in production this is derived from public key)
-    principal = "e2e-test-" + hashlib.sha256(public_key_bytes).hexdigest()[:20]
+    from icp_auth import principal_from_public_key
+
+    principal = principal_from_public_key(public_key_bytes)
 
     # Create signed message matching what the backend expects
     timestamp = int(time.time() * 1000)
-    message = f"{principal}:{timestamp}:/chat/autosave"
+    nonce = str(uuid.uuid4())
+    message = f"{principal}:{timestamp}:/chat/autosave:{nonce}"
 
     signature = signing_key.sign(message.encode()).signature
 
@@ -93,6 +95,7 @@ def auth_headers():
         "ICP-Signature": signature.hex(),
         "ICP-PublicKey": public_key_bytes.hex(),
         "ICP-Timestamp": str(timestamp),
+        "ICP-Nonce": nonce,
         "Content-Type": "application/json",
     }
 
@@ -120,6 +123,8 @@ def mock_admin_auth():
                 "ICP-Principal": "test-admin-principal",
                 "ICP-Signature": "deadbeef" * 16,
                 "ICP-Timestamp": str(int(time.time() * 1000)),
+                "ICP-Nonce": str(uuid.uuid4()),
+                "ICP-PublicKey": "00" * 32,
             }
 
 
@@ -218,6 +223,7 @@ class TestAuthentication:
             "ICP-Signature": "fake-sig",
             "ICP-PublicKey": "fake-key",
             "ICP-Timestamp": str(int(time.time() * 1000)),
+            "ICP-Nonce": str(uuid.uuid4()),
             "Content-Type": "application/json",
         }
 
@@ -237,6 +243,7 @@ class TestAuthentication:
             "ICP-Signature": "invalid-signature",
             "ICP-PublicKey": "invalid-key",
             "ICP-Timestamp": str(int(time.time() * 1000)),
+            "ICP-Nonce": str(uuid.uuid4()),
             "Content-Type": "application/json",
         }
 
@@ -362,6 +369,7 @@ class TestFullPipelineIntegration:
             "ICP-Signature": "mock-sig",
             "ICP-PublicKey": "mock-key",
             "ICP-Timestamp": str(int(time.time() * 1000)),
+            "ICP-Nonce": str(uuid.uuid4()),
             "Content-Type": "application/json",
         }
 

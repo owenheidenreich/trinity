@@ -31,9 +31,9 @@ function getCorsHeaders(origin) {
     'Referrer-Policy': 'strict-origin-when-cross-origin',
     'Content-Security-Policy':
       "default-src 'self'; " +
-      "script-src 'self' https://cdn.jsdelivr.net; " +
+      "script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; " +
       "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; " +
-      "connect-src 'self' https://api.dubya.ai; " +
+      "connect-src 'self' https://api.dubya.ai https://ic0.app https://*.ic0.app https://icp-api.io https://*.icp-api.io https://*.icp0.io wss://*.icp0.io; " +
       "img-src 'self' data: https:; " +
       "font-src 'self' https://cdn.jsdelivr.net; " +
       "frame-ancestors 'none';",

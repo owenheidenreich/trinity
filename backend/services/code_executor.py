@@ -7,6 +7,7 @@ import fnmatch
 import logging
 import math
 import os
+import shlex
 import subprocess
 import threading
 from io import StringIO
@@ -732,8 +733,14 @@ def _execute_run_command(params: Dict, tracker) -> Tuple[bool, str]:
     if not command.strip():
         return False, "No command provided"
 
-    # Parse the command to check the executable
-    parts = command.strip().split()
+    # Parse command safely into argv tokens; no shell parsing/execution.
+    try:
+        parts = shlex.split(command)
+    except ValueError as e:
+        return False, f"Invalid command syntax: {e}"
+
+    if not parts:
+        return False, "No command provided"
     executable = parts[0]
 
     # Security: only allowed executables
@@ -747,8 +754,8 @@ def _execute_run_command(params: Dict, tracker) -> Tuple[bool, str]:
             workspace.mkdir(parents=True, exist_ok=True)
 
         result = subprocess.run(
-            command,
-            shell=True,
+            parts,
+            shell=False,
             capture_output=True,
             text=True,
             timeout=WORKSPACE_COMMAND_TIMEOUT,

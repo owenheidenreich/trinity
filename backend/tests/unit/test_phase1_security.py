@@ -37,11 +37,14 @@ def admin_keypair():
     """Generate a keypair designated as admin."""
     signing_key = SigningKey.generate()
     verify_key = signing_key.verify_key
+    from icp_auth import principal_from_public_key
+
+    public_key_hex = verify_key.encode().hex()
     return {
         "signing_key": signing_key,
         "verify_key": verify_key,
-        "public_key_hex": verify_key.encode().hex(),
-        "principal": "admin-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx-adm",
+        "public_key_hex": public_key_hex,
+        "principal": principal_from_public_key(bytes.fromhex(public_key_hex)),
     }
 
 
@@ -50,30 +53,30 @@ def non_admin_keypair():
     """Generate a keypair NOT designated as admin."""
     signing_key = SigningKey.generate()
     verify_key = signing_key.verify_key
+    from icp_auth import principal_from_public_key
+
+    public_key_hex = verify_key.encode().hex()
     return {
         "signing_key": signing_key,
         "verify_key": verify_key,
-        "public_key_hex": verify_key.encode().hex(),
-        "principal": "user-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx-usr",
+        "public_key_hex": public_key_hex,
+        "principal": principal_from_public_key(bytes.fromhex(public_key_hex)),
     }
 
 
 def make_auth_headers(keypair, endpoint, nonce=None):
     """Create valid auth headers for a given keypair and endpoint."""
     timestamp = str(int(time.time() * 1000))
-    if nonce:
-        message = f"{keypair['principal']}:{timestamp}:{endpoint}:{nonce}"
-    else:
-        message = f"{keypair['principal']}:{timestamp}:{endpoint}"
+    nonce = nonce or str(uuid.uuid4())
+    message = f"{keypair['principal']}:{timestamp}:{endpoint}:{nonce}"
     signed = keypair["signing_key"].sign(message.encode("utf-8"))
     headers = {
         "ICP-Principal": keypair["principal"],
         "ICP-Signature": signed.signature.hex(),
         "ICP-Timestamp": timestamp,
         "ICP-PublicKey": keypair["public_key_hex"],
+        "ICP-Nonce": nonce,
     }
-    if nonce:
-        headers["ICP-Nonce"] = nonce
     return headers
 
 
@@ -330,11 +333,11 @@ class TestNonceReplayProtection:
     @pytest.mark.security
     def test_nonce_included_in_signature_message(self):
         """When nonce is provided, it must be part of the signed message."""
-        from icp_auth import verify_icp_signature
+        from icp_auth import principal_from_public_key, verify_icp_signature
 
         signing_key = SigningKey.generate()
         verify_key = signing_key.verify_key
-        principal = "nonce-test-user"
+        principal = principal_from_public_key(bytes(verify_key))
         timestamp = str(int(time.time() * 1000))
         endpoint = "/test"
         nonce = str(uuid.uuid4())
@@ -357,11 +360,11 @@ class TestNonceReplayProtection:
     @pytest.mark.security
     def test_replayed_nonce_rejected(self):
         """Same nonce used twice must be rejected (replay attack)."""
-        from icp_auth import used_nonces, verify_icp_signature
+        from icp_auth import principal_from_public_key, used_nonces, verify_icp_signature
 
         signing_key = SigningKey.generate()
         verify_key = signing_key.verify_key
-        principal = "replay-test-user"
+        principal = principal_from_public_key(bytes(verify_key))
         timestamp = str(int(time.time() * 1000))
         endpoint = "/test"
         nonce = str(uuid.uuid4())
@@ -401,11 +404,11 @@ class TestNonceReplayProtection:
     @pytest.mark.security
     def test_different_nonces_both_accepted(self):
         """Two requests with different nonces should both succeed."""
-        from icp_auth import used_nonces, verify_icp_signature
+        from icp_auth import principal_from_public_key, used_nonces, verify_icp_signature
 
         signing_key = SigningKey.generate()
         verify_key = signing_key.verify_key
-        principal = "multi-nonce-user"
+        principal = principal_from_public_key(bytes(verify_key))
         timestamp = str(int(time.time() * 1000))
         endpoint = "/test"
 
@@ -437,13 +440,13 @@ class TestNonceReplayProtection:
             assert success, f"Request {i+1} with unique nonce failed: {error}"
 
     @pytest.mark.p1
-    def test_legacy_request_without_nonce_still_works(self):
-        """Requests without nonce should still work (backward compatibility)."""
-        from icp_auth import verify_icp_signature
+    def test_request_without_nonce_rejected(self):
+        """Requests without nonce must be rejected."""
+        from icp_auth import principal_from_public_key, verify_icp_signature
 
         signing_key = SigningKey.generate()
         verify_key = signing_key.verify_key
-        principal = "legacy-no-nonce"
+        principal = principal_from_public_key(bytes(verify_key))
         timestamp = str(int(time.time() * 1000))
         endpoint = "/test"
 
@@ -459,17 +462,19 @@ class TestNonceReplayProtection:
             public_key_hex=verify_key.encode().hex(),
             nonce=None,  # No nonce
         )
-        assert success, f"Legacy request without nonce failed: {error}"
+        assert not success, "Nonce-free request should be rejected"
+        assert error is not None
+        assert "nonce" in error.lower()
 
     @pytest.mark.p0
     @pytest.mark.security
     def test_nonce_with_wrong_signature_rejected(self):
         """A nonce signed with wrong key must be rejected."""
-        from icp_auth import verify_icp_signature
+        from icp_auth import principal_from_public_key, verify_icp_signature
 
         signing_key = SigningKey.generate()
         wrong_key = SigningKey.generate()
-        principal = "wrong-sig-user"
+        principal = principal_from_public_key(bytes(signing_key.verify_key))
         timestamp = str(int(time.time() * 1000))
         endpoint = "/test"
         nonce = str(uuid.uuid4())
@@ -515,6 +520,30 @@ class TestCSPHeaders:
         assert "script-src" in content, (
             "CSP missing script-src directive"
         )
+
+    @pytest.mark.p1
+    def test_csp_contains_ic0_and_wasm_eval_regression_guards(self):
+        """CSP in all served entry points must allow ICP API calls and WASM auth libs."""
+        project_root = Path(__file__).parent.parent.parent.parent
+        csp_files = [
+            project_root / "deploy" / "cloudflare-worker" / "worker.js",
+            project_root / "trinity-icp" / "src" / "index.html",
+            project_root / "trinity-icp" / "src-react" / "index.html",
+            project_root / "trinity-icp" / "src-react" / "public" / ".ic-assets.json5",
+        ]
+
+        missing_files = [str(path) for path in csp_files if not path.exists()]
+        if missing_files:
+            pytest.skip(f"CSP source files not found: {', '.join(missing_files)}")
+
+        for csp_path in csp_files:
+            content = csp_path.read_text()
+            assert "'wasm-unsafe-eval'" in content, (
+                f"{csp_path} missing wasm-unsafe-eval in CSP"
+            )
+            assert "https://ic0.app" in content, (
+                f"{csp_path} missing https://ic0.app in CSP connect-src"
+            )
 
     @pytest.mark.p1
     def test_worker_js_has_security_headers(self):

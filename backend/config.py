@@ -85,7 +85,8 @@ BUILD_TIMESTAMP = datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")
 BRAVE_SEARCH_API_KEY = os.getenv("BRAVE_SEARCH_API_KEY", "")
 
 # ===== AUTHENTICATION =====
-AUTH_TIMESTAMP_WINDOW_MS = 5 * 60 * 1000  # 5 minutes
+# Signed request freshness window (default: 60 seconds)
+AUTH_TIMESTAMP_WINDOW_MS = int(os.getenv("AUTH_TIMESTAMP_WINDOW_MS", "60000"))
 
 # Admin principals (comma-separated list of principal IDs that can access /admin/* endpoints)
 # Set via environment variable: ADMIN_PRINCIPALS="principal1,principal2"
