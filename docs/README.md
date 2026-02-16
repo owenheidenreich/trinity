@@ -27,6 +27,7 @@
 | [backend/API.md](backend/API.md) | Backend API documentation |
 | [backend/SERVICES.md](backend/SERVICES.md) | Backend service modules reference |
 | [frontend/MODULES.md](frontend/MODULES.md) | Frontend module documentation |
+| [handoffs/2026-02-16-security-and-ui-corrections.md](handoffs/2026-02-16-security-and-ui-corrections.md) | Security hardening + UI chat persistence fixes + validation results |
 
 ### For DevOps
 

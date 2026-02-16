@@ -31,8 +31,10 @@ DON'T: Add features to `src/` (legacy vanilla JS) — only `src-react/` gets new
 
 ## Auth
 DO: Signed message format: `{principal}:{timestamp}:{endpoint}:{nonce}`
-DO: Check 60s timestamp window (hardcoded in `icp_auth.py`, NOT the 5min in config.py)
-DON'T: Trust `AUTH_TIMESTAMP_WINDOW_MS` from config.py — it's unused
+DO: Require all 5 auth headers on protected routes (`ICP-Principal`, `ICP-Signature`, `ICP-Timestamp`, `ICP-PublicKey`, `ICP-Nonce`)
+DO: Enforce principal/public-key binding (derived principal from key must match header principal)
+DO: Use `AUTH_TIMESTAMP_WINDOW_MS` from `config.py` (default 60s)
+DON'T: Support nonce-optional fallback paths
 
 ## Testing
 DO: Run `cd backend && python -m pytest tests/ -x -q` before committing backend changes

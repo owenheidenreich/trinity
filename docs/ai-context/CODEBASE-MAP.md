@@ -214,7 +214,7 @@ Every `/chat/*`, `/tools/*`, and `/v4/*` request must include:
 | `ICP-Signature` | Yes | Ed25519 signature (hex) |
 | `ICP-Timestamp` | Yes | Unix timestamp (ms) |
 | `ICP-PublicKey` | Yes | Ed25519 public key (hex) |
-| `ICP-Nonce` | No | UUID for replay protection |
+| `ICP-Nonce` | Yes | UUID for replay protection |
 
 ### Signed Message Format
 
@@ -222,12 +222,11 @@ Every `/chat/*`, `/tools/*`, and `/v4/*` request must include:
 {principal}:{timestamp}:{endpoint}:{nonce}
 ```
 
-Nonce is optional for backward compatibility. Without nonce: `{principal}:{timestamp}:{endpoint}`.
+Nonce is required on protected endpoints.
 
 ### Timestamp Window
 
-**Actual enforcement:** 60 seconds (hardcoded in `icp_auth.py`).
-Note: `config.py` defines `AUTH_TIMESTAMP_WINDOW_MS = 300000` (5 min) but this constant is **not used**.
+**Actual enforcement:** `AUTH_TIMESTAMP_WINDOW_MS` from `config.py` (default `60000` / 60 seconds).
 
 ---
 
@@ -345,7 +344,5 @@ Store: `trinity-icp/src-react/store/index.ts` · Types: `trinity-icp/src-react/s
 
 | Issue | Details |
 |-------|---------|
-| `AUTH_TIMESTAMP_WINDOW_MS` unused | config.py defines 5min, icp_auth.py hardcodes 60s |
 | `database.py` not integrated | 298-line ORM exists but unused |
-
 | Cold start delay | First request after Akash deploy takes 20-30s (LLM loading) |

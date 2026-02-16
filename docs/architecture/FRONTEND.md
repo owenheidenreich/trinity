@@ -449,6 +449,16 @@ Database: TrinityChats (v1)
 3. If cloud fails → queue in `pendingSync` store
 4. On next successful save or app reload → retry all pending items
 
+### Feb 16, 2026 chat persistence fixes
+
+- Autosave now reads the latest Zustand state at execution time (prevents stale chat ID/history writes).
+- New chats reliably generate and retain distinct chat IDs before send/autosave.
+- Continue-generation updates now patch the active conversation safely.
+- Combined with backend artifact filtering, this resolved:
+  - false blank "Recovered Chat" entries on fresh accounts,
+  - sidebar chat overwrite on "New Chat",
+  - partial history saves where only the latest message was persisted.
+
 ---
 
 ## Sidebar & Chat Management

@@ -1,17 +1,18 @@
 # Trinity Backend API Reference
 
-> **Last Updated:** February 13, 2026
+> **Last Updated:** February 16, 2026
 > **Base URL:** `https://api.dubya.ai`
 
 ---
 
 ## Overview
 
-Trinity exposes API endpoints organized into 8 blueprints. Auth uses Ed25519 signatures on all `/chat/*`, `/user/*`, and `/tools/*` routes.
+Trinity exposes API endpoints organized into 8 blueprints. Auth uses Ed25519 signatures on protected routes (`/chat/*`, `/user/*`, `/tools/*`, `/mcp` POST, and `/v4/*`).
 
 **Auth headers:** `ICP-Principal`, `ICP-Timestamp`, `ICP-Signature`, `ICP-PublicKey`, `ICP-Nonce`
-**Signed message:** `{principal}:{timestamp}:{endpoint}:{nonce}` (nonce optional for backward compatibility)
-**Timestamp window:** 60 seconds (hardcoded in `icp_auth.py`; `config.py` defines 5 minutes but is not currently referenced)
+**Signed message:** `{principal}:{timestamp}:{endpoint}:{nonce}`
+**Timestamp window:** Config-driven via `AUTH_TIMESTAMP_WINDOW_MS` (default `60000`, i.e. 60 seconds)
+**Binding rule:** `ICP-Principal` must match the principal derived from `ICP-PublicKey` (Ed25519 principal derivation)
 
 ---
 
@@ -126,7 +127,7 @@ data: {"done": true, "response": {"complexity": "medium"}}
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/mcp` | Server info & capabilities |
-| POST | `/mcp` | JSON-RPC 2.0 (initialize, tools/list, tools/call) |
+| POST | `/mcp` | **Auth required + rate-limited** JSON-RPC 2.0 (initialize, tools/list, tools/call) |
 
 ---
 
@@ -161,3 +162,28 @@ data: {"done": true, "response": {"complexity": "medium"}}
 | `/generate/*` | 30 req/min per principal |
 | `/chat/*` | 10 req/min per principal |
 | `/tools/*` | 30 req/min per principal |
+| `/mcp` (POST) | 30 req/min per principal |
+| `/api/passphrase/unlock` | Rate-limited |
+
+---
+
+## Feb 16, 2026 Corrections
+
+- Enforced nonce-required auth and principal/public-key cryptographic binding.
+- Removed legacy nonce-optional verification path.
+- Locked down `/mcp` POST with `@require_auth` and rate limiting.
+- Added auth + rate limiting protections for `/tools/documents/query` and `/tools/transcript/clean`.
+- Hardened `run_command` execution path (`shell=False` + argument parsing), removing `shell=True` injection surface.
+- Standardized quota identity resolution to authenticated principal.
+- Applied token quota accounting/enforcement across generation paths.
+- Added passphrase unlock throttling.
+- Fixed cleanup metadata handling to decrypt/re-save through encrypted storage flow.
+
+Minor interface fixes documented in code and tests:
+- New accounts no longer show false "Recovered Chat" entries from non-chat artifacts.
+- New chat creation no longer overwrites a single sidebar chat.
+- Autosave now uses latest chat state so full conversation history is persisted per chat.
+
+Validation snapshots:
+- Security patch set: `867 passed, 9 skipped` (`backend/tests/`, no coverage gate).
+- UI/chat fixes: backend lifecycle tests + frontend `useChat` tests + TypeScript check pass.

@@ -158,8 +158,8 @@ create_app()
 | POST | `/tools/browse` | Rate-limited | URL fetch with SSRF protection + HTML parsing |
 | POST | `/tools/search-and-summarize` | Rate-limited | Combined search → fetch → format |
 | POST | `/tools/documents/upload` | Rate-limited | Temporary document upload (1hr TTL, 5MB max) |
-| POST | `/tools/documents/query` | None | Query uploaded document via LLM |
-| POST | `/tools/transcript/clean` | None | Clean transcripts via LLM |
+| POST | `/tools/documents/query` | `@require_auth` + rate-limited | Query uploaded document via LLM |
+| POST | `/tools/transcript/clean` | `@require_auth` + rate-limited | Clean transcripts via LLM |
 | GET | `/tools/status` | None | Tool availability check |
 
 ### V4 Vector/RAG Features (6 endpoints)
@@ -198,7 +198,7 @@ All gated behind `V4_FEATURES_AVAILABLE` flag — gracefully return 501 if depen
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | GET | `/mcp` | None | MCP server info + capabilities |
-| POST | `/mcp` | None | JSON-RPC 2.0: `initialize`, `tools/list`, `tools/call`, `ping` |
+| POST | `/mcp` | `@require_auth` + rate-limited | JSON-RPC 2.0: `initialize`, `tools/list`, `tools/call`, `ping` |
 
 ---
 
@@ -296,6 +296,9 @@ Incoming request with 5 headers
 │
 ├── Verify Ed25519 signature against public key
 │   └── Reject if signature invalid
+│
+├── Derive principal from public key
+│   └── Reject if derived principal != ICP-Principal header
 │
 ├── Record nonce in TTLCache
 │

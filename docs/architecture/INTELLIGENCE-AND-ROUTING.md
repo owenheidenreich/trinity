@@ -311,6 +311,7 @@ ALLOWED_COMMANDS = {"python", "python3", "pytest", "node"}
 ```
 
 Any other command (e.g., `rm`, `curl`, `bash`) is rejected before execution.
+Arguments are parsed with `shlex.split(...)` and executed with `subprocess.run(..., shell=False)`, so shell metacharacters are not interpreted.
 
 ---
 
