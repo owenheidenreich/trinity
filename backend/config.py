@@ -77,22 +77,6 @@ AKASH_WALLET_ADDRESS = os.getenv(
 ICP_BACKEND_CANISTER = os.getenv("ICP_BACKEND_CANISTER", "au5zq-2qaaa-aaaal-qtowa-cai")
 ICP_FRONTEND_CANISTER = os.getenv("ICP_FRONTEND_CANISTER", "zc67k-kiaaa-aaaal-qtmiq-cai")
 
-# Deployment tier detection
-tier_names = {
-    # Legacy models
-    "tinyllama:1.1b": 1,
-    "llama3.1:8b": 2,
-    "qwen2.5:72b": 3,
-    "qwen2.5:14b": 2,
-    "qwen2.5:32b": 3,
-    "qwen2.5-coder:32b": 3,
-    # Qwen3 models
-    "qwen3:1.7b": 1,
-    "qwen3:8b": 2,
-    "qwen3:32b": 3,
-}
-DEPLOYMENT_TIER = tier_names.get(MODEL_NAME, 0)
-
 # ===== BUILD INFO =====
 BUILD_TIMESTAMP = datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")
 
@@ -154,11 +138,19 @@ RAG_TOP_K = 5
 
 # ===== MEMORY CONFIGURATION =====
 # Working memory: most recent messages always included
-WORKING_MEMORY_SIZE = 3
+WORKING_MEMORY_SIZE = int(os.getenv("WORKING_MEMORY_SIZE", "5"))
 # Semantic memory: retrieved based on relevance
-SEMANTIC_MEMORY_SIZE = 5
+SEMANTIC_MEMORY_SIZE = int(os.getenv("SEMANTIC_MEMORY_SIZE", "8"))
 # Recency weight for retrieval scoring (0-1)
 RECENCY_WEIGHT = 0.3
+# User profile token budget — max tokens for profile section in prompt
+PROFILE_TOKEN_BUDGET = int(os.getenv("PROFILE_TOKEN_BUDGET", "2500"))
+# Profile categories for structured user data
+PROFILE_CATEGORIES = ["identity", "work", "interests", "preferences", "relationships"]
+# Dedup merge threshold — update existing fact instead of skipping
+DEDUP_MERGE_THRESHOLD = 0.85
+# Dedup skip threshold — too similar to save at all
+DEDUP_SKIP_THRESHOLD = 0.95
 
 # ===== TOOL CONFIGURATION =====
 # Enable code execution (RestrictedPython sandbox)
@@ -210,6 +202,6 @@ except PermissionError:
 
 # Log startup configuration
 logger.info(f"🏗️  Trinity Backend Build: {BUILD_TIMESTAMP}")
-logger.info(f"📦 Model: {MODEL_NAME} (Tier {DEPLOYMENT_TIER})")
+logger.info(f"📦 Model: {MODEL_NAME}")
 logger.info(f"🔗 Ollama: {OLLAMA_HOST}")
 logger.info(f"💾 Chats: {CHATS_DIR}")

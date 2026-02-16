@@ -125,9 +125,9 @@ class TestBlueprintImports:
         assert _io_executor._max_workers == 10
 
     def test_all_blueprints_list(self):
-        """routes.__init__ exports ALL_BLUEPRINTS list with 8 items."""
+        """routes.__init__ exports ALL_BLUEPRINTS list with 9 items."""
         from routes import ALL_BLUEPRINTS
-        assert len(ALL_BLUEPRINTS) == 8
+        assert len(ALL_BLUEPRINTS) == 9
 
 
 class TestRequestHooks:

@@ -4,7 +4,9 @@ Trinity Agentic Pipeline — Single-Pass Orchestrator
 Routes every query through one path:
   1. Detect if tools are needed
   2. If yes → ReAct loop (iterative tool calling with streaming)
-  3. If no  → direct chat_stream through Ollama
+  3. If no  → direct chat_stream through LLMProvider
+
+Provider-agnostic: works with OllamaProvider or any future LLMProvider subclass.
 
 No complexity classification. No multi-pass. One prompt, one response.
 """
@@ -21,6 +23,7 @@ import requests
 from middleware.observability import record_complexity, record_routing, track_agent_pass
 
 from .agent_prompts import build_system_prompt
+from .llm_provider import LLMProvider
 from .loading_messages import format_phase_update
 from .search import format_search_context, is_search_available, search_web
 from .tools import detect_tools_needed
@@ -53,36 +56,131 @@ _THINK_OPEN = re.compile(r"<think>", re.IGNORECASE)
 _THINK_CLOSE = re.compile(r"</think>", re.IGNORECASE)
 
 
-def _format_user_memory(user_memory: Dict) -> str:
-    """Format user memory dict into clean text for LLM consumption.
+def _estimate_tokens(text: str) -> int:
+    """Rough token estimate: ~4 chars per token for English text."""
+    return max(1, len(text) // 4)
 
-    Handles both legacy fact formats:
-      - {"fact": "..."} (from REST API)
-      - {"text": "...", "embedding": [...]} (from memory tools)
-      - plain strings
-    Strips embeddings so they never pollute the prompt.
+
+def _format_user_memory(user_memory: Dict, query: str = "") -> str:
+    """Format user memory into a token-budget-aware profile section for the LLM.
+
+    Instead of naively slicing facts[:10], this:
+    1. Filters out deleted facts
+    2. Scores each fact by relevance (to query), importance, and recency
+    3. Always includes identity facts (name, etc.) — they're cheap
+    4. Packs remaining facts into the token budget by score
+
+    Returns a Markdown section for the system prompt.
     """
+    from config import PROFILE_TOKEN_BUDGET
+
     if not user_memory or not isinstance(user_memory, dict):
         return ""
-    facts = user_memory.get("facts", [])
+
+    # Import here to avoid circular imports
+    try:
+        from storage import get_active_facts
+        facts = get_active_facts(user_memory)
+    except ImportError:
+        facts = [
+            f for f in user_memory.get("facts", [])
+            if isinstance(f, str) or (isinstance(f, dict) and not f.get("deleted", False))
+        ]
+
     if not facts:
         return ""
-    lines = []
-    for fact in facts[:10]:
-        if isinstance(fact, dict):
-            text = fact.get("text") or fact.get("fact") or ""
-            if not text:
+
+    # Score each fact
+    now_ms = int(time.time() * 1000)
+    scored_facts = []
+    query_embedding = None
+
+    if query:
+        try:
+            from .embeddings import cosine_similarity, embed_text
+            query_embedding = embed_text(query)
+        except Exception:
+            pass
+
+    for fact in facts:
+        # Handle plain string facts (legacy format)
+        if isinstance(fact, str):
+            text = fact
+            if not text.strip():
                 continue
-            category = fact.get("category", "")
-            if category and category != "general":
-                lines.append(f"- [{category}] {text}")
-            else:
-                lines.append(f"- {text}")
-        elif isinstance(fact, str):
-            lines.append(f"- {fact}")
-    if not lines:
+            score = 0.5 * 0.5 + (3 / 5.0) * 0.3 + 1.0 * 0.2
+            scored_facts.append((score, fact, text, "general"))
+            continue
+
+        text = fact.get("text") or fact.get("fact") or ""
+        if not text:
+            continue
+
+        # Relevance to query (0-1)
+        relevance = 0.5  # default if no query
+        if query_embedding is not None:
+            emb = fact.get("embedding")
+            if emb is not None:
+                try:
+                    import numpy as np
+                    relevance = float(cosine_similarity(query_embedding, np.array(emb)))
+                except Exception:
+                    relevance = 0.5
+
+        # Importance (normalized 0-1)
+        importance = fact.get("importance", 3) / 5.0
+
+        # Recency (0-1, decays over 30 days)
+        # Use valid_at for temporal accuracy, fall back to last_mentioned or created_at
+        created_at = fact.get("valid_at") or fact.get("last_mentioned") or fact.get("created_at", now_ms)
+        age_days = max(0, (now_ms - created_at) / (1000 * 86400))
+        recency = max(0.0, 1.0 - (age_days / 30.0))
+
+        # Combined score
+        score = relevance * 0.5 + importance * 0.3 + recency * 0.2
+
+        # Identity facts get a big boost — always include the user's name
+        category = fact.get("category", "general")
+        if category == "identity":
+            score += 1.0
+
+        scored_facts.append((score, fact, text, category))
+
+    if not scored_facts:
         return ""
-    return "## What you know about this user\n" + "\n".join(lines)
+
+    # Sort by score (highest first)
+    scored_facts.sort(key=lambda x: x[0], reverse=True)
+
+    # Pack into token budget
+    lines_by_category = {}
+    token_count = 50  # header overhead
+
+    for score, fact, text, category in scored_facts:
+        line = f"- {text}"
+        line_tokens = _estimate_tokens(line)
+
+        if token_count + line_tokens > PROFILE_TOKEN_BUDGET:
+            continue
+
+        if category not in lines_by_category:
+            lines_by_category[category] = []
+        lines_by_category[category].append(line)
+        token_count += line_tokens
+
+    if not lines_by_category:
+        return ""
+
+    # Format with category headers
+    sections = []
+    category_order = ["identity", "work", "interests", "preferences", "relationships", "general"]
+    for cat in category_order:
+        if cat in lines_by_category:
+            label = cat.title()
+            sections.append(f"### {label}")
+            sections.extend(lines_by_category[cat])
+
+    return "## What you know about this user\n" + "\n".join(sections)
 
 
 # ============================================================================
@@ -120,184 +218,16 @@ class AgentResponse:
 
 
 # ============================================================================
-# OLLAMA INTERFACE
-# ============================================================================
-
-
-class OllamaClient:
-    """Client for Ollama API calls."""
-
-    def __init__(self, host: str = "http://localhost:11434", model: str = "llama3.1:8b"):
-        self.host = host
-        self.model = model
-
-    def generate(
-        self,
-        prompt: str,
-        max_tokens: int = 1000,
-        temperature: float = 0.7,
-        timeout: int = 30,
-        **kwargs,
-    ) -> str:
-        """Generate a response (non-streaming)."""
-        try:
-            response = requests.post(
-                f"{self.host}/api/generate",
-                json={
-                    "model": self.model,
-                    "prompt": prompt,
-                    "stream": False,
-                    "options": {"num_predict": max_tokens, "temperature": temperature, "num_ctx": 32768},
-                },
-                timeout=timeout,
-            )
-
-            if response.status_code != 200:
-                logger.error(f"Ollama error: {response.status_code}")
-                return ""
-
-            return response.json().get("response", "")
-
-        except requests.exceptions.Timeout:
-            logger.warning(f"Ollama timeout after {timeout}s")
-            return ""
-        except Exception as e:
-            logger.error(f"Ollama error: {e}")
-            return ""
-
-    def generate_stream(
-        self,
-        prompt: str,
-        max_tokens: int = 1000,
-        temperature: float = 0.7,
-        timeout: int = 60,
-        **kwargs,
-    ) -> Generator[str, None, None]:
-        """Generate a response with streaming."""
-        try:
-            response = requests.post(
-                f"{self.host}/api/generate",
-                json={
-                    "model": self.model,
-                    "prompt": prompt,
-                    "stream": True,
-                    "options": {"num_predict": max_tokens, "temperature": temperature, "num_ctx": 32768},
-                },
-                stream=True,
-                timeout=timeout,
-            )
-
-            if response.status_code != 200:
-                logger.error(f"Ollama error: {response.status_code}")
-                return
-
-            for line in response.iter_lines():
-                if line:
-                    try:
-                        chunk = json.loads(line)
-                        token = chunk.get("response", "")
-                        if token:
-                            yield token
-                        if chunk.get("done"):
-                            yield {"__done_reason": chunk.get("done_reason", "stop")}
-                            break
-                    except json.JSONDecodeError:
-                        continue
-
-        except requests.exceptions.Timeout:
-            logger.warning(f"Ollama stream timeout after {timeout}s")
-        except Exception as e:
-            logger.error(f"Ollama stream error: {e}")
-
-    def chat(
-        self,
-        messages: List[Dict],
-        max_tokens: int = 1000,
-        temperature: float = 0.7,
-        timeout: int = 60,
-        tools: List[Dict] = None,
-        raw_message: bool = False,
-        **kwargs,
-    ) -> str:
-        """Call Ollama /api/chat with messages array (non-streaming)."""
-        try:
-            payload = {
-                "model": self.model,
-                "messages": messages,
-                "stream": False,
-                "options": {"num_predict": max_tokens, "temperature": temperature, "num_ctx": 32768},
-            }
-            if tools:
-                payload["tools"] = tools
-
-            response = requests.post(
-                f"{self.host}/api/chat",
-                json=payload,
-                timeout=timeout,
-            )
-
-            if response.status_code != 200:
-                logger.error(f"Ollama chat error: {response.status_code}")
-                return {} if raw_message else ""
-
-            message = response.json().get("message", {})
-            return message if raw_message else message.get("content", "")
-
-        except requests.exceptions.Timeout:
-            logger.warning(f"Ollama chat timeout after {timeout}s")
-            return {} if raw_message else ""
-        except Exception as e:
-            logger.error(f"Ollama chat error: {e}")
-            return {} if raw_message else ""
-
-    def chat_stream(
-        self,
-        messages: List[Dict],
-        max_tokens: int = 1000,
-        temperature: float = 0.7,
-        timeout: int = 60,
-        **kwargs,
-    ) -> Generator[str, None, None]:
-        """Call Ollama /api/chat with messages array (streaming)."""
-        try:
-            response = requests.post(
-                f"{self.host}/api/chat",
-                json={
-                    "model": self.model,
-                    "messages": messages,
-                    "stream": True,
-                    "options": {"num_predict": max_tokens, "temperature": temperature, "num_ctx": 32768},
-                },
-                stream=True,
-                timeout=timeout,
-            )
-
-            if response.status_code != 200:
-                logger.error(f"Ollama chat stream error: {response.status_code}")
-                return
-
-            for line in response.iter_lines():
-                if line:
-                    try:
-                        chunk = json.loads(line)
-                        token = chunk.get("message", {}).get("content", "")
-                        if token:
-                            yield token
-                        if chunk.get("done"):
-                            yield {"__done_reason": chunk.get("done_reason", "stop")}
-                            break
-                    except json.JSONDecodeError:
-                        continue
-
-        except requests.exceptions.Timeout:
-            logger.warning(f"Ollama chat stream timeout after {timeout}s")
-        except Exception as e:
-            logger.error(f"Ollama chat stream error: {e}")
-
-
-# ============================================================================
 # AGENT PIPELINE
 # ============================================================================
+
+
+# Backwards-compat alias so any test doing ``from services.agent import OllamaClient``
+# still works — it gets the provider-based equivalent.
+try:
+    from .ollama_provider import OllamaProvider as OllamaClient  # noqa: F401
+except ImportError:
+    OllamaClient = None  # type: ignore[assignment,misc]
 
 
 class AgentPipeline:
@@ -309,10 +239,26 @@ class AgentPipeline:
       2. Web search if applicable
       3. If tools → ReAct loop (streaming)
          Else → direct generate_stream
+
+    Accepts any LLMProvider — the caller decides which backend to use.
     """
 
-    def __init__(self, ollama_host: str = "http://localhost:11434", model: str = "llama3.1:8b"):
-        self.client = OllamaClient(ollama_host, model)
+    def __init__(self, provider=None, ollama_host=None, model=None):
+        """Create an AgentPipeline.
+
+        Args:
+            provider: An LLMProvider instance (preferred).
+            ollama_host: Legacy — creates an OllamaProvider if no provider given.
+            model: Legacy — model name for OllamaProvider fallback.
+        """
+        if provider is not None:
+            self.client = provider
+        elif ollama_host is not None:
+            from .ollama_provider import OllamaProvider
+            self.client = OllamaProvider(host=ollama_host, model=model or "qwen2.5-coder:32b")
+        else:
+            from .provider_factory import get_provider
+            self.client = get_provider()
 
     def _get_react_loop(self, principal_id: str = None) -> "ReactLoop":
         """Create a ReactLoop with user context for this request."""
@@ -450,7 +396,7 @@ class AgentPipeline:
                 for event in self._get_react_loop(principal_id).execute_streaming(
                     question=question,
                     context_messages=context_messages,
-                    user_memory=_format_user_memory(user_memory),
+                    user_memory=_format_user_memory(user_memory, query=question),
                     search_context=search_context,
                     max_tokens=MAX_TOKENS,
                     timeout=TIMEOUT,
@@ -461,7 +407,7 @@ class AgentPipeline:
             else:
                 # Direct single-pass generation
                 prompt = build_system_prompt(
-                    question, context_messages, _format_user_memory(user_memory), search_context
+                    question, context_messages, _format_user_memory(user_memory, query=question), search_context
                 )
                 filtered_parts = []
                 for token in self._filter_think_blocks(
@@ -499,21 +445,25 @@ class AgentPipeline:
 _pipeline_instance: Optional[AgentPipeline] = None
 
 
-def get_agent_pipeline(ollama_host: str = None, model: str = None) -> AgentPipeline:
-    """Get or create the agent pipeline singleton."""
+def get_agent_pipeline(provider=None, ollama_host=None, model=None):
+    """Get or create the agent pipeline singleton.
+
+    Args:
+        provider: An LLMProvider instance (preferred).
+        ollama_host: Legacy — creates OllamaProvider.
+        model: Legacy — model name for OllamaProvider.
+    """
     global _pipeline_instance
 
     if _pipeline_instance is None:
-        import os
-        import sys
-
-        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        from config import MODEL_NAME as DEFAULT_MODEL
-        from config import OLLAMA_HOST as DEFAULT_HOST
-
-        _pipeline_instance = AgentPipeline(
-            ollama_host=ollama_host or DEFAULT_HOST, model=model or DEFAULT_MODEL
-        )
+        if provider is not None:
+            _pipeline_instance = AgentPipeline(provider=provider)
+        elif ollama_host is not None:
+            _pipeline_instance = AgentPipeline(ollama_host=ollama_host, model=model)
+        else:
+            # Default: use the configured provider from factory
+            from .provider_factory import get_provider
+            _pipeline_instance = AgentPipeline(provider=get_provider())
 
     return _pipeline_instance
 

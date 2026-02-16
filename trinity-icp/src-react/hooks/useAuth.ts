@@ -23,6 +23,7 @@ export function useAuth() {
     principal: null,
     authenticatedSince: null,
   });
+  const [isInitializing, setIsInitializing] = useState(true);
   const identityRef = useRef<Ed25519Identity | null>(null);
   const storeSetAuth = useStore((s) => s.setAuthenticated);
   const storeClearAuth = useStore((s) => s.clearAuthentication);
@@ -126,15 +127,19 @@ export function useAuth() {
 
   /** Initialize auth — try restoring existing identity */
   const initialize = useCallback(async (): Promise<AuthState> => {
-    const restored = await restoreIdentity();
-    if (restored) {
-      return {
-        isAuthenticated: true,
-        principal: identityRef.current?.getPrincipal().toText() ?? null,
-        authenticatedSince: Date.now(),
-      };
+    try {
+      const restored = await restoreIdentity();
+      if (restored) {
+        return {
+          isAuthenticated: true,
+          principal: identityRef.current?.getPrincipal().toText() ?? null,
+          authenticatedSince: Date.now(),
+        };
+      }
+      return { isAuthenticated: false, principal: null, authenticatedSince: null };
+    } finally {
+      setIsInitializing(false);
     }
-    return { isAuthenticated: false, principal: null, authenticatedSince: null };
   }, [restoreIdentity]);
 
   /** Generate new identity and login */
@@ -239,6 +244,7 @@ export function useAuth() {
 
   return {
     ...authState,
+    isInitializing,
     initialize,
     login,
     logout,

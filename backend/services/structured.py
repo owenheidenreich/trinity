@@ -21,7 +21,7 @@ def check_outlines_available() -> bool:
 
     if _outlines_available is None:
         try:
-            pass
+            import outlines  # noqa: F401
 
             _outlines_available = True
             logger.info("✅ Outlines library available for structured output")
@@ -144,11 +144,14 @@ def generate_structured(prompt: str, schema: Dict, model_name: str = None) -> Op
 
         model_name = model_name or MODEL_NAME
 
-        # Connect to Ollama via OpenAI-compatible API
+        # Connect to the LLM via OpenAI-compatible API (Ollama)
+        base_url = f"{OLLAMA_HOST}/v1"
+        api_key = "ollama"
+
         model = models.openai(
             model_name,
-            base_url=f"{OLLAMA_HOST}/v1",
-            api_key="ollama",  # Ollama doesn't need a real key
+            base_url=base_url,
+            api_key=api_key,
         )
 
         # Create JSON generator with schema
@@ -246,22 +249,17 @@ def safe_structured_generate(prompt: str, schema: Dict, fallback_parser=None) ->
     logger.info("Falling back to unstructured generation with parsing")
 
     try:
-        import requests
+        from .provider_factory import get_provider
 
-        response = requests.post(
-            f"{OLLAMA_HOST}/api/generate",
-            json={
-                "model": MODEL_NAME,
-                "prompt": prompt + "\n\nRespond with valid JSON only.",
-                "stream": False,
-                "options": {"temperature": 0.3},  # Low temp for structured output
-            },
+        provider = get_provider()
+        text = provider.generate(
+            prompt=prompt + "\n\nRespond with valid JSON only.",
+            max_tokens=500,
+            temperature=0.3,
             timeout=60,
         )
 
-        if response.status_code == 200:
-            text = response.json().get("response", "")
-
+        if text:
             # Try to validate
             result = validate_json_output(text, schema)
             if result:

@@ -120,6 +120,27 @@ TOOL_DEFINITIONS = {
             '<tool_call name="search_memory"><query>Python</query><search_type>hybrid</search_type></tool_call>'
         ],
     },
+    "update_memory": {
+        "description": "Update a previously saved fact with new information. Use when the user's situation changes (moved, new job, etc).",
+        "params": {
+            "query": "What fact to find (describes the existing memory)",
+            "new_value": "The updated fact text",
+            "category": "Optional: new category for the fact",
+            "importance": "Optional: new importance rating (1-5)",
+        },
+        "examples": [
+            '<tool_call name="update_memory"><query>where user lives</query><new_value>User moved to San Francisco</new_value></tool_call>'
+        ],
+    },
+    "forget_memory": {
+        "description": "Forget a fact the user wants removed. Soft-deletes it (preserved in data exports for the user's review).",
+        "params": {
+            "query": "What fact to forget (describes the memory to remove)",
+        },
+        "examples": [
+            '<tool_call name="forget_memory"><query>old job at Google</query></tool_call>'
+        ],
+    },
     # ── Filesystem Tools ──────────────────────────────────────────
     "read_file": {
         "description": "Read a file from the workspace. Supports optional line ranges. Sandboxed to /workspace.",
@@ -229,6 +250,19 @@ def parse_tool_calls(text: str) -> List[ToolCall]:
     if not matches:
         matches = re.findall(pattern_lenient, text, re.DOTALL | re.IGNORECASE)
 
+    # Fallback: bare tool names without <tool_call> wrapper
+    # e.g. "recall_memory  <query>name</query>" or "save_memory <fact>...</fact>"
+    if not matches:
+        _KNOWN_TOOLS = (
+            "calculator|code_display|document_search|web_search|fact_check|"
+            "save_memory|recall_memory|search_memory|update_memory|forget_memory|"
+            "read_file|write_file|list_directory|search_codebase|run_command"
+        )
+        bare_pattern = rf'\b({_KNOWN_TOOLS})\b\s*(<[a-z_]+>.*?)$'
+        bare_match = re.search(bare_pattern, text, re.DOTALL | re.IGNORECASE)
+        if bare_match:
+            matches = [(bare_match.group(1), bare_match.group(2))]
+
     for name, params_text in matches:
         params = {}
 
@@ -334,16 +368,32 @@ def detect_tools_needed(query: str, understanding: Dict = None) -> List[str]:
             tools.append("fact_check")
             break
 
-    # Memory recall detection
+    # Memory recall detection — only QUESTIONS about the user, not statements
+    # "what is my name" → recall.  "my name is owen" → NOT recall (that's save).
     memory_patterns = [
-        r"remember|recall|what do you know about me",
-        r"my name|my job|my prefer|about me",
+        r"(do you )?(remember|recall)",
+        r"what do you know about me",
+        r"what('?s| is| was) my (name|job|role|prefer|location|email|age)",
+        r"tell me (about|what you know about) me",
+        r"about me\??",
         r"last time|previously|you said|i told you",
         r"what did i|do you remember",
     ]
     for pattern in memory_patterns:
         if re.search(pattern, query_lower):
             tools.append("recall_memory")
+            break
+
+    # Memory forget detection
+    forget_patterns = [
+        r"forget (?:that|about|my|the|what)",
+        r"don't remember|stop remembering",
+        r"delete.*(?:memory|fact|what you know)",
+        r"remove.*(?:memory|fact|what you know)",
+    ]
+    for pattern in forget_patterns:
+        if re.search(pattern, query_lower):
+            tools.append("forget_memory")
             break
 
     # Filesystem tool detection

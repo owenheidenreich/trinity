@@ -44,6 +44,12 @@ You have access to these tools. Call them when you need external information or 
 **search_memory** — Search through all saved memories (exact, semantic, or hybrid).
   <tool_call name="search_memory"><query>Python</query><search_type>hybrid</search_type></tool_call>
 
+**update_memory** — Update a previously saved fact with new information.
+  <tool_call name="update_memory"><query>where user lives</query><new_value>User moved to San Francisco</new_value></tool_call>
+
+**forget_memory** — Remove a fact the user wants forgotten (soft-delete, preserved in exports).
+  <tool_call name="forget_memory"><query>old job at Google</query></tool_call>
+
 **read_file** — Read a file from the workspace (sandboxed to /workspace).
   <tool_call name="read_file"><path>src/main.py</path></tool_call>
   <tool_call name="read_file"><path>src/main.py</path><start_line>10</start_line><end_line>50</end_line></tool_call>
@@ -68,11 +74,33 @@ You have access to these tools. Call them when you need external information or 
 4. Do NOT include tool_call tags in your final answer.
 5. For file operations: paths are relative to /workspace. Path traversal (../) is blocked.
 
-## Memory Guidelines
-- Save important user facts (name, job, preferences, goals) with save_memory when shared
-- Before answering personal questions ("what do you know about me?", "do you remember...?"), call recall_memory first
-- Do NOT save trivial or session-specific details (e.g., "user asked about weather")
-- Use search_memory when looking for a specific saved fact by keyword
+## Memory — Your Most Important Responsibility
+You build and maintain a persistent profile of each user. This profile survives across
+conversations and even server restarts — it's encrypted and stored on IPFS.
+
+**When to save memories:**
+- User shares their name, role, company, tech stack, project → save_memory (importance: 4-5)
+- User states preferences (language, style, tools) → save_memory (category: preferences)
+- User mentions goals, interests, hobbies → save_memory (category: interests)
+- User mentions people (colleagues, partners, friends) → save_memory (category: relationships)
+
+**When to update memories:**
+- User says something that contradicts a saved fact → update_memory
+- User's situation changed ("I switched jobs", "I moved to...") → update_memory
+
+**When to forget memories:**
+- User explicitly asks you to forget something → forget_memory
+- User corrects a wrong fact → update_memory (not forget)
+
+**When to recall memories:**
+- Before answering personal questions ("what do you know about me?") → recall_memory
+- When the user returns after time away → naturally reference what you know
+- When context from previous conversations would help
+
+**Do NOT save:**
+- Trivial session details ("user asked about weather")
+- Temporary debugging context
+- Anything the user explicitly asks you not to remember
 
 ## Code Execution Guidelines
 - When code has errors, examine the error message and fix the code, then try again
@@ -111,9 +139,13 @@ You solve problems by reasoning step-by-step and using tools when needed.
 # SYSTEM PROMPT (single-pass, used for all queries)
 # ============================================================================
 
-SYSTEM_PROMPT = """You are Trinity, a sharp and knowledgeable AI assistant.
+SYSTEM_PROMPT = """You are Trinity, a sharp and knowledgeable AI assistant that builds a lasting relationship with each user.
 
-Context about the user:
+You maintain a persistent profile of the user — their name, work, interests, preferences, and goals.
+Everything you learn is encrypted with their key and stored on IPFS. Only they can access it.
+When meeting a new user (empty profile), be welcoming and naturally learn about them.
+When seeing a returning user, reference what you know naturally — don't recite their profile.
+
 {user_memory}
 
 Previous conversation:
@@ -212,11 +244,16 @@ def build_system_prompt(
         # Pre-formatted memory string (from _format_user_memory)
         memory = user_memory if user_memory else "No stored information about this user."
     elif user_memory and user_memory.get("facts"):
-        memory_parts = [
-            f"- {fact.get('text', str(fact)) if isinstance(fact, dict) else fact}"
-            for fact in user_memory["facts"][:10]
-        ]
-        memory = "\n".join(memory_parts)
+        # Fallback: if raw dict passed, format non-deleted facts
+        active = [f for f in user_memory["facts"] if not f.get("deleted", False)]
+        if active:
+            memory_parts = [
+                f"- {fact.get('text', str(fact)) if isinstance(fact, dict) else fact}"
+                for fact in active[:25]
+            ]
+            memory = "\n".join(memory_parts)
+        else:
+            memory = "No stored information about this user."
     else:
         memory = "No stored information about this user."
 

@@ -328,7 +328,7 @@ def execute_tool(tool_name: str, params: Dict, context: Dict = None) -> Tuple[bo
         elif tool_name == "document_search":
             return _execute_document_search(params, context, tracker)
 
-        elif tool_name in ("save_memory", "recall_memory", "search_memory"):
+        elif tool_name in ("save_memory", "recall_memory", "search_memory", "update_memory", "forget_memory"):
             return _execute_memory_tool(tool_name, params, context, tracker)
 
         elif tool_name == "read_file":
@@ -442,9 +442,15 @@ def _execute_document_search(params: Dict, context: Dict, tracker) -> Tuple[bool
 
 
 def _execute_memory_tool(tool_name: str, params: Dict, context: Dict, tracker) -> Tuple[bool, str]:
-    """Execute memory tools (save/recall/search). Delegated to memory_tools module."""
+    """Execute memory tools (save/recall/search/update/forget). Delegated to memory_tools module."""
     try:
-        from .memory_tools import tool_recall_memory, tool_save_memory, tool_search_memory
+        from .memory_tools import (
+            tool_forget_memory,
+            tool_recall_memory,
+            tool_save_memory,
+            tool_search_memory,
+            tool_update_memory,
+        )
 
         principal_id = context.get("principal_id")
         if not principal_id:
@@ -457,6 +463,10 @@ def _execute_memory_tool(tool_name: str, params: Dict, context: Dict, tracker) -
             return tool_recall_memory(params, principal_id)
         elif tool_name == "search_memory":
             return tool_search_memory(params, principal_id)
+        elif tool_name == "update_memory":
+            return tool_update_memory(params, principal_id)
+        elif tool_name == "forget_memory":
+            return tool_forget_memory(params, principal_id)
         else:
             tracker.set_status("error")
             return False, f"Unknown memory tool: {tool_name}"

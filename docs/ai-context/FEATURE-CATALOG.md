@@ -30,8 +30,10 @@
 - **Where**: `backend/middleware/icp_cache.py`
 - **Status**: Production
 
-### File Storage + IPFS Backup
-- **Where**: `backend/storage.py`, `backend/lighthouse.py`
+### File Storage + IPFS Persistence
+- **Where**: `backend/storage.py`, `backend/lighthouse.py`, `backend/services/user_data_store.py`
+- **How**: IPFS is source of truth, local disk is cache. Exponential-backoff retry (3 attempts: 1s/4s/16s), at-least-once delivery via `_pending_syncs`, per-user sync status tracking
+- **Monitoring**: `GET /admin/storage/status` returns pending syncs, per-user sync state, manifest CIDs
 - **Status**: Production
 
 ---
@@ -60,9 +62,9 @@
 - **Safeguards**: 24K token budget, 15 max iterations, Reflexion for code errors
 - **Status**: Production
 
-### 13 Tools
+### 15 Tools
 - **Where**: `backend/services/tools.py`, `backend/services/code_executor.py`
-- **Tools**: calculator, code_display, web_search, fact_check, document_search, save_memory, recall_memory, search_memory, read_file, write_file, list_directory, search_codebase, run_command
+- **Tools**: calculator, code_display, web_search, fact_check, document_search, save_memory, recall_memory, search_memory, update_memory, forget_memory, read_file, write_file, list_directory, search_codebase, run_command
 - **Status**: Production (code execution disabled by default)
 
 ### Semantic Memory (V4)
@@ -72,12 +74,20 @@
 
 ### Memory Tools (MemGPT)
 - **Where**: `backend/services/memory_tools.py`
-- **How**: save_memory, recall_memory, search_memory with deduplication (cosine > 0.95)
+- **How**: save_memory (merge dedup >0.85, skip >0.95, heuristic contradiction detection), recall_memory, search_memory, update_memory, forget_memory (soft-delete)
+- **Temporal metadata**: Facts have `valid_at`/`invalid_at` fields. Contradicted facts get `invalid_at` set and are excluded from retrieval.
+- **Status**: Production
+
+### User Profile System (v2.0)
+- **Where**: `backend/storage.py`, `backend/services/profile_extractor.py`, `backend/services/agent.py`
+- **How**: Structured profile (identity/work/interests/preferences/relationships), token-budget injection (2500 tokens), auto-extraction from user AND assistant messages, schema migration v1→v2
+- **Budgets**: WORKING_MEMORY_SIZE=5, SEMANTIC_MEMORY_SIZE=8, PROFILE_TOKEN_BUDGET=2500 (all env-configurable)
+- **Endpoints**: `GET /user/export` (ZIP), `GET /user/stats`, `GET /user/memory`
 - **Status**: Production
 
 ### MCP (Model Context Protocol)
 - **Where**: `backend/services/mcp_server.py`, `backend/services/mcp_client.py`, `backend/routes/mcp.py`
-- **How**: Server exposes all 13 tools via JSON-RPC 2.0 (HTTP + stdio). Client connects to external MCP servers.
+- **How**: Server exposes all 15 tools via JSON-RPC 2.0 (HTTP + stdio). Client connects to external MCP servers.
 - **Status**: Production
 
 ---
@@ -107,7 +117,7 @@
 
 ### Automated Test Suite
 - **Where**: `backend/tests/`
-- **Count**: 615 tests, 91.30% coverage
+- **Count**: 726 tests, 91% coverage
 - **Run**: `cd backend && python -m pytest tests/ -x -q`
 - **Rationale**: `docs/architecture/RATIONALE-TEST-COVERAGE.md`
 - **Status**: All passing

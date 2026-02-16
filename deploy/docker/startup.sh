@@ -114,16 +114,42 @@ echo "Available disk space:"
 df -h / || true
 echo ""
 
-# Pull the primary model
+# Pull the primary model with retry logic
+# Ollama registry rate-limits pulls (429 errors), so we retry with backoff
 echo "Starting model download at $(date)"
-if ! timeout 1800 ollama pull "$MODEL_NAME"; then
-    echo "ERROR: Model pull timed out or failed after 30 minutes"
+
+MAX_PULL_ATTEMPTS=7
+PULL_DELAYS=(0 60 120 300 600 900 1200)  # seconds: 0, 1m, 2m, 5m, 10m, 15m, 20m
+PULL_SUCCESS=false
+
+for attempt in $(seq 1 $MAX_PULL_ATTEMPTS); do
+    echo "📥 Pull attempt $attempt/$MAX_PULL_ATTEMPTS..."
+    if timeout 1800 ollama pull "$MODEL_NAME" 2>&1; then
+        PULL_SUCCESS=true
+        echo "✅ Model pull succeeded on attempt $attempt"
+        break
+    else
+        PULL_EXIT=$?
+        echo "⚠️  Pull attempt $attempt failed (exit code: $PULL_EXIT)"
+
+        if [ $attempt -lt $MAX_PULL_ATTEMPTS ]; then
+            # Get delay for this retry (0-indexed)
+            DELAY=${PULL_DELAYS[$attempt]}
+            echo "⏳ Waiting ${DELAY}s before retry (rate limit backoff)..."
+            sleep $DELAY
+        fi
+    fi
+done
+
+if [ "$PULL_SUCCESS" != "true" ]; then
+    echo "ERROR: Model pull failed after $MAX_PULL_ATTEMPTS attempts"
     echo "Model: $MODEL_NAME"
     echo "This could mean:"
-    echo "1. Model name is incorrect"
-    echo "2. Network connection issues"
-    echo "3. Insufficient disk space"
-    echo "4. Model is too large for available resources"
+    echo "1. Ollama registry rate limiting (429) — try again later"
+    echo "2. Model name is incorrect"
+    echo "3. Network connection issues"
+    echo "4. Insufficient disk space"
+    echo "5. Model is too large for available resources"
     df -h / || true
     exit 1
 fi

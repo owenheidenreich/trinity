@@ -79,10 +79,12 @@ CRITICAL RULES:
 
 
 def is_small_model() -> bool:
-    """Small models (TinyLlama, etc.) can't handle complex chat formatting"""
-    small_models = ["tinyllama", "phi", "gemma:2b", "stablelm"]
-    model_lower = MODEL_NAME.lower()
-    return any(s in model_lower for s in small_models)
+    """Check if current model is too small for structured prompts.
+
+    Currently always returns False — Trinity targets qwen2.5-coder:32b.
+    Multi-tier support with proper model compatibility rules will be added later.
+    """
+    return False
 
 
 def build_prompt_with_context(

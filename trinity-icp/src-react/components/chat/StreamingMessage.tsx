@@ -44,6 +44,18 @@ export function StreamingMessage({ tokens, isStreaming, phase }: StreamingMessag
     }
   }, [isStreaming, tokens.length, displayedLength]);
 
+  // When tab returns from background, snap to current position
+  // (setTimeout-based animation freezes in background tabs)
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible' && tokens.length > 0) {
+        setDisplayedLength(tokens.length);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [tokens.length]);
+
   const displayedTokens = tokens.substring(0, displayedLength);
 
   const { stableText, tailText, streamingBlock } = useMemo(

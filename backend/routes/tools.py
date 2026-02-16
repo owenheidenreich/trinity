@@ -16,7 +16,6 @@ from config import (
     MAX_WEB_SCRAPE_CHARS,
     MAX_WEB_SCRAPE_CHARS_CAP,
     MODEL_NAME,
-    OLLAMA_HOST,
     OLLAMA_TIMEOUT_TOOLS,
     SEARCH_SUMMARIZE_CHARS_PER_SOURCE,
     SEARCH_SUMMARIZE_MAX_SOURCES,
@@ -35,29 +34,27 @@ from routes.shared import (
     cleanup_document_store,
     document_store,
 )
-from services import check_ollama_connection
+from services.provider_factory import get_provider
 from validation import is_safe_url
 
 tools_bp = Blueprint("tools", __name__)
 
 
 def call_ollama_for_tools(prompt, temperature=0.3):
-    """Helper function to call Ollama API for tools."""
+    """Call the LLM provider for tool-related generation."""
     try:
-        response = http_session.post(
-            f"{OLLAMA_HOST}/api/generate",
-            json={
-                "model": MODEL_NAME,
-                "prompt": prompt,
-                "stream": False,
-                "options": {"temperature": temperature},
-            },
+        provider = get_provider()
+        result = provider.generate(
+            prompt=prompt,
+            max_tokens=1000,
+            temperature=temperature,
             timeout=OLLAMA_TIMEOUT_TOOLS,
         )
-        response.raise_for_status()
-        return response.json().get("response", "")
+        if not result:
+            raise Exception("Provider returned empty response")
+        return result
     except Exception as e:
-        logger.error(f"Ollama call failed: {e}")
+        logger.error(f"LLM call failed: {e}")
         raise
 
 
@@ -354,13 +351,15 @@ Cleaned transcript:"""
 @tools_bp.route("/tools/status")
 def tools_status():
     """Check status of all AI tools."""
-    ollama_ok = check_ollama_connection()
+    provider = get_provider()
+    provider_ok = provider.check_connection()
     return jsonify({
-        "ollama_connected": ollama_ok,
+        "provider_connected": provider_ok,
+        "backend": provider.backend_name,
         "model": MODEL_NAME,
         "tools": {
-            "chatWithDocuments": {"available": ollama_ok},
-            "transcriptCleaner": {"available": ollama_ok},
+            "chatWithDocuments": {"available": provider_ok},
+            "transcriptCleaner": {"available": provider_ok},
         },
         "activeDocumentSessions": len(document_store),
     })

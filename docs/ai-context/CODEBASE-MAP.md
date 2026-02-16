@@ -21,7 +21,7 @@ backend/
 ├── config.py                # All constants, env vars, defaults
 ├── icp_auth.py              # Ed25519 signature verification
 ├── encryption.py            # AES-256-GCM encrypt/decrypt
-├── storage.py               # Chat file I/O
+├── storage.py               # Chat file I/O + user memory (v2.0 structured profile)
 ├── validation.py            # Input sanitization
 ├── lighthouse.py            # IPFS upload/download via Lighthouse
 ├── database.py              # SQLAlchemy ORM (NOT integrated — future feature)
@@ -30,9 +30,9 @@ backend/
 │   ├── __init__.py          # ALL_BLUEPRINTS list
 │   ├── shared.py            # Shared helpers
 │   ├── health.py            # /health, /metrics, /stats
-│   ├── admin.py             # /admin/* cache & quota mgmt
+│   ├── admin.py             # /admin/* cache, quota, storage status
 │   ├── generate.py          # /generate, /generate/agent
-│   ├── chat.py              # /chat/*, /user/* CRUD + memory
+│   ├── chat.py              # /chat/*, /user/* CRUD + memory + export
 │   ├── tools.py             # /tools/* search, browse, documents
 │   ├── v4.py                # /v4/* vector store, tool execution
 │   ├── session.py           # /session/*, /funding/*
@@ -43,9 +43,10 @@ backend/
 │   ├── agent.py             # Single-pass orchestrator (detect tools → ReAct or direct)
 │   ├── agent_prompts.py     # System prompts, ReAct prompts
 │   ├── react_loop.py        # ReAct agentic loop (dual-mode: native + XML tools)
-│   ├── code_executor.py     # Tool dispatcher (all 13 tools)
+│   ├── code_executor.py     # Tool dispatcher (all 15 tools)
 │   ├── tools.py             # Tool definitions, detection, parsing
-│   ├── memory_tools.py      # MemGPT save/recall/search with embeddings
+│   ├── memory_tools.py      # MemGPT save/recall/search/update/forget with embeddings
+│   ├── profile_extractor.py # Background auto-extraction of user profile facts
 │   ├── ollama.py            # Ollama HTTP client
 │   ├── search.py            # Brave web search
 │   ├── fact_check.py        # Dual-search fact verification
@@ -57,6 +58,8 @@ backend/
 │   ├── structured.py        # Structured output parsing
 │   ├── loading_messages.py  # Phase update messages
 │   ├── akash.py             # Akash deployment info
+│   ├── user_data_store.py   # IPFS persistence pipeline (retry, sync, restore, manifest)
+│   ├── session_manager.py   # Session passphrase management
 │   ├── mcp_server.py        # MCP server (JSON-RPC 2.0)
 │   ├── mcp_client.py        # MCP client (external tool connector)
 │   ├── repo_map.py          # Repository structure visualization
@@ -70,7 +73,7 @@ backend/
 │
 ├── mcp_stdio_server.py      # MCP stdio entry point (Claude Desktop)
 │
-└── tests/                   # 615 tests, 91.30% coverage
+└── tests/                   # 808 tests, 91%+ coverage
     ├── conftest.py          # Root fixtures
     ├── fixtures/
     │   └── auth_fixtures.py # Ed25519 test keypairs
@@ -124,12 +127,10 @@ trinity-icp/src/
 deploy/
 ├── docker/
 │   ├── Dockerfile           # NVIDIA CUDA base, Ollama, Flask
-│   ├── build.sh             # Build script
 │   └── startup.sh           # Container entrypoint (model pull + server start)
 ├── akash/
-│   ├── deploy-tier1-basic.yaml      # Qwen3 1.7B
-│   ├── deploy-tier2-balanced.yaml   # Qwen2.5 14B
-│   └── deploy-tier3-complex.yaml    # Qwen2.5-Coder 32B
+│   ├── deploy-production.yaml       # Qwen2.5-Coder 32B (production)
+│   └── deploy-test.yaml            # Qwen2.5-Coder 7B (smoke-testing)
 └── cloudflare-worker/
     └── worker.js            # SSL termination proxy
 ```
@@ -173,7 +174,9 @@ deploy/
 | GET | `/user/memory` | Get user memory |
 | POST | `/user/memory` | Update user memory |
 | POST | `/user/memory/fact` | Add memory fact |
-| DELETE | `/user/memory/fact/<int:index>` | Delete memory fact |
+| DELETE | `/user/memory/fact/<int:index>` | Soft-delete memory fact |
+| GET | `/user/export` | Download all user data as ZIP |
+| GET | `/user/stats` | User profile/chat/storage statistics |
 | POST | `/tools/search` | Web search |
 | POST | `/tools/browse` | Browse URL |
 | POST | `/tools/search-and-summarize` | Search + summarize |
@@ -195,6 +198,7 @@ deploy/
 | POST | `/admin/cache/clear` | Clear cache |
 | GET | `/admin/tokens/usage` | Token usage stats |
 | GET | `/admin/quota/usage` | Quota usage stats |
+| GET | `/admin/storage/status` | IPFS sync status, pending syncs |
 
 ---
 
@@ -267,9 +271,23 @@ Note: `config.py` defines `AUTH_TIMESTAMP_WINDOW_MS = 300000` (5 min) but this c
 | `EMBEDDING_DIM` | `384` |
 | `CHUNK_SIZE` | `500` |
 | `RAG_TOP_K` | `5` |
-| `WORKING_MEMORY_SIZE` | `3` |
-| `SEMANTIC_MEMORY_SIZE` | `5` |
+| `WORKING_MEMORY_SIZE` | `5` (env-configurable) |
+| `SEMANTIC_MEMORY_SIZE` | `8` (env-configurable) |
+| `PROFILE_TOKEN_BUDGET` | `2500` (env-configurable) |
+| `DEDUP_MERGE_THRESHOLD` | `0.85` |
+| `DEDUP_SKIP_THRESHOLD` | `0.95` |
+| `PROFILE_CATEGORIES` | `identity, work, interests, preferences, relationships` |
 
+### Fact Schema (v2.1)
+
+Each fact in `user_memory.json` has:
+```
+text, category, importance, embedding, created_at, deleted,
+source_chat_id, last_mentioned, valid_at, invalid_at
+```
+- `valid_at` — when the fact became true (ms epoch)
+- `invalid_at` — when the fact was superseded (ms epoch, null = still valid)
+- Facts with `invalid_at` set are excluded from prompts but preserved in data
 ---
 
 ## State Management (Zustand)

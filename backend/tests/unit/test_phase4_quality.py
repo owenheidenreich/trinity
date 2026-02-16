@@ -190,8 +190,8 @@ class TestImportPatterns:
 
     # Allowed exceptions: lazy imports documented with reason
     ALLOWED_LAZY_IMPORTS = {
-        "generate.py": {"services", "middleware"},   # service layer, avoid circular imports
-        "chat.py": {"middleware", "services"},    # mutable globals + lazy embeddings for fact normalization
+        "generate.py": {"services", "middleware", "threading"},   # service layer, avoid circular imports, background extraction
+        "chat.py": {"middleware", "services", "io", "zipfile", "flask", "storage"},    # mutable globals + export endpoint + user data
         "tools.py": {"bs4"},                        # optional heavy dependency
         "v4.py": {"config", "lighthouse", "services"},  # conditional RAG/lighthouse/service usage
     }

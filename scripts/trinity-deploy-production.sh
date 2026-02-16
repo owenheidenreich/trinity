@@ -42,16 +42,14 @@ API_PROXY_URL="https://api.dubya.ai"  # Custom domain (once DNS configured)
 ICP_FRONTEND_URL="https://zc67k-kiaaa-aaaal-qtmiq-cai.icp0.io"
 CUSTOM_FRONTEND_URL="https://dubya.ai"
 
-# Tier configurations (zsh associative arrays)
+# Tier configurations: production (32B) and test (7B)
 typeset -A TIER_YAML
-TIER_YAML[1]="deploy-tier1-basic.yaml"
-TIER_YAML[2]="deploy-tier2-balanced.yaml"
-TIER_YAML[3]="deploy-tier3-complex.yaml"
+TIER_YAML[production]="deploy-production.yaml"
+TIER_YAML[test]="deploy-test.yaml"
 
 typeset -A TIER_DESC
-TIER_DESC[1]="Qwen3 1.7B - Testing (~\$25/mo)"
-TIER_DESC[2]="Qwen2.5 14B - Balanced (~\$50/mo)"
-TIER_DESC[3]="Qwen2.5-Coder 32B - Code Intelligence (~\$200/mo)"
+TIER_DESC[production]="Qwen2.5-Coder 32B — Production (~\$600-1000/mo)"
+TIER_DESC[test]="Qwen2.5-Coder 7B — Test/Smoke (~\$40-100/mo)"
 
 # =============================================================================
 # HELPER FUNCTIONS
@@ -182,9 +180,9 @@ select_tier() {
     log_step "Select Deployment Tier"
     
     # Check if tier was passed as argument
-    if [[ "$TIER_ARG" =~ ^[123]$ ]]; then
+    if [[ "$TIER_ARG" == "production" || "$TIER_ARG" == "test" ]]; then
         SELECTED_TIER="$TIER_ARG"
-        log_success "Using Tier $SELECTED_TIER: ${TIER_DESC[$SELECTED_TIER]}"
+        log_success "Using $SELECTED_TIER: ${TIER_DESC[$SELECTED_TIER]}"
         return
     fi
     
@@ -192,22 +190,19 @@ select_tier() {
     echo "┌─────────────────────────────────────────────────────────────┐"
     echo "│                    SELECT DEPLOYMENT TIER                    │"
     echo "├─────────────────────────────────────────────────────────────┤"
-    echo "│  1) Qwen3 1.7B     - Testing (~\$25/mo)                       │"
-    echo "│  2) Qwen2.5 14B    - Balanced (~\$50/mo)                     │"
-    echo "│  3) Qwen3 32B      - Intelligence (~\$200/mo)                │"
+    echo "│  1) production  — Qwen2.5-Coder 32B (~\$600-1000/mo)        │"
+    echo "│  2) test        — Qwen2.5-Coder 7B  (~\$40-100/mo)          │"
     echo "└─────────────────────────────────────────────────────────────┘"
     echo ""
     
-    echo -n "Select tier [1/2/3] (default: 1): "
+    echo -n "Select tier [1=production / 2=test] (default: production): "
     read -r TIER_CHOICE </dev/tty
-    TIER_CHOICE="${TIER_CHOICE:-1}"
     
-    if [[ "$TIER_CHOICE" =~ ^[123]$ ]]; then
-        SELECTED_TIER="$TIER_CHOICE"
-    else
-        SELECTED_TIER="1"
-    fi
-    log_success "Selected Tier $SELECTED_TIER: ${TIER_DESC[$SELECTED_TIER]}"
+    case "$TIER_CHOICE" in
+        2|test)  SELECTED_TIER="test" ;;
+        *)       SELECTED_TIER="production" ;;
+    esac
+    log_success "Selected: $SELECTED_TIER — ${TIER_DESC[$SELECTED_TIER]}"
 }
 
 ask_deposit() {

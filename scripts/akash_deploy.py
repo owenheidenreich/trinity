@@ -55,19 +55,16 @@ AKASH_NODE = "https://rpc.akashnet.net:443"
 AKASH_CHAIN_ID = "akashnet-2"
 WALLET_NAME = "trinity-wallet"
 
-# Tier definitions
+# Tier definitions: production (32B) + test (7B)
 TIERS = {
-    1: {"yaml": "deploy-tier1-basic.yaml", "desc": "Qwen3 1.7B (Testing)", "cost": "~$25/mo"},
-    2: {"yaml": "deploy-tier2-balanced.yaml", "desc": "Qwen2.5 14B (Balanced)", "cost": "~$50/mo"},
-    3: {"yaml": "deploy-tier3-complex.yaml", "desc": "Qwen3 32B (Intelligence)", "cost": "~$200/mo"},
+    "production": {"yaml": "deploy-production.yaml", "desc": "Qwen2.5-Coder 32B (Production)", "cost": "~$600-1000/mo"},
+    "test": {"yaml": "deploy-test.yaml", "desc": "Qwen2.5-Coder 7B (Test)", "cost": "~$40-100/mo"},
 }
 
 # Minimum price thresholds per tier (below this = hardware too weak)
-# These are based on typical GPU provider pricing on Akash
 MIN_PRICE_MONTHLY = {
-    1: 5,     # TinyLlama - can run on anything
-    2: 5,     # Qwen 14B - P40 at $65/mo works great!
-    3: 80,    # Qwen 72B - needs serious hardware
+    "production": 80,   # 32B needs serious GPU
+    "test": 5,          # 7B runs on anything with a GPU
 }
 
 # Providers to AVOID - known issues with timeouts, SSL, or reliability
@@ -452,17 +449,18 @@ def select_tier():
     print("\n┌─────────────────────────────────────────────────────────────┐")
     print("│                    SELECT DEPLOYMENT TIER                    │")
     print("├─────────────────────────────────────────────────────────────┤")
-    print("│  1) TinyLlama 1.1B  - Testing (~$25/mo)                     │")
-    print("│  2) Qwen 2.5 3B     - Fast & Smart (~$30/mo)                │")
-    print("│  3) Qwen 2.5 72B    - Intelligence (~$200/mo)               │")
+    print("│  1) production  — Qwen2.5-Coder 32B (~$600-1000/mo)        │")
+    print("│  2) test        — Qwen2.5-Coder 7B  (~$40-100/mo)          │")
     print("└─────────────────────────────────────────────────────────────┘")
     
     while True:
         try:
-            choice = input("\nSelect tier [1/2/3]: ").strip()
-            if choice in ['1', '2', '3']:
-                return int(choice)
-            print("Please enter 1, 2, or 3")
+            choice = input("\nSelect tier [1=production / 2=test]: ").strip()
+            if choice in ['1', 'production']:
+                return 'production'
+            if choice in ['2', 'test']:
+                return 'test'
+            print("Please enter 1/production or 2/test")
         except (EOFError, KeyboardInterrupt):
             print("\nCancelled.")
             sys.exit(1)
@@ -473,7 +471,7 @@ MAX_RETRIES = 2
 def main():
     if len(sys.argv) < 3:
         print("Usage: akash_deploy.py <deploy_dir> <image_tag> [tier] [additional_akt]")
-        print("  tier: 1 (TinyLlama), 2 (Llama 8B), 3 (Qwen 72B)")
+        print("  tier: production or test")
         print("  additional_akt: Extra AKT to add to the 0.5 AKT base escrow deposit")
         sys.exit(1)
     
@@ -481,12 +479,12 @@ def main():
     image_tag = sys.argv[2]
     
     # Get tier from argument or prompt
-    if len(sys.argv) >= 4 and sys.argv[3] in ['1', '2', '3']:
-        selected_tier = int(sys.argv[3])
-        print(f"\n✅ Using Tier {selected_tier}: {TIERS[selected_tier]['desc']}")
+    if len(sys.argv) >= 4 and sys.argv[3] in ['production', 'test']:
+        selected_tier = sys.argv[3]
+        print(f"\n✅ Using {selected_tier}: {TIERS[selected_tier]['desc']}")
     else:
         selected_tier = select_tier()
-        print(f"\n✅ Selected Tier {selected_tier}: {TIERS[selected_tier]['desc']}")
+        print(f"\n✅ Selected {selected_tier}: {TIERS[selected_tier]['desc']}")
     
     # Parse additional deposit amount (4th arg, in AKT)
     additional_akt = 0.0

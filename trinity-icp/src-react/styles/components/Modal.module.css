@@ -126,3 +126,9 @@
   font-size: var(--font-size-sm);
   margin-top: var(--space-sm);
 }
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

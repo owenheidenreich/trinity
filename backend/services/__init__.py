@@ -44,6 +44,7 @@ from .embeddings import chunk_text, cosine_similarity, embed_batch, embed_text
 from .loading_messages import format_phase_update, get_loading_message, get_loading_sequence
 from .memory import SemanticMemory, build_enhanced_context, get_semantic_memory
 from .ollama import call_ollama, check_ollama_connection, warmup_model
+from .provider_factory import create_provider, get_provider, reset_provider
 from .prompts import (
     REASONING_SYSTEM_PROMPT,
     TRINITY_SYSTEM_PROMPT,
@@ -64,6 +65,19 @@ from .tools import (
 )
 from .vector_store import VectorStore, get_user_vector_store, get_vector_store
 
+# ===== UNIFIED STORAGE (v5.0) =====
+from .user_data_store import (
+    ensure_user_data_restored,
+    get_storage_stats,
+    load_manifest,
+    notify_message_indexed,
+    notify_profile_changed,
+    sync_manifest_to_ipfs,
+    sync_profile_to_ipfs,
+    sync_vector_db_to_ipfs,
+    update_chat_in_manifest,
+)
+
 __all__ = [
     "TRINITY_SYSTEM_PROMPT",
     "REASONING_SYSTEM_PROMPT",
@@ -74,6 +88,10 @@ __all__ = [
     "check_ollama_connection",
     "warmup_model",
     "call_ollama",
+    # Provider abstraction
+    "create_provider",
+    "get_provider",
+    "reset_provider",
     "get_akt_price_usd",
     "get_escrow_balance",
     "get_actual_lease_price",
@@ -145,4 +163,14 @@ __all__ = [
     "clear_all_caches",
     "estimate_tokens",
     "estimate_tokens_accurate",
+    # ===== UNIFIED STORAGE (v5.0) =====
+    "ensure_user_data_restored",
+    "get_storage_stats",
+    "load_manifest",
+    "notify_message_indexed",
+    "notify_profile_changed",
+    "sync_manifest_to_ipfs",
+    "sync_profile_to_ipfs",
+    "sync_vector_db_to_ipfs",
+    "update_chat_in_manifest",
 ]

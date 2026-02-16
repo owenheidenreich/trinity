@@ -56,13 +56,23 @@ class SemanticMemory:
             logger.warning(f"Failed to embed message {message_index} in chat {chat_id}")
             return False
 
-        return self.vector_store.add_message_embedding(
+        success = self.vector_store.add_message_embedding(
             chat_id=chat_id,
             message_index=message_index,
             role=role,
             content=content,
             embedding=embedding,
         )
+
+        # Notify data store for debounced IPFS sync
+        if success:
+            try:
+                from services.user_data_store import notify_message_indexed
+                notify_message_indexed(self.principal_id)
+            except Exception as e:
+                logger.debug(f"Vector sync notify failed: {e}")
+
+        return success
 
     def index_chat_history(self, chat_id: str, messages: List[Dict]) -> int:
         """

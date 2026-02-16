@@ -12,8 +12,8 @@ from config import (
     BUILD_TIMESTAMP,
     GPU_TYPE,
     MAX_QUEUE_SIZE,
+    MODEL_BACKEND,
     MODEL_NAME,
-    OLLAMA_HOST,
     PROVIDER_ID,
     logger,
 )
@@ -24,7 +24,7 @@ from middleware import (
     get_system_info,
     icp_idempotent,
 )
-from services import check_ollama_connection
+from services.provider_factory import get_provider
 
 health_bp = Blueprint("health", __name__)
 
@@ -32,7 +32,8 @@ health_bp = Blueprint("health", __name__)
 @health_bp.route("/health")
 def health():
     """Health check endpoint for load balancers and monitoring."""
-    ollama_healthy = check_ollama_connection()
+    provider = get_provider()
+    provider_healthy = provider.check_connection()
     system_info = get_system_info()
     stats = get_prometheus_summary()
     active_reqs = get_active_requests()
@@ -43,7 +44,7 @@ def health():
     v4_memory = v4_features.get("semantic_memory", False)
 
     is_healthy = (
-        ollama_healthy
+        provider_healthy
         and active_reqs < MAX_QUEUE_SIZE
         and system_info["memory_percent"] < 95
     )
@@ -52,8 +53,9 @@ def health():
         "status": "healthy" if is_healthy else "degraded",
         "provider_id": PROVIDER_ID,
         "model": MODEL_NAME,
+        "backend": provider.backend_name,
         "gpu_type": GPU_TYPE,
-        "ollama_connected": ollama_healthy,
+        "ollama_connected": provider_healthy,  # backwards compat key
         "timestamp": datetime.utcnow().isoformat(),
         "build_timestamp": BUILD_TIMESTAMP,
         "system": system_info,
@@ -72,18 +74,19 @@ def health():
 @icp_idempotent
 def health_icp():
     """Deterministic health check for ICP HTTP Outcalls (all 13 replicas must agree)."""
-    ollama_healthy = check_ollama_connection()
+    provider = get_provider()
+    provider_healthy = provider.check_connection()
 
     return jsonify({
-        "status": "healthy" if ollama_healthy else "degraded",
+        "status": "healthy" if provider_healthy else "degraded",
         "provider_id": PROVIDER_ID,
         "model": MODEL_NAME,
         "gpu_type": GPU_TYPE,
-        "ollama_connected": ollama_healthy,
+        "ollama_connected": provider_healthy,  # backwards compat key
         "build_timestamp": BUILD_TIMESTAMP,
         "version": "2.1.0",
         "icp_compatible": True,
-    }), (200 if ollama_healthy else 503)
+    }), (200 if provider_healthy else 503)
 
 
 @health_bp.route("/metrics")
@@ -96,14 +99,16 @@ def prometheus_metrics():
 @health_bp.route("/stats")
 def stats():
     """Get detailed statistics in JSON format."""
+    provider = get_provider()
     return jsonify({
         "provider_id": PROVIDER_ID,
         "model": MODEL_NAME,
+        "backend": provider.backend_name,
         "gpu_type": GPU_TYPE,
         "metrics": get_prometheus_summary(),
         "system": get_system_info(),
         "config": {
-            "ollama_host": OLLAMA_HOST,
+            "model_backend": MODEL_BACKEND,
             "max_queue_size": MAX_QUEUE_SIZE,
         },
         "timestamp": datetime.utcnow().isoformat(),

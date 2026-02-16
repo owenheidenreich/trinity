@@ -19,12 +19,12 @@ export function MessageInput({ onSend, onStop, isGenerating, disabled }: Message
 
   const handleSend = useCallback(() => {
     const trimmed = value.trim();
-    if (!trimmed || disabled) return;
+    if (!trimmed || disabled || isGenerating) return;
     onSend(trimmed, attachment ?? undefined);
     setValue('');
     setAttachment(null);
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
-  }, [value, attachment, disabled, onSend]);
+  }, [value, attachment, disabled, isGenerating, onSend]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -95,9 +95,9 @@ export function MessageInput({ onSend, onStop, isGenerating, disabled }: Message
             value={value}
             onChange={handleChange}
             onKeyDown={handleKeyDown}
-            placeholder="Ask anything..."
+            placeholder={isGenerating ? 'Waiting for response...' : 'Ask anything...'}
             rows={1}
-            disabled={disabled}
+            disabled={disabled || isGenerating}
           />
         </div>
         {isGenerating ? (

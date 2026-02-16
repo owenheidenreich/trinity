@@ -39,6 +39,20 @@ export function MessageList({
     }
   }, [messages.length, streamingTokens]);
 
+  // Re-sync scroll when tab returns from background
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        // Allow a tick for React to reconcile, then scroll to bottom
+        requestAnimationFrame(() => {
+          bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+        });
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, []);
+
   const showContinue =
     !isStreaming && agentResponse?.done_reason === 'length' && onContinue;
 

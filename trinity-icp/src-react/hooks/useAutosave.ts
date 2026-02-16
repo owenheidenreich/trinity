@@ -14,9 +14,11 @@ const MAX_RETRIES = 5;
 const RETRY_BASE_MS = 1_000;
 const RETRY_BACKOFF = 2;
 
-export function useAutosave() {
+export function useAutosave(onSaveSuccess?: () => void) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryCountRef = useRef(0);
+  const onSaveSuccessRef = useRef(onSaveSuccess);
+  onSaveSuccessRef.current = onSaveSuccess;
 
   const chatHistory = useStore((s) => s.chatHistory);
   const currentChatId = useStore((s) => s.currentChatId);
@@ -25,11 +27,57 @@ export function useAutosave() {
   const setAutosaveStatus = useStore((s) => s.setAutosaveStatus);
   const setUnsavedChanges = useStore((s) => s.setUnsavedChanges);
 
-  /** Generate a chat title from the first user message */
+  /** Generate a concise chat title from the first user message */
   const generateTitle = useCallback((): string => {
     const firstUserMsg = chatHistory.find((m) => m.role === 'user');
     if (!firstUserMsg) return 'New Chat';
-    return firstUserMsg.content.substring(0, 50) + (firstUserMsg.content.length > 50 ? '...' : '');
+
+    // Strip file attachment prefix if present
+    let text = firstUserMsg.content.replace(/^\[Attached file:.*?\]\n\n[\s\S]*?\n\n/m, '').trim();
+    if (!text) return 'File Analysis';
+
+    // Remove markdown formatting, URLs, code blocks
+    text = text
+      .replace(/```[\s\S]*?```/g, '')       // code blocks
+      .replace(/`[^`]+`/g, '')              // inline code
+      .replace(/https?:\/\/\S+/g, '')       // URLs
+      .replace(/[#*_~>\[\]()]/g, '')        // markdown chars
+      .replace(/\s+/g, ' ')                 // collapse whitespace
+      .trim();
+
+    if (!text) return 'New Chat';
+
+    // If it's a short question/request (under 50 chars), use it as-is
+    if (text.length <= 50) {
+      // Remove trailing punctuation for a cleaner title
+      return text.replace(/[?.!,;:]+$/, '').trim() || 'New Chat';
+    }
+
+    // Extract a concise title: take the first sentence or clause
+    const sentenceEnd = text.search(/[.?!]\s/);
+    const clauseEnd = text.search(/[,;:\-–—]\s/);
+    const newlineEnd = text.indexOf('\n');
+
+    // Pick the shortest meaningful boundary
+    const candidates = [sentenceEnd, clauseEnd, newlineEnd].filter((i) => i > 0 && i <= 80);
+    const cutoff = candidates.length > 0 ? Math.min(...candidates) : -1;
+
+    let title: string;
+    if (cutoff > 0) {
+      title = text.substring(0, cutoff).trim();
+    } else {
+      // No natural boundary — take first ~6 words
+      const words = text.split(/\s+/);
+      title = words.slice(0, 6).join(' ');
+    }
+
+    // Clean up and cap at 60 chars
+    title = title.replace(/[?.!,;:]+$/, '').trim();
+    if (title.length > 60) {
+      title = title.substring(0, 57) + '...';
+    }
+
+    return title || 'New Chat';
   }, [chatHistory]);
 
   /** Execute the actual save operation */
@@ -50,6 +98,7 @@ export function useAutosave() {
           timestamp: m.timestamp,
         })),
         metadata: {
+          title: generateTitle(),
           createdAt: chatHistory[0]?.timestamp ?? Date.now(),
           updatedAt: Date.now(),
           messageCount: chatHistory.length,
@@ -92,6 +141,9 @@ export function useAutosave() {
         setAutosaveStatus('saved');
         setUnsavedChanges(false);
         retryCountRef.current = 0;
+
+        // Refresh sidebar after successful cloud sync
+        onSaveSuccessRef.current?.();
 
         // Reset to idle after 2s
         setTimeout(() => setAutosaveStatus('idle'), 2000);

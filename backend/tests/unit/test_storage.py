@@ -204,9 +204,10 @@ class TestUserMemoryOperations:
             memory = load_user_memory(principal)
 
             assert memory["principalId"] == principal
-            assert memory["version"] == "1.0"
+            assert memory["version"] == "2.0"
             assert memory["facts"] == []
-            assert memory["preferences"] == {}
+            assert "profile" in memory
+            assert memory["profile"]["preferences"] == {}
             assert "createdAt" in memory
             assert "lastUpdated" in memory
 
@@ -232,11 +233,13 @@ class TestUserMemoryOperations:
 
             memory = load_user_memory(principal)
 
+            assert memory["version"] == "2.0"  # auto-migrated
             assert len(memory["facts"]) == 2
             # String facts are normalized to dicts with "text" key
             assert memory["facts"][0]["text"] == "User prefers dark mode"
             assert memory["facts"][1]["text"] == "User is a developer"
             assert memory["preferences"]["theme"] == "dark"
+            assert "profile" in memory
 
     def test_save_user_memory_updates_timestamp(self, tmp_path):
         """Save updates lastUpdated timestamp."""

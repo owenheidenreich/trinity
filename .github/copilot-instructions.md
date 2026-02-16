@@ -21,7 +21,7 @@ React 19 / TypeScript / Zustand on ICP · Flask 3 / Python 3.11 on Akash · Olla
 - **Encryption**: AES-256-GCM + Argon2id KDF (primary) / PBKDF2 (fallback)
 - **Frontend**: Active code is `trinity-icp/src-react/` (React 19). `trinity-icp/src/` is legacy.
 - **Cold starts**: First request after Akash deploy takes 20-30s (model loading) — this is normal
-- **Tests**: `cd backend && python -m pytest tests/ -x -q` (615 tests, 91% coverage)
+- **Tests**: `cd backend && python -m pytest tests/ -x -q` (726 tests, 91% coverage)
 
 ## Workflow Checklists
 
@@ -38,6 +38,7 @@ React 19 / TypeScript / Zustand on ICP · Flask 3 / Python 3.11 on Akash · Olla
 | API routes | `backend/routes/<blueprint>.py` (8 blueprints, 42+ endpoints) |
 | LLM prompts | `backend/services/agent_prompts.py` |
 | Add a tool | `backend/services/tools.py` + `code_executor.py` |
+| Memory system | `backend/storage.py`, `backend/services/memory_tools.py`, `backend/services/profile_extractor.py` |
 | Auth | `backend/icp_auth.py` |
 | State management | `trinity-icp/src-react/store/index.ts` |
 | Deployment | `deploy/docker/Dockerfile`, `deploy/akash/deploy-tier*.yaml` |

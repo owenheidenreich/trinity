@@ -1,40 +1,38 @@
 version: "2.0"
 
 # ============================================================================
-# Trinity Tier 1: Test/Development (Qwen3 1.7B)
+# Trinity Production: Qwen2.5-Coder 32B
 # ============================================================================
 #
-# Purpose: Cheap testing + light production use
-# Model: Qwen3 1.7B (~1.5GB) — hybrid thinking, native tool calling
-# Cost: ~$0.05-0.15/hour (~$40-100/month)
-# Response Time: 1-3 seconds
-# Intelligence: Solid for its size (outperforms TinyLlama by a wide margin)
+# The production deployment. This is the only tier that matters.
 #
-# Qwen3 advantages over TinyLlama:
-# - Native function calling (tools parameter)
-# - Hybrid thinking mode (/think and /no_think)
-# - Much better instruction following
+# Model: Qwen2.5-Coder 32B — 72.9% on Aider benchmark, 128K context
+# Cost: ~$0.80-1.50/hour (~$600-1000/month)
+# Response Time: 5-20 seconds
+# GPU: Fits on A100 40GB, A6000, or RTX 4090 24GB (Q4_K_M ~20GB VRAM)
 #
-# GPU Selection: T4/RTX3090/4090/A10 - filters to reliable providers
+# Deploy:
+#   ./scripts/trinity-deploy-production.sh production
 # ============================================================================
 
 services:
   trinity:
-    image: gdubx/trinity-inference:v2-20260213-210750
+    image: gdubx/trinity-inference:v2-20260215-185129
     env:
-      - PROVIDER_ID=trinity-tier1-qwen3
-      - MODEL_NAME=qwen3:1.7b
+      - PROVIDER_ID=trinity-production-qwen25-coder-32b
+      - MODEL_NAME=qwen2.5-coder:32b
       - MODEL_BACKEND=ollama
-      - GPU_TYPE=NVIDIA-GPU
-      - MAX_QUEUE_SIZE=10
+      - GPU_TYPE=A100
+      - MAX_QUEUE_SIZE=5
       - OLLAMA_HOST=http://localhost:11434
       # RAG & Semantic Memory
       - EMBEDDING_MODEL=BAAI/bge-small-en-v1.5
       - RAG_TOP_K=5
       - RAG_CHUNK_SIZE=512
       - RAG_CHUNK_OVERLAP=50
-      - WORKING_MEMORY_SIZE=3
-      - SEMANTIC_MEMORY_SIZE=5
+      - WORKING_MEMORY_SIZE=5
+      - SEMANTIC_MEMORY_SIZE=8
+      - PROFILE_TOKEN_BUDGET=2500
       - RECENCY_WEIGHT=0.3
       # Tool Use & Code Execution
       - CODE_EXECUTION_ENABLED=false
@@ -42,11 +40,11 @@ services:
       # API Keys - Injected from .env at deployment time
       - LIGHTHOUSE_API_KEY=${LIGHTHOUSE_API_KEY}
       - BRAVE_SEARCH_API_KEY=${BRAVE_SEARCH_API_KEY}
-      # Deployment tracking (set by deploy script, used for /funding/status)
-      - DEPLOYMENT_TIER=1
-      - DEPLOYMENT_TIER_NAME=Starter
-      - HOURLY_COST_AKT=0.15
-      - DAILY_COST_AKT=3.6
+      # Deployment tracking
+      - DEPLOYMENT_TIER=production
+      - DEPLOYMENT_TIER_NAME=Production
+      - HOURLY_COST_AKT=1.00
+      - DAILY_COST_AKT=24.0
       - SESSION_TYPE=community
     params:
       storage:
@@ -61,20 +59,20 @@ services:
         http_options:
           read_timeout: 60000
           send_timeout: 60000
-          max_body_size: 10485760
+          max_body_size: 52428800
 
 profiles:
   compute:
     trinity:
       resources:
         cpu:
-          units: 4
+          units: 8
         memory:
-          size: 16Gi
+          size: 48Gi
         storage:
           - size: 10Gi
           - name: models
-            size: 20Gi
+            size: 80Gi
             attributes:
               persistent: true
               class: beta3
@@ -89,7 +87,7 @@ profiles:
       pricing:
         trinity:
           denom: uakt
-          amount: 10000
+          amount: 100000
 
 deployment:
   trinity:

@@ -24,7 +24,7 @@ class TestMCPToolList:
 
         tools = get_mcp_tool_list()
         assert isinstance(tools, list)
-        assert len(tools) == 13  # 8 original + 5 filesystem (Phase 5)
+        assert len(tools) == 15  # 8 original + 5 filesystem + 2 memory (update/forget)
 
     def test_tool_has_required_fields(self):
         from services.mcp_server import get_mcp_tool_list
@@ -107,7 +107,7 @@ class TestMCPHandler:
         )
         assert response["id"] == 3
         tools = response["result"]["tools"]
-        assert len(tools) == 13  # 8 original + 5 filesystem (Phase 5)
+        assert len(tools) == 15  # 8 original + 5 filesystem + 2 memory (update/forget)
 
     def test_tools_call_calculator(self):
         from services.mcp_server import handle_mcp_message
@@ -232,7 +232,7 @@ class TestMCPRoute:
         )
         assert response.status_code == 200
         data = response.get_json()
-        assert len(data["result"]["tools"]) == 13  # 8 original + 5 filesystem (Phase 5)
+        assert len(data["result"]["tools"]) == 15  # 8 original + 5 filesystem + 2 memory (update/forget)
 
     def test_post_tools_call(self, client):
         response = client.post(

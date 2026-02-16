@@ -10,7 +10,7 @@ AKASH_NODE = 'https://rpc.akashnet.net:443'
 AKASH_CHAIN_ID = 'akashnet-2'
 DSEQ = '25505658'
 PROVIDER = 'akash175llqyjvxfle9qwt740vm46772dzaznpzgm576'
-YAML_PATH = os.path.join(os.path.dirname(__file__), '..', 'deploy', 'akash', 'deploy-tier2-balanced.yaml')
+YAML_PATH = os.path.join(os.path.dirname(__file__), '..', 'deploy', 'akash', 'deploy-production.yaml')
 
 # Read and prepare YAML
 with open(YAML_PATH) as f:

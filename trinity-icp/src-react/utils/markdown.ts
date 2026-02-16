@@ -196,7 +196,18 @@ export function preprocessToolCalls(content: string): string {
 
   // Strip any remaining bare <tool_call> or </tool_call> tags
   text = text.replace(/<\/?\s*tool_call[^>]*>/gi, '');
-
+  // Strip bare tool-name outputs (model forgot <tool_call> wrapper)
+  // e.g. "recall_memory  <query>name</query>" or "save_memory <fact>...</fact>"
+  const bareToolNames = [
+    'calculator', 'code_display', 'document_search', 'web_search', 'fact_check',
+    'save_memory', 'recall_memory', 'search_memory', 'update_memory', 'forget_memory',
+    'read_file', 'write_file', 'list_directory', 'search_codebase', 'run_command',
+  ];
+  const bareToolPattern = new RegExp(
+    `\\b(${bareToolNames.join('|')})\\b\\s*(?:<[a-z_]+>[\\s\\S]*?(?:</[a-z_]+>\\s*)*)?$`,
+    'gi'
+  );
+  text = text.replace(bareToolPattern, '').trim();
   return text;
 }
 

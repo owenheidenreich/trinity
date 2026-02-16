@@ -126,96 +126,178 @@ Agent completes response
 
 ---
 
-## Tier 3: User Memory
+## Tier 3: User Memory (v2.0 — Structured Profile)
 
 **What:** Persistent facts about the user that survive across all conversations.  
-**Purpose:** Makes the AI feel like it "knows" you — your preferences, background, ongoing projects, etc.  
-**Size:** Unlimited facts, stored as an encrypted JSON file on IPFS.
+**Purpose:** Makes the AI feel like it "knows" you — your identity, work, interests, preferences, relationships. Trinity builds a lasting relationship with each user.  
+**Size:** Unlimited facts, stored as encrypted JSON on IPFS. Facts are organized by category and scored by importance/relevance.
 
-### Data Structure
+### Data Structure (v2.0)
 
 ```json
 {
+  "principalId": "abc12-defgh...",
+  "version": "2.0",
   "facts": [
     {
       "text": "User is building a decentralized AI platform called Trinity",
-      "category": "project",
+      "category": "work",
       "importance": 4,
-      "embedding": [0.023, -0.114, ...],    // 384-dim vector
-      "created_at": 1707840000
+      "embedding": [0.023, -0.114, ...],
+      "created_at": 1707840000,
+      "deleted": false,
+      "source_chat_id": "chat-abc123",
+      "last_mentioned": 1707850000
     },
     {
       "text": "User prefers dark mode and minimal UI",
-      "category": "preference",
+      "category": "preferences",
       "importance": 3,
       "embedding": [0.045, 0.089, ...],
-      "created_at": 1707841000
+      "created_at": 1707841000,
+      "deleted": false,
+      "source_chat_id": null,
+      "last_mentioned": null
     }
   ],
-  "preferences": {}
+  "profile": {
+    "identity": {},
+    "work": {},
+    "interests": {},
+    "preferences": {},
+    "relationships": {}
+  },
+  "createdAt": 1707840000,
+  "lastUpdated": 1707850000
 }
 ```
 
+**Categories:** identity, work, interests, preferences, relationships, general
+
+**Fact fields:**
+| Field | Type | Description |
+|---|---|---|
+| `text` | string | The fact content |
+| `category` | string | One of the profile categories |
+| `importance` | int (1-5) | How important this fact is |
+| `embedding` | float[] | 384-dim vector for similarity search |
+| `created_at` | int | Timestamp (ms) when fact was created |
+| `deleted` | bool | Soft-delete flag (fact is hidden but preserved) |
+| `source_chat_id` | string? | Which chat the fact came from |
+| `last_mentioned` | int? | Last time user referenced this topic |
+
+### Schema Migration
+
+Loading a v1.0 memory auto-migrates to v2.0 via `_migrate_to_structured_profile()`:
+- Facts are normalized (strings → dicts, legacy `fact` key → `text` key)
+- Each fact is classified into a category by `_classify_fact_category()` (keyword-based heuristics)
+- A `profile` dict is created with empty category buckets
+- Version is set to `"2.0"`
+- Migration is idempotent — running it on v2.0 data is a no-op
+
 ### How Facts Are Managed
 
-There are three ways to manage user memory:
+There are four ways to manage user memory:
 
-#### 1. Agent Tool Calls (Automatic)
+#### 1. Auto-Extraction (Background)
 
-During a conversation, the AI can decide to save or recall memories using built-in tools:
+After each AI response, a background thread runs `auto_extract_and_save()` from `services/profile_extractor.py`:
 
 ```
-User: "I'm a Python developer who focuses on security"
+User: "I'm a Python developer working at Google"
 
-AI internally triggers:
-  <tool_call name="save_memory">
-    {"fact": "User is a Python developer focused on security",
-     "category": "background",
-     "importance": 4}
-  </tool_call>
-
-→ tool_save_memory(principal, fact_text, category, importance)
-  ├── embed_text(fact_text) → embedding vector
-  ├── Check existing facts for duplicates (>0.95 cosine similarity)
-  │   └── If duplicate found → skip (return "already known")
-  └── Append to user_memory.json (encrypted on disk)
+Background thread (after response):
+  → profile_extractor.extract_profile_facts(message)
+    ├── Regex: "I'm a ... developer" → category=work, importance=4
+    ├── Regex: "working at Google" → category=work, importance=4
+    └── Returns candidate facts
+  → For each candidate:
+    └── auto_extract_and_save() → tool_save_memory() with merge semantics
 ```
 
-#### 2. API Endpoints (Manual)
+This happens silently — the user doesn't see it, but the AI gradually builds a profile.
 
-| Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `/user/memory` | GET | Retrieve all facts + preferences |
-| `/user/memory` | POST | Replace entire memory |
-| `/user/memory/fact` | POST | Add single fact (with auto-dedup) |
-| `/user/memory/fact/<index>` | DELETE | Remove a specific fact |
+#### 2. Agent Tool Calls (Semi-Automatic)
 
-#### 3. Memory Tool Handlers
-
-Three tool functions in `services/memory_tools.py`:
+During conversation, the AI uses 5 memory tools:
 
 | Tool | Trigger | Behavior |
 |------|---------|----------|
-| `save_memory` | AI detects something worth remembering | Embeds fact, deduplicates, saves |
-| `recall_memory` | AI needs user context for a response | Retrieves by semantic similarity. Score = `0.7 × similarity + 0.3 × (importance / 5)` |
-| `search_memory` | AI needs specific past context | Three modes: `exact` (substring), `semantic` (embeddings), `hybrid` (both) |
+| `save_memory` | AI detects something worth remembering | Embeds, deduplicates with merge semantics, saves |
+| `recall_memory` | AI needs user context | Retrieves by semantic similarity (filters deleted facts) |
+| `search_memory` | AI needs specific past context | Three modes: exact, semantic, hybrid (filters deleted) |
+| `update_memory` | AI learns a fact has changed | Finds best match by similarity, updates text + embedding |
+| `forget_memory` | User asks to forget something | Soft-deletes: sets `deleted=True`, preserves for audit |
 
-### Deduplication
+#### 3. API Endpoints (Manual)
 
-When saving a new fact, the system checks all existing facts for semantic similarity:
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/user/memory` | GET | Retrieve all facts + profile |
+| `/user/memory` | POST | Replace entire memory |
+| `/user/memory/fact` | POST | Add single fact (with merge-dedup) |
+| `/user/memory/fact/<index>` | DELETE | Soft-delete a specific fact |
+| `/user/export` | GET | Download all data as ZIP |
+| `/user/stats` | GET | Profile, chat, storage statistics |
+
+#### 4. Bulk Export
+
+`GET /user/export` returns a ZIP file containing:
+- `profile.json` — full user memory
+- `chats/*.md` — human-readable chat transcripts
+- `chats/*.json` — machine-readable chat data
+- `manifest.json` — export metadata
+- `README.txt` — explains the export format
+
+### Deduplication & Merge Semantics
+
+When saving a new fact, the system uses two thresholds (configurable in `config.py`):
 
 ```
-New fact: "User is a Python dev"
+New fact: "User is a Python developer"
 │
-├── Compute embedding for new fact
-├── Compare with all existing fact embeddings
-├── If any existing fact has cosine_similarity > 0.95:
-│   └── SKIP — considered a duplicate
+├── Compute embedding
+├── Compare with all existing active fact embeddings:
+│
+├── If any existing fact has cosine_similarity > 0.95 (DEDUP_SKIP_THRESHOLD):
+│   └── SKIP — considered identical
 │       Return: "I already know that about you"
-└── Otherwise: save new fact
+│
+├── If any existing fact has cosine_similarity > 0.85 (DEDUP_MERGE_THRESHOLD):
+│   └── MERGE — update the existing fact's text and re-embed
+│       Example: "User knows Python" → "User is a Python developer"
+│       (keeps the newer, more specific version)
+│
+└── Otherwise: save as new fact
 ```
 
-This prevents the memory from filling up with slight rephrasings of the same information.
+### Token-Budget Profile Injection
+
+When assembling the system prompt, `_format_user_memory()` in `agent.py` selects the most relevant facts within a token budget (default: 1500 tokens):
+
+```
+All active facts (non-deleted)
+│
+├── Score each fact:
+│   score = relevance × 0.5 + importance × 0.3 + recency × 0.2
+│   (identity category gets +1.0 boost — always include the user's name)
+│
+├── Sort by score (descending)
+│
+├── Pack into 1500-token budget:
+│   For each fact (highest score first):
+│     If adding this fact stays within budget → include
+│     Else → skip
+│
+└── Format with category headers:
+    ## What you know about this user
+    ### Identity
+    - User's name is Alice
+    ### Work
+    - User works at Google as a senior engineer
+    ### Preferences
+    - User prefers dark mode
+```
 
 ---
 
@@ -259,7 +341,11 @@ AgentPipeline.process_streaming(prompt, context_messages, ...)
 │   │ [Trinity identity + formatting guidelines]    │
 │   │                                               │
 │   │ ## What You Know About This User              │
-│   │ - User is a Python developer...              │
+│   │ ### Identity                                  │
+│   │ - User's name is Alice                       │
+│   │ ### Work                                      │
+│   │ - User is a Python developer at Google...    │
+│   │ ### Preferences                               │
 │   │ - User prefers dark mode...                  │
 │   │                                               │
 │   │ ## Relevant Context From Previous Messages    │
@@ -439,6 +525,10 @@ This ensures the API request body doesn't grow unbounded while keeping enough re
 | `CHUNK_SIZE` | 500 | `config.py` | Document chunk size (chars) |
 | `RAG_TOP_K` | 5 | `config.py` | Top RAG results |
 | `CONTEXT_WINDOW_SIZE` | 20 | `store/types.ts` | Frontend context window |
+| `PROFILE_TOKEN_BUDGET` | 1500 | `config.py` | Max tokens for user profile in system prompt |
+| `PROFILE_CATEGORIES` | identity, work, interests, preferences, relationships | `config.py` | Profile category classifications |
+| `DEDUP_MERGE_THRESHOLD` | 0.85 | `config.py` | Cosine similarity to trigger fact merge |
+| `DEDUP_SKIP_THRESHOLD` | 0.95 | `config.py` | Cosine similarity to skip (identical) |
 
 ---
 
@@ -447,9 +537,10 @@ This ensures the API request body doesn't grow unbounded while keeping enough re
 | File | Role |
 |------|------|
 | `services/memory.py` | `SemanticMemory` class — orchestrates working + semantic retrieval |
-| `services/memory_tools.py` | Tool handlers: `save_memory`, `recall_memory`, `search_memory` |
+| `services/memory_tools.py` | Tool handlers: `save_memory`, `recall_memory`, `search_memory`, `update_memory`, `forget_memory` |
+| `services/profile_extractor.py` | Background auto-extraction of profile facts from user messages |
 | `services/embeddings.py` | Embedding computation + caching |
 | `services/vector_store.py` | Per-user SQLite vector database |
 | `services/caching.py` | `EmbeddingCache`, `SemanticResponseCache`, `TokenTracker` |
-| `storage.py` | `load_user_memory()`, `save_user_memory()` — encrypted file I/O |
+| `storage.py` | `load_user_memory()`, `save_user_memory()`, `_normalize_fact()`, `_migrate_to_structured_profile()`, `get_active_facts()` |
 | `store/index.ts` | Frontend Zustand store — `contextMemory`, `CONTEXT_WINDOW_SIZE` |

@@ -1,0 +1,119 @@
+# ============================================================================
+# Trinity Inference Server — MiniMax M2.5 via vLLM
+# ============================================================================
+#
+# WHAT THIS IS:
+# This Dockerfile builds a container that runs the MiniMax M2.5 model
+# (229B MoE, 45.9B active) using vLLM as the inference backend, with
+# the Trinity Flask server in front.
+#
+# DIFFERENCES FROM THE OLLAMA DOCKERFILE:
+# - Base image: vllm/vllm-openai (includes CUDA, PyTorch, vLLM) instead of CUDA + Ollama
+# - No Ollama installation — vLLM is the inference server
+# - Model weights download via HuggingFace Hub (vLLM handles this automatically)
+# - Ports: 8000 (Flask) + 8001 (vLLM) instead of 8000 (Flask) + 11434 (Ollama)
+# - start-period: 5400s (90 min) for initial weight download
+#
+# GPU REQUIREMENT: 4× NVIDIA A100 80GB (or H100 80GB)
+# WEIGHT SIZE: ~220GB FP8 safetensors
+#
+# BUILD:
+#   docker buildx build --platform linux/amd64 \
+#     -f deploy/docker/Dockerfile.vllm \
+#     -t gdubx/trinity-inference:m2.5-latest \
+#     --build-arg CACHEBUST=$(date +%s) --push .
+# ============================================================================
+
+# === STEP 1: Base image — vLLM with CUDA, PyTorch ===
+# PINNED to v0.10.0: last version with NCCL ≤2.26 (safe on CUDA 13.0/driver 580.x).
+# v0.11.0+ ships NCCL 2.27.x which SIGSEGVs in the driver's JIT compiler.
+# v0.10.0 ships PyTorch 2.7.1+cu128, NCCL 2.26.2, and has MiniMax M2 support.
+FROM vllm/vllm-openai:v0.10.0
+
+# === STEP 2: Environment variables ===
+ENV PYTHONUNBUFFERED=1
+ENV MODEL_BACKEND=vllm
+ENV VLLM_MODEL_NAME=MiniMaxAI/MiniMax-M2.5
+ENV VLLM_PORT=8001
+ENV TENSOR_PARALLEL_SIZE=4
+ENV PROVIDER_ID=trinity-m2.5-vllm
+ENV GPU_TYPE=4xA100-80GB
+ENV MAX_QUEUE_SIZE=5
+
+# HuggingFace cache → persistent volume mount point
+ENV HF_HOME=/models
+ENV TRANSFORMERS_CACHE=/models
+
+# === STEP 3: Fix CUDA driver compatibility ===
+# The vLLM base image bundles libcuda.so.575.57.08 in /usr/local/cuda/compat/.
+# On Akash providers with driver 580.x, this bundled driver causes Error 803
+# (cudaErrorSystemDriverMismatch) because ldconfig resolves to the wrong version.
+# Removing the compat libs forces the container to use the host-injected driver.
+RUN rm -f /usr/local/cuda/compat/libcuda.so* \
+         /usr/local/cuda/compat/libcudadebugger.so* \
+         /usr/local/cuda-*/compat/libcuda.so* \
+         /usr/local/cuda-*/compat/libcudadebugger.so* \
+    && ldconfig
+
+# === STEP 4: Working directory ===
+WORKDIR /app
+
+# === STEP 5: Python dependencies (cached unless requirements.txt changes) ===
+COPY backend/requirements.txt .
+# Remove distutils-installed blinker from vLLM base image (conflicts with Flask's blinker>=1.6.2)
+# Install Ray as fallback distributed executor (TCP-based IPC, no /dev/shm needed)
+# NOTE: v0.10.0 ships NCCL 2.26.2 which is safe on CUDA 13.0 driver (580.x).
+# Do NOT upgrade vLLM or PyTorch — v0.11+ ships NCCL ≥2.27 which SIGSEGVs.
+RUN rm -rf /usr/lib/python3/dist-packages/blinker* && \
+    pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir "ray[default]>=2.9"
+
+# === STEP 6: User, directories ===
+# Create non-root user for security
+RUN groupadd -r trinity && useradd -r -g trinity -d /app -s /sbin/nologin trinity
+
+# Model cache directory (persistent volume mounts here)
+RUN mkdir -p /models && chown -R trinity:trinity /models
+
+# Chat storage directory
+RUN mkdir -p /data/chats && chown -R trinity:trinity /data/chats
+VOLUME ["/data/chats"]
+
+# === STEP 7: Application code (changes every deploy — kept LAST) ===
+ARG CACHEBUST=1
+
+COPY backend/inference_server.py .
+COPY backend/icp_auth.py .
+COPY backend/config.py .
+COPY backend/encryption.py .
+COPY backend/storage.py .
+COPY backend/lighthouse.py .
+COPY backend/validation.py .
+COPY backend/database.py .
+COPY backend/middleware/ ./middleware/
+COPY backend/services/ ./services/
+COPY backend/routes/ ./routes/
+COPY deploy/docker/startup-vllm.sh ./startup.sh
+RUN chmod +x startup.sh
+
+# Fix ownership of app directory (after code copy)
+RUN chown -R trinity:trinity /app
+
+# === STEP 7: Ports ===
+# 8000 = Trinity Flask API (exposed to the world)
+# 8001 = vLLM OpenAI-compat API (internal only)
+EXPOSE 8000
+EXPOSE 8001
+
+# === STEP 8: Health check ===
+# start-period=5400s (90 min) accounts for first-time model weight download
+# (~220GB from HuggingFace Hub). Subsequent starts use cached weights and
+# are ready in 2-5 minutes.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5400s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# === STEP 9: Start ===
+# Override vllm/vllm-openai ENTRYPOINT so our startup script runs as the process.
+# Runs as root so startup script can fix PersistentVolume permissions.
+ENTRYPOINT []
+CMD ["/bin/bash", "/app/startup.sh"]

@@ -28,7 +28,7 @@ from config import (
     GPU_TYPE,
     logger,
 )
-from services import check_ollama_connection, warmup_model
+from services.provider_factory import get_provider
 
 # Route blueprints
 from routes import ALL_BLUEPRINTS
@@ -327,14 +327,17 @@ if __name__ == "__main__":
     logger.info(f"GPU Type: {GPU_TYPE}")
     logger.info(f"Max Queue Size: {MAX_QUEUE_SIZE}")
     logger.info(f"Chats Directory: {CHATS_DIR}")
-    logger.info(f"Ollama Host: {OLLAMA_HOST}")
     logger.info("=" * 70)
 
-    if check_ollama_connection():
-        logger.info(f"✅ Successfully connected to Ollama ({MODEL_NAME})")
-        warmup_model()
+    # Initialize the LLM provider and verify connection
+    provider = get_provider()
+    logger.info(f"🔧 Provider: {provider}")
+
+    if provider.check_connection():
+        logger.info(f"✅ Successfully connected to {provider.backend_name} ({MODEL_NAME})")
+        provider.warmup()
     else:
-        logger.warning("⚠️  Could not connect to Ollama - server will start anyway")
+        logger.warning(f"⚠️  Could not connect to {provider.backend_name} — server will start anyway")
         logger.warning("   Make sure Ollama is running: ollama serve")
         logger.warning(f"   Make sure model is available: ollama pull {MODEL_NAME}")
 

@@ -1,5 +1,5 @@
 """
-Generate endpoints — AI inference via Ollama.
+Generate endpoints — AI inference via LLM provider.
 Routes: /generate, /generate/agent
 """
 
@@ -14,7 +14,6 @@ from flask import Blueprint, Response, current_app, jsonify, request, stream_wit
 from config import (
     DEFAULT_MAX_TOKENS,
     DEFAULT_TEMPERATURE,
-    DEPLOYMENT_TIER,
     GPU_TYPE,
     MAX_DOCUMENT_CONTEXT_CHARS,
     MAX_PROMPT_LENGTH,
@@ -27,6 +26,8 @@ from config import (
     http_session,
     logger,
 )
+from services import DEPLOYMENT_TIER
+from services.provider_factory import get_provider
 from middleware import (
     end_request,
     get_active_requests,
@@ -113,6 +114,11 @@ def generate():
         user_memory = None
         if principal:
             try:
+                from services.user_data_store import ensure_user_data_restored
+                ensure_user_data_restored(principal)
+            except Exception:
+                pass
+            try:
                 user_memory = load_user_memory(principal)
                 if user_memory.get("facts"):
                     logger.info(f"📚 Including {len(user_memory['facts'])} user memory facts")
@@ -138,26 +144,24 @@ def generate():
             f"🤖 Request: {word_count} words (#{prompt_hash}), {context_count} ctx, seed={seed}, reasoning={reasoning_mode}"
         )
 
-        ollama_options = {"num_predict": max_length, "temperature": temperature, "num_ctx": 32768}
         if seed is not None:
-            ollama_options["seed"] = int(seed)
             logger.info(f"🎲 Using deterministic seed: {seed}")
 
         with track_inference(MODEL_NAME, tier=tier) as inference_tracker:
-            response = http_session.post(
-                f"{OLLAMA_HOST}/api/generate",
-                json={"model": MODEL_NAME, "prompt": full_prompt, "stream": False, "options": ollama_options},
+            provider = get_provider()
+            generated_text = provider.generate(
+                prompt=full_prompt,
+                max_tokens=max_length,
+                temperature=temperature,
                 timeout=OLLAMA_TIMEOUT,
             )
 
-            if response.status_code != 200:
+            if not generated_text:
                 inference_tracker.set_status("error")
-                raise Exception(f"Ollama returned status {response.status_code}")
+                raise Exception("LLM provider returned empty response")
 
-            result = response.json()
-            generated_text = result.get("response", "")
-            tokens_generated = result.get("eval_count", len(generated_text.split()))
-            prompt_tokens = result.get("prompt_eval_count", 0)
+            tokens_generated = len(generated_text.split())
+            prompt_tokens = 0
             inference_tracker.set_tokens(tokens_generated)
 
         reasoning_result = None
@@ -196,6 +200,42 @@ def generate():
             response_data["prompt_tokens"] = prompt_tokens
             response_data["latency_ms"] = latency_ms
             response_data["timestamp"] = datetime.utcnow().isoformat()
+
+        # Auto-extract profile facts and index into semantic memory (non-blocking)
+        if principal:
+            chat_id = data.get("chat_id")
+            message_index = data.get("message_index")
+            try:
+                from services.profile_extractor import auto_extract_and_save
+                import threading as _gen_threading
+                _gen_threading.Thread(
+                    target=auto_extract_and_save,
+                    args=(user_prompt, principal),
+                    daemon=True,
+                ).start()
+                if final_response:
+                    _gen_threading.Thread(
+                        target=auto_extract_and_save,
+                        args=(final_response, principal, "assistant"),
+                        daemon=True,
+                    ).start()
+            except Exception:
+                pass
+
+            V4_FEATURES_AVAILABLE = current_app.config.get("V4_FEATURES_AVAILABLE", False)
+            if V4_FEATURES_AVAILABLE and chat_id:
+                try:
+                    from services.memory import get_semantic_memory
+                    from services.user_data_store import notify_message_indexed
+                    sem_memory = get_semantic_memory(principal)
+                    idx = message_index if message_index is not None else 0
+                    sem_memory.index_message(chat_id, idx, "user", user_prompt)
+                    notify_message_indexed(principal)
+                    if final_response:
+                        sem_memory.index_message(chat_id, idx + 1, "assistant", final_response)
+                        notify_message_indexed(principal)
+                except Exception as idx_error:
+                    logger.debug(f"V4.0 indexing skipped in /generate: {idx_error}")
 
         return jsonify(response_data)
 
@@ -254,6 +294,12 @@ def generate_agent():
         user_memory = None
         if principal:
             try:
+                # Ensure IPFS restore has happened (idempotent, no-op if already done)
+                from services.user_data_store import ensure_user_data_restored
+                ensure_user_data_restored(principal)
+            except Exception:
+                pass
+            try:
                 user_memory = load_user_memory(principal)
             except Exception:
                 pass
@@ -273,7 +319,7 @@ def generate_agent():
                 logger.warning(f"⚠️ Semantic memory fallback: {e}")
                 enhanced_context = context_memory
 
-        pipeline = AgentPipeline(OLLAMA_HOST, MODEL_NAME)
+        pipeline = AgentPipeline(provider=get_provider())
 
         v4_options = (
             {"semantic_context": semantic_context, "principal_id": principal}
@@ -299,13 +345,35 @@ def generate_agent():
                 if V4_FEATURES_AVAILABLE and principal and chat_id:
                     try:
                         from services.memory import get_semantic_memory
+                        from services.user_data_store import notify_message_indexed
                         sem_memory = get_semantic_memory(principal)
                         idx = message_index if message_index is not None else 0
                         sem_memory.index_message(chat_id, idx, "user", user_prompt)
+                        notify_message_indexed(principal)
                         if full_response:
                             sem_memory.index_message(chat_id, idx + 1, "assistant", full_response)
+                            notify_message_indexed(principal)
                     except Exception as idx_error:
                         logger.debug(f"V4.0 indexing skipped: {idx_error}")
+
+                # Auto-extract profile facts from user message (non-blocking)
+                if principal:
+                    try:
+                        from services.profile_extractor import auto_extract_and_save
+                        import threading
+                        threading.Thread(
+                            target=auto_extract_and_save,
+                            args=(user_prompt, principal),
+                            daemon=True,
+                        ).start()
+                        if full_response:
+                            threading.Thread(
+                                target=auto_extract_and_save,
+                                args=(full_response, principal, "assistant"),
+                                daemon=True,
+                            ).start()
+                    except Exception:
+                        pass
 
             except Exception as e:
                 logger.error(f"Agent streaming error: {e}")

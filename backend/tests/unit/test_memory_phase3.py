@@ -2,9 +2,9 @@
 Phase 3 Memory System Overhaul Tests
 =====================================
 Tests for:
-- B1/B8: _format_user_memory() dict rendering fix
+- B1/B8: _format_user_memory() token-budget profile rendering
 - B3: build_enhanced_context() tuple return type
-- B4: _normalize_facts() schema migration
+- B4: _normalize_fact() + _migrate_to_structured_profile() schema migration
 - B5: Context window size (frontend — verified by grep)
 """
 
@@ -29,7 +29,7 @@ class TestFormatUserMemory:
         assert _format_user_memory({"facts": []}) == ""
 
     def test_canonical_dict_facts(self):
-        """Facts with 'text' key render correctly."""
+        """Facts with 'text' key render correctly with category headers."""
         from services.agent import _format_user_memory
 
         memory = {"facts": [
@@ -39,7 +39,8 @@ class TestFormatUserMemory:
         result = _format_user_memory(memory)
 
         assert "## What you know about this user" in result
-        assert "- [preferences] User likes Python" in result
+        assert "### Preferences" in result
+        assert "- User likes Python" in result
         assert "- User is a developer" in result
         # Embeddings must NOT appear
         assert "0.1" not in result
@@ -81,30 +82,36 @@ class TestFormatUserMemory:
         assert "- String fact" in result
         assert "- Legacy fact" in result
 
-    def test_max_10_facts(self):
-        """Only first 10 facts are included."""
+    def test_token_budget_limits_facts(self):
+        """Facts beyond token budget are excluded."""
         from services.agent import _format_user_memory
 
-        memory = {"facts": [f"Fact {i}" for i in range(15)]}
+        # Create many long facts that exceed the 1500-token budget
+        memory = {"facts": [{"text": f"Very long fact number {i} " * 20, "category": "general",
+                             "importance": 3} for i in range(50)]}
         result = _format_user_memory(memory)
 
-        assert "Fact 9" in result
-        assert "Fact 10" not in result
+        # Should not include all 50 facts
+        fact_lines = [l for l in result.split("\n") if l.startswith("- ")]
+        assert len(fact_lines) < 50
 
-    def test_category_display(self):
-        """Non-general categories shown in brackets, general omitted."""
+    def test_category_headers(self):
+        """Facts are grouped under category headers."""
         from services.agent import _format_user_memory
 
         memory = {"facts": [
             {"text": "Likes Rust", "category": "preferences"},
             {"text": "Is tall", "category": "general"},
-            {"text": "Uses vim", "category": "tools"},
+            {"text": "Uses vim", "category": "work"},
         ]}
         result = _format_user_memory(memory)
 
-        assert "- [preferences] Likes Rust" in result
-        assert "- Is tall" in result  # No category prefix
-        assert "- [tools] Uses vim" in result
+        assert "### Preferences" in result
+        assert "- Likes Rust" in result
+        assert "### General" in result
+        assert "- Is tall" in result
+        assert "### Work" in result
+        assert "- Uses vim" in result
 
     def test_skips_empty_text_facts(self):
         """Facts with empty text are skipped."""
@@ -120,6 +127,35 @@ class TestFormatUserMemory:
         lines = [l for l in result.split("\n") if l.startswith("- ")]
         assert len(lines) == 1
         assert "Real fact" in result
+
+    def test_deleted_facts_excluded(self):
+        """Soft-deleted facts are not included in the output."""
+        from services.agent import _format_user_memory
+
+        memory = {"facts": [
+            {"text": "Active fact", "category": "general", "deleted": False},
+            {"text": "Deleted fact", "category": "general", "deleted": True},
+        ]}
+        result = _format_user_memory(memory)
+
+        assert "Active fact" in result
+        assert "Deleted fact" not in result
+
+    def test_identity_facts_prioritized(self):
+        """Identity facts get priority (score boost)."""
+        from services.agent import _format_user_memory
+
+        memory = {"facts": [
+            {"text": "Random general fact", "category": "general", "importance": 1},
+            {"text": "User's name is Alice", "category": "identity", "importance": 5},
+        ]}
+        result = _format_user_memory(memory)
+
+        # Identity should appear first (before general)
+        identity_pos = result.find("### Identity")
+        general_pos = result.find("### General")
+        if identity_pos >= 0 and general_pos >= 0:
+            assert identity_pos < general_pos
 
 
 # ============================================================================
@@ -207,101 +243,139 @@ class TestBuildEnhancedContext:
 
 
 # ============================================================================
-# B4: _normalize_facts
+# B4: _normalize_fact + _migrate_to_structured_profile
 # ============================================================================
 
-class TestNormalizeFacts:
-    """Tests for storage.py _normalize_facts()."""
+class TestNormalizeFact:
+    """Tests for storage.py _normalize_fact() and _migrate_to_structured_profile()."""
 
-    def test_normalizes_plain_strings(self):
-        from storage import _normalize_facts
+    def test_normalizes_plain_string(self):
+        from storage import _normalize_fact
 
-        memory = {"facts": ["Likes Python", "Is a developer"]}
-        result = _normalize_facts(memory)
+        result = _normalize_fact("Likes Python")
 
-        assert len(result["facts"]) == 2
-        assert result["facts"][0]["text"] == "Likes Python"
-        assert result["facts"][0]["category"] == "general"
-        assert result["facts"][0]["importance"] == 3
-        assert "created_at" in result["facts"][0]
+        assert result["text"] == "Likes Python"
+        assert result["category"] == "general"
+        assert result["importance"] == 3
+        assert result["deleted"] is False
+        assert "created_at" in result
 
     def test_normalizes_legacy_rest_format(self):
         """Facts with 'fact' key converted to 'text' key."""
-        from storage import _normalize_facts
+        from storage import _normalize_fact
 
-        memory = {"facts": [
-            {"fact": "Prefers dark mode", "addedAt": 1700000000000, "category": "ui"},
-        ]}
-        result = _normalize_facts(memory)
+        result = _normalize_fact(
+            {"fact": "Prefers dark mode", "addedAt": 1700000000000, "category": "ui"}
+        )
 
-        fact = result["facts"][0]
-        assert fact["text"] == "Prefers dark mode"
-        assert fact["category"] == "ui"
-        assert fact["created_at"] == 1700000000000
-        assert "fact" not in fact  # Old key removed
+        assert result["text"] == "Prefers dark mode"
+        assert result["category"] == "ui"
+        assert result["created_at"] == 1700000000000
+        assert result["deleted"] is False
 
     def test_canonical_format_passthrough(self):
-        """Already-canonical facts pass through unchanged."""
-        from storage import _normalize_facts
+        """Already-canonical facts pass through with defaults set."""
+        from storage import _normalize_fact
 
-        canonical = {"text": "Test", "category": "general", "importance": 4,
-                      "embedding": [0.1, 0.2], "created_at": 1700000000000}
-        memory = {"facts": [canonical]}
-        result = _normalize_facts(memory)
+        result = _normalize_fact(
+            {"text": "Test", "category": "general", "importance": 4,
+             "embedding": [0.1, 0.2], "created_at": 1700000000000}
+        )
 
-        assert result["facts"][0] == canonical
+        assert result["text"] == "Test"
+        assert result["importance"] == 4
+        assert result["deleted"] is False
 
     def test_adds_missing_defaults(self):
         """Canonical facts with missing optional fields get defaults."""
-        from storage import _normalize_facts
+        from storage import _normalize_fact
 
-        memory = {"facts": [{"text": "Partial fact"}]}
-        result = _normalize_facts(memory)
+        result = _normalize_fact({"text": "Partial fact"})
 
-        fact = result["facts"][0]
-        assert fact["category"] == "general"
-        assert fact["importance"] == 3
-        assert fact["embedding"] is None
-        assert "created_at" in fact
+        assert result["category"] == "general"
+        assert result["importance"] == 3
+        assert result["embedding"] is None
+        assert result["deleted"] is False
+        assert "created_at" in result
 
-    def test_mixed_formats(self):
-        """Mix of string, legacy dict, and canonical dict all normalize."""
-        from storage import _normalize_facts
+    def test_returns_none_for_invalid(self):
+        """Non-string, non-dict entries return None."""
+        from storage import _normalize_fact
 
-        memory = {"facts": [
-            "String fact",
-            {"fact": "Legacy fact", "category": "test"},
-            {"text": "Canonical fact", "category": "dev", "importance": 5,
-             "embedding": None, "created_at": 1700000000000},
-        ]}
-        result = _normalize_facts(memory)
+        assert _normalize_fact(42) is None
+        assert _normalize_fact(None) is None
 
-        assert len(result["facts"]) == 3
-        assert all("text" in f for f in result["facts"])
-        assert result["facts"][0]["text"] == "String fact"
-        assert result["facts"][1]["text"] == "Legacy fact"
-        assert result["facts"][2]["importance"] == 5
+    def test_returns_none_for_empty_dict(self):
+        """Dict without 'text' or 'fact' returns None."""
+        from storage import _normalize_fact
 
-    def test_empty_facts_passthrough(self):
-        from storage import _normalize_facts
+        assert _normalize_fact({"random": "value"}) is None
 
-        memory = {"facts": []}
-        result = _normalize_facts(memory)
-        assert result["facts"] == []
 
-    def test_no_facts_key(self):
-        from storage import _normalize_facts
+class TestMigrateToStructuredProfile:
+    """Tests for storage.py _migrate_to_structured_profile()."""
 
-        memory = {"preferences": {}}
-        result = _normalize_facts(memory)
-        assert "preferences" in result
+    def test_v1_migration_creates_profile(self):
+        from storage import _migrate_to_structured_profile
+
+        memory = {
+            "version": "1.0",
+            "facts": [
+                {"text": "User likes Python", "category": "general"},
+                {"text": "User works at Acme", "category": "general"},
+            ],
+        }
+        result = _migrate_to_structured_profile(memory)
+
+        assert result["version"] == "2.0"
+        assert "profile" in result
+        assert isinstance(result["profile"], dict)
+        assert "identity" in result["profile"]
+        assert "work" in result["profile"]
+
+    def test_v2_passthrough(self):
+        """Already v2.0 memories pass through unchanged."""
+        from storage import _migrate_to_structured_profile
+
+        memory = {
+            "version": "2.0",
+            "facts": [{"text": "Test", "category": "general"}],
+            "profile": {"identity": {}, "work": {}},
+        }
+        result = _migrate_to_structured_profile(memory)
+
+        assert result["version"] == "2.0"
 
     def test_idempotent(self):
-        """Running normalize twice produces same result."""
-        from storage import _normalize_facts
+        """Running migrate twice produces same result."""
+        from storage import _migrate_to_structured_profile
 
-        memory = {"facts": ["String fact", {"fact": "Legacy"}]}
-        first = _normalize_facts(memory)
-        second = _normalize_facts(first)
+        memory = {"version": "1.0", "facts": ["String fact", {"fact": "Legacy"}]}
+        first = _migrate_to_structured_profile(memory)
+        second = _migrate_to_structured_profile(first)
 
-        assert first["facts"] == second["facts"]
+        assert first["version"] == second["version"] == "2.0"
+        assert len(first["facts"]) == len(second["facts"])
+
+    def test_classifies_work_facts(self):
+        """Facts about work get classified into the work category."""
+        from storage import _migrate_to_structured_profile
+
+        memory = {
+            "version": "1.0",
+            "facts": [{"text": "I work at Google", "category": "general"}],
+        }
+        result = _migrate_to_structured_profile(memory)
+
+        assert result["facts"][0]["category"] == "work"
+
+    def test_empty_facts_ok(self):
+        """Migration handles empty facts list."""
+        from storage import _migrate_to_structured_profile
+
+        memory = {"version": "1.0", "facts": []}
+        result = _migrate_to_structured_profile(memory)
+
+        assert result["version"] == "2.0"
+        assert result["facts"] == []
+        assert "profile" in result

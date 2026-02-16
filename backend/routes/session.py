@@ -133,25 +133,11 @@ def funding_status():
             },
             "tiers": [
                 {
-                    "tier": 1,
-                    "name": "Starter",
-                    "model": "tinyllama:1.1b",
-                    "hourly_akt": 0.15,
-                    "ram_gb": 4,
-                },
-                {
-                    "tier": 2,
-                    "name": "Standard",
-                    "model": "llama3.1:8b",
-                    "hourly_akt": 0.40,
-                    "ram_gb": 16,
-                },
-                {
                     "tier": 3,
                     "name": "Professional",
-                    "model": "qwen2.5:72b",
-                    "hourly_akt": 1.75,
-                    "ram_gb": 64,
+                    "model": "qwen2.5-coder:32b",
+                    "hourly_akt": 1.00,
+                    "ram_gb": 48,
                 },
             ],
             "min_duration_hours": 1,
@@ -197,19 +183,20 @@ def session_status():
 def session_request():
     """Request a new private session. Returns payment instructions."""
     data = request.get_json() or {}
-    tier = data.get("tier", 1)
+    tier = data.get("tier", 3)
     hours = data.get("hours", 1)
 
-    if tier not in [1, 2, 3]:
-        return jsonify({"error": "Invalid tier. Use 1, 2, or 3"}), 400
+    # Single-tier for now — only tier 3 (qwen2.5-coder:32b) is supported
+    if tier != 3:
+        return jsonify({"error": "Only tier 3 is currently available"}), 400
 
     if hours < MIN_SESSION_HOURS or hours > MAX_SESSION_HOURS:
         return jsonify({"error": f"Hours must be between {MIN_SESSION_HOURS} and {MAX_SESSION_HOURS}"}), 400
 
-    # Tier pricing
-    tier_rates = {1: 0.15, 2: 0.40, 3: 1.75}
-    tier_names = {1: "Starter", 2: "Standard", 3: "Professional"}
-    tier_models = {1: "tinyllama:1.1b", 2: "llama3.1:8b", 3: "qwen2.5:72b"}
+    # Single-tier pricing (multi-tier coming later)
+    tier_rates = {3: 1.00}
+    tier_names = {3: "Professional"}
+    tier_models = {3: "qwen2.5-coder:32b"}
 
     hourly_rate = tier_rates[tier]
     hardware_akt = hourly_rate * hours

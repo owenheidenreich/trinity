@@ -1,5 +1,5 @@
 """
-Admin endpoints — caching, token & quota usage.
+Admin endpoints — caching, token & quota usage, storage status.
 Routes: /admin/*
 All require @require_admin decorator.
 """
@@ -64,3 +64,22 @@ def get_quota_usage():
         return jsonify({"users": usage, "user_count": len(usage)})
     except ImportError:
         return jsonify({"error": "Rate limit module not available"}), 503
+
+
+@admin_bp.route("/admin/storage/status")
+@require_admin
+def get_storage_status():
+    """Get IPFS sync status across all users — pending syncs, last sync times, errors."""
+    try:
+        from services.user_data_store import get_all_sync_status, get_pending_sync_count
+
+        sync_status = get_all_sync_status()
+        pending_count = get_pending_sync_count()
+
+        return jsonify({
+            "pendingSyncs": pending_count,
+            "userSyncStatus": sync_status,
+            "userCount": len(sync_status),
+        })
+    except ImportError:
+        return jsonify({"error": "User data store module not available"}), 503

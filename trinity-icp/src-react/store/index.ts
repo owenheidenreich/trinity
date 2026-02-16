@@ -123,7 +123,20 @@ export const useStore = create<StoreState>((set, get) => ({
     set({ isAuthenticated: true, principal, authenticatedSince }),
 
   clearAuthentication: () =>
-    set({ isAuthenticated: false, principal: null, authenticatedSince: null }),
+    set({
+      isAuthenticated: false,
+      principal: null,
+      authenticatedSince: null,
+      // Wipe all user data to prevent cross-account leaks
+      allChats: [],
+      chatHistory: [],
+      contextMemory: [],
+      currentChatId: null,
+      chatStarted: false,
+      userMemory: null,
+      autosaveStatus: 'idle' as const,
+      unsavedChanges: false,
+    }),
 
   setUserMemory: (memory) => set({ userMemory: memory }),
   setAllChats: (chats) => set({ allChats: chats }),

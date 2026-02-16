@@ -317,9 +317,9 @@ Database: TrinityChats (v1)
 
 ---
 
-## User Memory Storage
+## User Memory Storage (v2.0)
 
-User memory (persistent facts across all chats) is stored as encrypted JSON:
+User memory (structured profile + persistent facts across all chats) is stored as encrypted JSON:
 
 ### Storage Path
 
@@ -337,9 +337,12 @@ On IPFS:
 
 | Function | Location | Purpose |
 |----------|----------|---------|
-| `load_user_memory(principal)` | `storage.py` | Load + decrypt from disk. Returns `{facts: [], preferences: {}}` if not found |
-| `save_user_memory(principal, memory)` | `storage.py` | Encrypt + write to disk |
-| `_normalize_facts(facts)` | `storage.py` | Migrate legacy fact formats to current schema |
+| `load_user_memory(principal)` | `storage.py` | Load + decrypt + auto-migrate v1→v2. Returns v2.0 schema with `profile` dict if not found |
+| `save_user_memory(principal, memory)` | `storage.py` | Encrypt + write to disk + trigger IPFS sync |
+| `_normalize_fact(fact)` | `storage.py` | Normalize single fact to canonical format (string/legacy dict → canonical dict) |
+| `_migrate_to_structured_profile(memory)` | `storage.py` | Migrate v1.0 → v2.0: add `profile` dict, classify facts by category, set `version: "2.0"` |
+| `_classify_fact_category(text)` | `storage.py` | Keyword heuristics to classify fact into identity/work/interests/preferences/relationships |
+| `get_active_facts(memory)` | `storage.py` | Return only non-deleted facts (filters `deleted: true`) |
 | `load_metadata(principal)` | `storage.py` | Load plaintext metadata (chat index, CIDs, sync state) |
 | `save_metadata(principal, metadata)` | `storage.py` | Save metadata JSON |
 | `get_user_dir(principal)` | `storage.py` | Returns safe path with path-traversal protection |

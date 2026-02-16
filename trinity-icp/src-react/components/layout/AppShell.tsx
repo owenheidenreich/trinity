@@ -8,11 +8,12 @@ import { useAuth } from '../../hooks/useAuth';
 import { useChat } from '../../hooks/useChat';
 import { useAutosave } from '../../hooks/useAutosave';
 import { useConnection } from '../../hooks/useConnection';
+import { usePassphrase } from '../../hooks/usePassphrase';
 import { Sidebar } from '../sidebar/Sidebar';
 import { MessageList } from '../chat/MessageList';
 import { MessageInput } from '../chat/MessageInput';
 import { EmptyState } from './EmptyState';
-import { AuthModal } from '../modals/AuthModal';
+import { WelcomeModal } from '../modals/WelcomeModal';
 import { ConfirmModal } from '../modals/ConfirmModal';
 import { KeyExportModal } from '../modals/KeyExportModal';
 import { InfoModal } from '../modals/InfoModal';
@@ -28,6 +29,7 @@ export function AppShell() {
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [showKeyExport, setShowKeyExport] = useState(false);
   const [infoVariant, setInfoVariant] = useState<InfoVariant | null>(null);
+  const [showBackupKey, setShowBackupKey] = useState(false);
 
   // Store
   const chatHistory = useStore((s) => s.chatHistory);
@@ -35,6 +37,8 @@ export function AppShell() {
   const currentChatId = useStore((s) => s.currentChatId);
   const allChats = useStore((s) => s.allChats);
   const isGenerating = useStore((s) => s.isGenerating);
+  const isLoadingChat = useStore((s) => s.isLoadingChat);
+  const setLoadingChat = useStore((s) => s.setLoadingChat);
   const addMessage = useStore((s) => s.addMessage);
   const setAllChats = useStore((s) => s.setAllChats);
   const setChatHistory = useStore((s) => s.setChatHistory);
@@ -47,16 +51,8 @@ export function AppShell() {
   // Hooks
   const auth = useAuth();
   const chat = useChat();
-  const autosave = useAutosave();
   const { status: connectionStatus } = useConnection();
-
-  // Load chat list and user memory on auth
-  useEffect(() => {
-    if (auth.isAuthenticated) {
-      void loadChats();
-      void loadUserMemory();
-    }
-  }, [auth.isAuthenticated]);
+  const passphrase = usePassphrase();
 
   const loadChats = useCallback(async () => {
     try {
@@ -73,6 +69,23 @@ export function AppShell() {
       Logger.error('Failed to load chats:', err);
     }
   }, [auth.buildAuthHeaders, setAllChats]);
+
+  const autosave = useAutosave(loadChats);
+
+  // Check passphrase status after auth
+  useEffect(() => {
+    if (auth.isAuthenticated) {
+      void passphrase.checkStatus(auth.buildAuthHeaders);
+    }
+  }, [auth.isAuthenticated]);
+
+  // Load chat list and user memory once passphrase is unlocked (or skipped)
+  useEffect(() => {
+    if (auth.isAuthenticated && (passphrase.status === 'unlocked' || passphrase.status === 'no_passphrase')) {
+      void loadChats();
+      void loadUserMemory();
+    }
+  }, [auth.isAuthenticated, passphrase.status]);
 
   const loadUserMemory = useCallback(async () => {
     try {
@@ -122,6 +135,12 @@ export function AppShell() {
         if (result.error && result.error !== 'Aborted') {
           toastManager.error(result.error);
         }
+        // Preserve any partial tokens that were streamed before the error
+        const partialTokens = chat.getTokens();
+        if (partialTokens) {
+          addMessage('assistant', partialTokens);
+          autosave.scheduleAutosave(auth.buildAuthHeaders);
+        }
         return;
       }
 
@@ -132,19 +151,17 @@ export function AppShell() {
         addMessage('assistant', finalTokens);
       }
 
-      // Trigger autosave
+      // Trigger autosave (sidebar refreshes via onSaveSuccess callback)
       autosave.scheduleAutosave(auth.buildAuthHeaders);
-
-      // Refresh chat list
-      void loadChats();
     },
-    [addMessage, currentChatId, setCurrentChatId, chat, auth.buildAuthHeaders, autosave, loadChats]
+    [addMessage, currentChatId, setCurrentChatId, chat, auth.buildAuthHeaders, autosave]
   );
 
   // Load a specific chat
   const handleLoadChat = useCallback(
     async (chatId: string) => {
       try {
+        setLoadingChat(true);
         const headers = await auth.buildAuthHeaders(`/chat/${chatId}`);
         if (!headers) return;
         const response = await fetch(`${CONFIG.API_URL}/chat/${chatId}`, {
@@ -161,9 +178,11 @@ export function AppShell() {
         }
       } catch (err) {
         Logger.error('Failed to load chat:', err);
+      } finally {
+        setLoadingChat(false);
       }
     },
-    [auth.buildAuthHeaders, setChatHistory, setCurrentChatId, setChatStarted, setContextMemory]
+    [auth.buildAuthHeaders, setChatHistory, setCurrentChatId, setChatStarted, setContextMemory, setLoadingChat]
   );
 
   // Delete chat
@@ -301,12 +320,30 @@ export function AppShell() {
     autosave.scheduleAutosave(auth.buildAuthHeaders);
   }, [chat, auth.buildAuthHeaders, chatHistory, setChatHistory, autosave]);
 
-  // Show auth modal if not authenticated
-  if (!auth.isAuthenticated) {
+  // Determine if the welcome/auth flow is still active
+  const needsWelcome =
+    auth.isInitializing ||
+    !auth.isAuthenticated ||
+    passphrase.status === 'unknown' ||
+    passphrase.status === 'no_passphrase' ||
+    passphrase.status === 'locked' ||
+    showBackupKey;
+
+  if (needsWelcome) {
     return (
-      <AuthModal
-        onLogin={auth.login}
+      <WelcomeModal
+        isAuthenticated={auth.isAuthenticated}
+        isInitializing={auth.isInitializing}
+        passphraseStatus={passphrase.status}
+        passphraseLoading={passphrase.loading}
+        passphraseError={passphrase.error}
+        onCreateIdentity={auth.login}
         onImportKey={auth.importKey}
+        onSetupPassphrase={(pp) => passphrase.setup(pp, auth.buildAuthHeaders)}
+        onUnlockPassphrase={(pp) => passphrase.unlock(pp, auth.buildAuthHeaders)}
+        onSkipPassphrase={() => passphrase.skipSetup()}
+        onShowBackupKey={() => setShowBackupKey(true)}
+        onDismissBackupKey={() => setShowBackupKey(false)}
       />
     );
   }
@@ -358,6 +395,12 @@ export function AppShell() {
 
       {/* Main content */}
       <div className={styles.main}>
+        {isLoadingChat && (
+          <div className={styles.loadingOverlay}>
+            <div className={styles.spinner} />
+            <span>Loading chat...</span>
+          </div>
+        )}
         {!chatStarted && !chat.isStreaming ? (
           <EmptyState />
         ) : (

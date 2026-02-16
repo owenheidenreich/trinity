@@ -82,9 +82,9 @@ docs/                            # Architecture docs, guides, AI context
 
 **Auth:** Ed25519 keypair → principal ID (base32). Signed message format: `{principal}:{timestamp}:{endpoint}:{nonce}`. Backend verifies via `@require_auth` decorator. 60s replay window.
 
-**Agent Pipeline:** User prompt → heuristic tool detection → if tools needed, ReAct loop (max 15 iterations, 24K token budget, 13 tools) → if not, direct LLM generation. Reflexion self-correction on errors.
+**Agent Pipeline:** User prompt → heuristic tool detection → if tools needed, ReAct loop (max 15 iterations, 24K token budget, 15 tools) → if not, direct LLM generation. Reflexion self-correction on errors. Auto-extraction of profile facts runs in background after each response.
 
-**Memory:** Three tiers — working (last 3 messages), semantic (top 5 by vector similarity), user memory (persistent facts on IPFS).
+**Memory:** Three tiers — working (last 3 messages), semantic (top 5 by vector similarity), user memory (v2.0 structured profile with categories, token-budget injection, soft-delete, auto-extraction, encrypted on IPFS). 15 tools include `update_memory` and `forget_memory`.
 
 **Storage:** AES-256-GCM + Argon2id KDF. Encrypted client-side before transmission. IPFS (Lighthouse) is source of truth; IndexedDB is session cache. Autosave with 2s debounce.
 
@@ -104,7 +104,7 @@ docs/                            # Architecture docs, guides, AI context
 
 **Testing:**
 ```bash
-cd backend && python -m pytest tests/ -x -q    # 615 tests, 91% coverage
+cd backend && python -m pytest tests/ -x -q    # 726 tests, 91% coverage
 ```
 
 ---
@@ -124,6 +124,8 @@ cd backend && python -m pytest tests/ -x -q    # 615 tests, 91% coverage
 
 - **Feb 2026:** Deleted LangGraph multi-agent, complexity router, voting, A/B experiments, parallel pipeline — replaced by single-pass agent + ReAct loop
 - **Feb 2026:** Migrated frontend to React 19 + TypeScript (`src-react/`); vanilla JS in `src/` is now legacy
-- **Feb 2026:** Added MCP server/client, 13 tools, MemGPT memory tools
+- **Feb 2026:** Added MCP server/client, 15 tools, MemGPT memory tools
 - **Feb 2026:** Prometheus observability consolidated as single source of truth
 - **Feb 2026:** AI context files optimized — CONVENTIONS.md added, copilot-instructions.md trimmed, deduplication across docs
+- **Feb 2026:** Memory v2.0 overhaul — structured user profile (identity/work/interests/preferences/relationships), token-budget injection, auto-extraction, update_memory/forget_memory tools, soft-delete, bulk export ZIP, user stats endpoint
+- **Feb 2026:** MiniMax M2.5 migration attempted (vLLM, 4× A100 80GB on Akash) — abandoned due to Akash /dev/shm 64MB limitation blocking NCCL multi-GPU

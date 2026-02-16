@@ -23,13 +23,8 @@ ICP_BACKEND_CANISTER = os.getenv("ICP_BACKEND_CANISTER", "au5zq-2qaaa-aaaal-qtow
 ICP_FRONTEND_CANISTER = os.getenv("ICP_FRONTEND_CANISTER", "zc67k-kiaaa-aaaal-qtmiq-cai")
 
 # Deployment info (set via YAML env vars during deployment)
-_tier_raw = os.getenv("DEPLOYMENT_TIER", "1")
-try:
-    DEPLOYMENT_TIER = int(_tier_raw)
-except ValueError:
-    # Handle non-numeric tiers like "KING" for War of Kings benchmarks
-    DEPLOYMENT_TIER = 99 if _tier_raw.upper() == "KING" else 0
-DEPLOYMENT_TIER_NAME = os.getenv("DEPLOYMENT_TIER_NAME", "Starter")
+DEPLOYMENT_TIER = os.getenv("DEPLOYMENT_TIER", "production")
+DEPLOYMENT_TIER_NAME = os.getenv("DEPLOYMENT_TIER_NAME", "Production")
 HOURLY_COST_AKT = float(os.getenv("HOURLY_COST_AKT", "0.15"))
 DAILY_COST_AKT = float(os.getenv("DAILY_COST_AKT", "3.6"))
 SESSION_TYPE = os.getenv("SESSION_TYPE", "community")
