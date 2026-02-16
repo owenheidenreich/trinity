@@ -1,7 +1,7 @@
 # Trinity Codebase Map
 
 > **Purpose:** Single-file reference for any LLM to understand Trinity without searching the codebase.
-> **Last Updated:** February 13, 2026
+> **Last Updated:** February 15, 2026
 > **Accuracy:** Verified against live codebase on `phase-5.5-legacy-cleanup` branch.
 
 ---
@@ -73,7 +73,7 @@ backend/
 │
 ├── mcp_stdio_server.py      # MCP stdio entry point (Claude Desktop)
 │
-└── tests/                   # 808 tests, 91%+ coverage
+└── tests/                   # 858 tests, 91%+ coverage
     ├── conftest.py          # Root fixtures
     ├── fixtures/
     │   └── auth_fixtures.py # Ed25519 test keypairs
@@ -328,7 +328,7 @@ Store: `trinity-icp/src-react/store/index.ts` · Types: `trinity-icp/src-react/s
 | Fix autosave | `trinity-icp/src-react/hooks/useAutosave.ts` |
 | Fix streaming | `trinity-icp/src-react/hooks/useChat.ts` |
 | Modify Docker | `deploy/docker/Dockerfile` |
-| Change Akash deploy | `deploy/akash/deploy-tier*.yaml` |
+| Change Akash deploy | `deploy/akash/deploy-production.yaml`, `deploy/akash/deploy-test.yaml` |
 
 ---
 

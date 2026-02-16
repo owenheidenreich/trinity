@@ -370,14 +370,15 @@ def detect_tools_needed(query: str, understanding: Dict = None) -> List[str]:
 
     # Memory recall detection — only QUESTIONS about the user, not statements
     # "what is my name" → recall.  "my name is owen" → NOT recall (that's save).
+    # "I remember the beach" → NOT recall (that's a user statement, not a question).
     memory_patterns = [
-        r"(do you )?(remember|recall)",
+        r"do you (remember|recall)\b",
         r"what do you know about me",
         r"what('?s| is| was) my (name|job|role|prefer|location|email|age)",
         r"tell me (about|what you know about) me",
-        r"about me\??",
-        r"last time|previously|you said|i told you",
-        r"what did i|do you remember",
+        r"what .* about me\??",
+        r"you said\b|i told you\b",
+        r"what did i\b",
     ]
     for pattern in memory_patterns:
         if re.search(pattern, query_lower):

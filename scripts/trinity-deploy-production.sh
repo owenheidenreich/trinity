@@ -7,10 +7,9 @@
 # Pipeline: Local Validation → Docker Build → Push → Akash Deploy → Verify
 #
 # Usage:
-#   ./scripts/trinity-deploy.sh           # Interactive tier selection
-#   ./scripts/trinity-deploy.sh 1         # Auto-select Tier 1 (TinyLlama)
-#   ./scripts/trinity-deploy.sh 2         # Auto-select Tier 2 (Llama 8B)
-#   ./scripts/trinity-deploy.sh 3         # Auto-select Tier 3 (Qwen 72B)
+#   ./scripts/trinity-deploy-production.sh             # Interactive tier selection
+#   ./scripts/trinity-deploy-production.sh production  # Qwen2.5-Coder 32B (~$600-1000/mo)
+#   ./scripts/trinity-deploy-production.sh test        # Qwen2.5-Coder 7B (~$40-100/mo)
 #
 # =============================================================================
 
@@ -533,7 +532,7 @@ verify_production() {
     if echo "$RESPONSE" | grep -q '"status":"healthy"'; then
         log_success "Production /health OK - model loaded!"
     else
-        log_warning "Model still loading - this is normal for Tier 3 (takes 5-10 minutes)"
+        log_warning "Model still loading - this is normal for production tier (takes 5-10 minutes)"
         echo "  Check manually: curl -sk $BACKEND_URL/health"
     fi
     

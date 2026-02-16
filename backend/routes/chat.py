@@ -151,7 +151,15 @@ def autosave_chat():
 
             if not cid:
                 logger.error(f"❌ IPFS upload failed for chat {chat_id[:8]}")
-                return jsonify({"success": False, "error": "IPFS upload failed"}), 500
+                # Still return partial success so the frontend stops retrying.
+                # The chat is saved locally in IndexedDB; IPFS sync can retry later.
+                return jsonify({
+                    "success": True,
+                    "chatId": chat_id,
+                    "savedAt": int(time.time() * 1000),
+                    "cid": None,
+                    "warning": "IPFS upload failed — saved locally only",
+                }), 200
 
             logger.info(f"☁️  Saved to IPFS: {cid[:16]}...")
 

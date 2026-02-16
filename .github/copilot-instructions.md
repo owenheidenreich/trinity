@@ -1,6 +1,6 @@
 # Trinity AI Copilot Instructions
 
-> **Last Updated:** February 13, 2026
+> **Last Updated:** February 15, 2026
 
 ## Stack (source of truth: `docs/ai-context/CLAUDE.md`)
 
@@ -16,7 +16,7 @@ React 19 / TypeScript / Zustand on ICP · Flask 3 / Python 3.11 on Akash · Olla
 
 - **Zustand**: Never direct-assign state (`State.x = val` fails silently). Always use setters: `State.setAuthenticated()`, `State.setChatHistory()`
 - **Docker**: Always build with `--platform linux/amd64` (dev = Apple Silicon, prod = amd64)
-- **Deploy**: `./scripts/trinity-deploy-production.sh [tier]` handles everything
+- **Deploy**: `./scripts/trinity-deploy-production.sh production` (or `test` for smoke-testing)
 - **Auth**: Ed25519 signatures, 60s timestamp window (hardcoded in `icp_auth.py`), `@require_auth` decorator
 - **Encryption**: AES-256-GCM + Argon2id KDF (primary) / PBKDF2 (fallback)
 - **Frontend**: Active code is `trinity-icp/src-react/` (React 19). `trinity-icp/src/` is legacy.
@@ -41,7 +41,7 @@ React 19 / TypeScript / Zustand on ICP · Flask 3 / Python 3.11 on Akash · Olla
 | Memory system | `backend/storage.py`, `backend/services/memory_tools.py`, `backend/services/profile_extractor.py` |
 | Auth | `backend/icp_auth.py` |
 | State management | `trinity-icp/src-react/store/index.ts` |
-| Deployment | `deploy/docker/Dockerfile`, `deploy/akash/deploy-tier*.yaml` |
+| Deployment | `deploy/docker/Dockerfile`, `deploy/akash/deploy-production.yaml`, `deploy/akash/deploy-test.yaml` |
 | Constants | `backend/config.py` |
 
 ## Common Pitfalls

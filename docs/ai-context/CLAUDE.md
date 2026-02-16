@@ -1,6 +1,6 @@
 # Trinity — AI Context Reference
 
-> **Last Updated:** February 13, 2026 · **Model:** qwen2.5-coder:32b on Akash (RTX 3090)
+> **Last Updated:** February 15, 2026 · **Model:** qwen2.5-coder:32b on Akash
 
 ---
 
@@ -65,7 +65,7 @@ backend/                         # Python Flask server
 ├── routes/                      # 8 blueprints, 42+ endpoints
 ├── services/                    # 21 modules (agent, tools, memory, search, etc.)
 ├── middleware/                  # Observability, rate limiting, ICP cache
-└── tests/                       # 615 tests, 91% coverage
+└── tests/                       # 858 tests, 91% coverage
 
 trinity-icp/                     # Frontend (ICP canister)
 ├── src-react/                   # Active: React 19 + TypeScript (v3.0.0)
@@ -95,7 +95,7 @@ docs/                            # Architecture docs, guides, AI context
 **Deployment:**
 - Docker builds MUST use `--platform linux/amd64` (dev = Apple Silicon, prod = amd64)
 - Never put API keys in Akash YAML — use `.env` + runtime injection
-- Deploy script: `./scripts/trinity-deploy-production.sh [tier]`
+- Deploy script: `./scripts/trinity-deploy-production.sh production` (or `test` for smoke-testing)
 - First request after deploy takes 20-30s (model loading) — this is normal
 
 **Frontend (Zustand):**

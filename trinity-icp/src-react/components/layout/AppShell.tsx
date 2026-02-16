@@ -341,7 +341,6 @@ export function AppShell() {
         onImportKey={auth.importKey}
         onSetupPassphrase={(pp) => passphrase.setup(pp, auth.buildAuthHeaders)}
         onUnlockPassphrase={(pp) => passphrase.unlock(pp, auth.buildAuthHeaders)}
-        onSkipPassphrase={() => passphrase.skipSetup()}
         onShowBackupKey={() => setShowBackupKey(true)}
         onDismissBackupKey={() => setShowBackupKey(false)}
       />

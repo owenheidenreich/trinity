@@ -8,6 +8,19 @@ import { useState, useCallback } from 'react';
 import CONFIG from '../config';
 import Logger from '../utils/logger';
 
+/** Fetch with an AbortController timeout (default 15s). */
+function fetchWithTimeout(
+  url: string,
+  opts: RequestInit,
+  timeoutMs = 15_000,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...opts, signal: controller.signal }).finally(() =>
+    clearTimeout(timer),
+  );
+}
+
 export type PassphraseStatus = 'unknown' | 'no_passphrase' | 'locked' | 'unlocked';
 
 interface UsePassphraseReturn {
@@ -32,7 +45,7 @@ export function usePassphrase(): UsePassphraseReturn {
         const headers = await buildAuthHeaders('/api/passphrase/status');
         if (!headers) return;
 
-        const res = await fetch(`${CONFIG.API_URL}/api/passphrase/status`, {
+        const res = await fetchWithTimeout(`${CONFIG.API_URL}/api/passphrase/status`, {
           method: 'GET',
           headers,
         });
@@ -47,8 +60,10 @@ export function usePassphrase(): UsePassphraseReturn {
         }
       } catch (err) {
         Logger.error('Passphrase status check failed:', err);
-        // Don't block the app — treat as no passphrase
-        setStatus('no_passphrase');
+        // Network error: assume returning user whose passphrase is locked.
+        // This avoids showing the "set new password" screen to existing users
+        // when the backend is temporarily unreachable.
+        setStatus('locked');
       }
     },
     []
@@ -69,7 +84,7 @@ export function usePassphrase(): UsePassphraseReturn {
           return false;
         }
 
-        const res = await fetch(`${CONFIG.API_URL}/api/passphrase/setup`, {
+        const res = await fetchWithTimeout(`${CONFIG.API_URL}/api/passphrase/setup`, {
           method: 'POST',
           headers,
           body: JSON.stringify({ passphrase }),
@@ -80,6 +95,13 @@ export function usePassphrase(): UsePassphraseReturn {
           setStatus('unlocked');
           setLoading(false);
           return true;
+        } else if (res.status === 409) {
+          // Canary already exists — this user already has a passphrase.
+          // Transition to unlock flow instead of showing a confusing error.
+          setStatus('locked');
+          setError('Password already set. Please enter your existing password.');
+          setLoading(false);
+          return false;
         } else {
           setError(data.error || 'Setup failed');
           setLoading(false);
@@ -110,7 +132,7 @@ export function usePassphrase(): UsePassphraseReturn {
           return false;
         }
 
-        const res = await fetch(`${CONFIG.API_URL}/api/passphrase/unlock`, {
+        const res = await fetchWithTimeout(`${CONFIG.API_URL}/api/passphrase/unlock`, {
           method: 'POST',
           headers,
           body: JSON.stringify({ passphrase }),
@@ -142,7 +164,7 @@ export function usePassphrase(): UsePassphraseReturn {
         const headers = await buildAuthHeaders('/api/passphrase/lock');
         if (!headers) return;
 
-        await fetch(`${CONFIG.API_URL}/api/passphrase/lock`, {
+        await fetchWithTimeout(`${CONFIG.API_URL}/api/passphrase/lock`, {
           method: 'POST',
           headers,
         });

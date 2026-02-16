@@ -1,7 +1,7 @@
 # Trinity Conventions
 
 > Machine-readable rules for AI coding assistants. One rule per line, grep-friendly.
-> **Last Updated:** February 13, 2026
+> **Last Updated:** February 15, 2026
 
 ## State Management
 DO: Use Zustand setter methods — `State.setAuthenticated()`, `State.setChatHistory()`
@@ -9,7 +9,7 @@ DON'T: Direct-assign Zustand state — `State.x = val` fails silently, no error 
 
 ## Deployment
 DO: Docker build with `--platform linux/amd64` (dev is Apple Silicon, prod is amd64)
-DO: Deploy via `./scripts/trinity-deploy-production.sh [tier]`
+DO: Deploy via `./scripts/trinity-deploy-production.sh production` (or `test` for smoke-testing)
 DON'T: Put API keys in Akash YAML — use `.env` + runtime injection
 DON'T: Panic on 20-30s first-request delay after deploy — model loading is normal
 

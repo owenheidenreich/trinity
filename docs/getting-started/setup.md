@@ -194,7 +194,7 @@ Enter your Docker Hub username and password/token.
 ```bash
 git clone https://github.com/gdubx/Trinity.git
 cd Trinity
-./scripts/trinity-deploy-production.sh 2
+./scripts/trinity-deploy-production.sh production
 ```
 
 The script will:
@@ -242,7 +242,7 @@ docker login
 | `npm run build` fails with missing packages | Run `npm install` first in `trinity-icp/` |
 | `npm run build` fails with ERESOLVE/vite conflict | Downgrade vite to `^5.4.0` in package.json, delete node_modules & package-lock.json, reinstall |
 | Frontend shows "connection error" | Update `PRODUCTION_API_URL` in `config.js` to Cloudflare Worker URL |
-| Tier 2/3 container shows unhealthy | Wait 5-10 min for model download; check logs with `lease-logs` |
+| Container shows unhealthy | Wait 5-10 min for model download; check logs with `lease-logs` |
 | `Unknown Domain` on custom domain | Register domain with ICP canister (see ICP Custom Domain section) |
 
 ---
@@ -269,7 +269,7 @@ If the automated script fails, run these commands manually:
 
 ```bash
 # 1. Create deployment
-provider-services tx deployment create deploy/akash/deploy-tier2-balanced.yaml \
+provider-services tx deployment create deploy/akash/deploy-production.yaml \
   --from trinity-wallet --keyring-backend os \
   --chain-id akashnet-2 --node https://rpc.akashnet.net:443 \
   --gas-prices 0.025uakt --gas auto --gas-adjustment 1.5 -y
@@ -291,7 +291,7 @@ provider-services tx market lease create \
   --gas-prices 0.025uakt --gas auto --gas-adjustment 1.5 -y
 
 # 4. Send manifest
-provider-services send-manifest deploy/akash/deploy-tier2-balanced.yaml \
+provider-services send-manifest deploy/akash/deploy-production.yaml \
   --dseq YOUR_DSEQ --provider PROVIDER_ADDRESS \
   --from trinity-wallet --keyring-backend os \
   --node https://rpc.akashnet.net:443
@@ -379,12 +379,11 @@ wrangler secret put AKASH_URL <<< "http://provider.akash.com:12345"
 
 The Cloudflare Worker handles HTTPS on the frontend; the backend connection is HTTP.
 
-### Tier 1 vs Tier 2 Startup Times
-- **Tier 1 (Qwen3 1.7B)**: Starts in ~30 seconds
-- **Tier 2 (Qwen2.5 14B)**: May take 2-5 minutes to download and load model
-- **Tier 3 (Qwen2.5-Coder 32B)**: May take 10+ minutes
+### Startup Times
+- **Test tier (Qwen2.5-Coder 7B)**: Starts in ~2-5 minutes
+- **Production tier (Qwen2.5-Coder 32B)**: May take 5-10+ minutes to download and load model
 
-If Tier 2/3 seems stuck, check container logs:
+If the container seems stuck, check container logs:
 ```bash
 provider-services lease-logs \
   --dseq YOUR_DSEQ --gseq 1 --oseq 1 \

@@ -1,6 +1,6 @@
 # Trinity Deployment Workflow
 
-> **Last Updated:** February 10, 2026  
+> **Last Updated:** February 15, 2026  
 > **Scripts:** [scripts/](../../scripts/)  
 > **Configs:** [deploy/](../../deploy/)
 
@@ -32,8 +32,8 @@ Trinity deploys to a fully decentralized stack:
 ./scripts/trinity-deploy-production.sh
 
 # Auto-select specific tier
-./scripts/trinity-deploy-production.sh 2   # Tier 2 (Qwen2.5 14B, ~$50/mo)
-./scripts/trinity-deploy-production.sh 3   # Tier 3 (Qwen2.5-Coder 32B, ~$200/mo)
+./scripts/trinity-deploy-production.sh production  # Qwen2.5-Coder 32B (~$600-1000/mo)
+./scripts/trinity-deploy-production.sh test        # Qwen2.5-Coder 7B (~$40-100/mo)
 ```
 
 This script handles everything:
@@ -52,11 +52,10 @@ This script handles everything:
 
 | Tier | Model | GPU | Monthly Cost | Use Case |
 |------|-------|-----|--------------|----------|
-| 1 | Qwen3 1.7B | Any NVIDIA | ~$65 | Development/Testing |
-| 2 | Qwen2.5 14B | P40/RTX 3090 | ~$50 | Budget Production |
-| 3 | qwen2.5-coder:32b | A100 80GB | ~$200 | **Production (current)** |
+| production | Qwen2.5-Coder 32B | A100/A6000/RTX 4090 | ~$600-1000 | **Production (current)** |
+| test | Qwen2.5-Coder 7B | Any NVIDIA | ~$40-100 | Smoke-testing |
 
-**Current Production:** Tier 3 (qwen2.5-coder:32b)
+**Current Production:** `production` tier (qwen2.5-coder:32b)
 
 ---
 
@@ -71,10 +70,8 @@ deploy/
 │   ├── Dockerfile           # Multi-stage build
 │   └── startup.sh           # Model download, server start
 └── akash/
-    ├── deploy-tier1-basic.yaml
-    ├── deploy-tier2-balanced.yaml
-    ├── deploy-tier3-complex.yaml
-    └── kings/               # Large model configs
+    ├── deploy-production.yaml   # Qwen2.5-Coder 32B (production)
+    └── deploy-test.yaml         # Qwen2.5-Coder 7B (smoke-testing)
 ```
 
 **Manual Deploy Steps:**
@@ -89,10 +86,10 @@ docker build --platform linux/amd64 \
 docker push gdubx/trinity-inference:TAG
 
 # 3. Update YAML with new image tag
-# Edit deploy/akash/deploy-tier2-balanced.yaml
+# Edit deploy/akash/deploy-production.yaml
 
 # 4. Deploy to Akash
-provider-services tx deployment create deploy/akash/deploy-tier2-balanced.yaml \
+provider-services tx deployment create deploy/akash/deploy-production.yaml \
   --from trinity-wallet \
   --node https://rpc.akashnet.net:443 \
   --chain-id akashnet-2 \
@@ -107,7 +104,7 @@ provider-services tx market lease create \
   --from trinity-wallet
 
 # 6. Send manifest
-provider-services send-manifest deploy/akash/deploy-tier2-balanced.yaml \
+provider-services send-manifest deploy/akash/deploy-production.yaml \
   --dseq DSEQ --provider PROVIDER_ADDRESS \
   --from trinity-wallet
 ```
@@ -175,7 +172,7 @@ env:
   - name: OLLAMA_HOST
     value: "http://localhost:11434"
   - name: DEPLOYMENT_TIER
-    value: "3"
+    value: "production"
   - name: BRAVE_SEARCH_API_KEY
     value: "BSA..."
   - name: LIGHTHOUSE_API_KEY
@@ -206,7 +203,7 @@ curl https://api.dubya.ai/health
   "status": "healthy",
   "version": "4.0.2",
   "model": "qwen2.5-coder:32b",
-  "tier": 3
+  "tier": "production"
 }
 ```
 
@@ -378,7 +375,7 @@ provider-services tx deployment close --dseq DSEQ --from trinity-wallet
 
 3. Redeploy:
    ```bash
-   ./scripts/trinity-deploy-production.sh 2
+   ./scripts/trinity-deploy-production.sh production
    ```
 
 ### Frontend Rollback

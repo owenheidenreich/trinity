@@ -260,8 +260,11 @@ docker run -p 5000:5000 trinity-backend:latest
 # Full production deployment (interactive)
 ./scripts/trinity-deploy-production.sh
 
-# Auto-select tier 2 (Qwen2.5 14B)
-./scripts/trinity-deploy-production.sh 2
+# Auto-select production tier (Qwen2.5-Coder 32B)
+./scripts/trinity-deploy-production.sh production
+
+# Smoke-test tier (Qwen2.5-Coder 7B, cheaper)
+./scripts/trinity-deploy-production.sh test
 ```
 
 ### Update Cloudflare Worker

@@ -222,16 +222,16 @@ cp .env.example .env
 # Edit .env with your API keys (LIGHTHOUSE_API_KEY, BRAVE_SEARCH_API_KEY)
 
 # Deploy (single command handles everything)
-./scripts/trinity-deploy-production.sh 2  # Llama 8B ~$50/mo
-./scripts/trinity-deploy-production.sh 3  # Qwen 72B ~$200/mo
+./scripts/trinity-deploy-production.sh production  # Qwen2.5-Coder 32B ~$600-1000/mo
+./scripts/trinity-deploy-production.sh test        # Qwen2.5-Coder 7B ~$40-100/mo
 ```
 
 ### Deployment Tiers
 
 | Tier | Model | Intelligence | Cost | Use Case |
 |------|-------|--------------|------|----------|
-| **2** | Llama 3.1 8B | Good | ~$50/mo | Daily driver |
-| **3** | Qwen 2.5 32B+ | Excellent | ~$200/mo | Complex reasoning |
+| **production** | Qwen2.5-Coder 32B | Excellent | ~$600-1000/mo | Production |
+| **test** | Qwen2.5-Coder 7B | Good | ~$40-100/mo | Smoke-testing |
 
 ---
 

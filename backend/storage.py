@@ -278,23 +278,8 @@ def save_user_memory(principal_id: str, memory: Dict):
         logger.warning(f"⚠️ Profile IPFS sync trigger failed: {e}")
 
 
-def load_metadata(principal_id: str) -> Dict:
-    """Load user's metadata (supports both encrypted and legacy plaintext)"""
-    path = get_metadata_path(principal_id)
-    if path.exists():
-        try:
-            with open(path, "r") as f:
-                raw = json.load(f)
-            # Check if encrypted (new format)
-            if isinstance(raw, dict) and "encryption" in raw:
-                passphrase = get_session_passphrase(principal_id)
-                return EncryptionUtils.decrypt_auto(
-                    raw, passphrase=passphrase, principal_id=principal_id
-                )
-            # Legacy plaintext — return as-is, will be encrypted on next save
-            return raw
-        except Exception as e:
-            logger.error(f"Failed to load metadata for {principal_id[:20]}: {e}")
+def _default_metadata(principal_id: str) -> Dict:
+    """Return fresh default metadata for a principal."""
     return {
         "principalId": principal_id,
         "version": "1.0",
@@ -305,6 +290,40 @@ def load_metadata(principal_id: str) -> Dict:
         "lastBundleVersion": 0,
         "lastSyncedAt": None,
     }
+
+
+def load_metadata(principal_id: str) -> Dict:
+    """Load user's metadata (supports both encrypted and legacy plaintext).
+
+    Resilient: returns default metadata if decryption fails (e.g. missing
+    passphrase after container restart) rather than raising an exception.
+    """
+    path = get_metadata_path(principal_id)
+    if path.exists():
+        try:
+            with open(path, "r") as f:
+                raw = json.load(f)
+            # Check if encrypted (new format)
+            if isinstance(raw, dict) and "encryption" in raw:
+                passphrase = get_session_passphrase(principal_id)
+                try:
+                    return EncryptionUtils.decrypt_auto(
+                        raw, passphrase=passphrase, principal_id=principal_id
+                    )
+                except ValueError as ve:
+                    # Passphrase required but not in session (e.g. container restart)
+                    # Return defaults so autosave can still append new chats.
+                    # Existing chats remain safely encrypted on disk.
+                    logger.warning(
+                        f"⚠️ Cannot decrypt metadata for {principal_id[:20]}: {ve}. "
+                        "Returning defaults — unlock passphrase to restore history."
+                    )
+                    return _default_metadata(principal_id)
+            # Legacy plaintext — return as-is, will be encrypted on next save
+            return raw
+        except Exception as e:
+            logger.error(f"Failed to load metadata for {principal_id[:20]}: {e}")
+    return _default_metadata(principal_id)
 
 
 def save_metadata(principal_id: str, metadata: Dict):

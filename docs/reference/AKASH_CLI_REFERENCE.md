@@ -35,7 +35,7 @@
 ## 1. Creating a Deployment
 
 ```bash
-provider-services tx deployment create deploy-tier2-balanced.yaml \
+provider-services tx deployment create deploy-production.yaml \
   --from trinity-wallet \
   --keyring-backend os \
   --chain-id akashnet-2 \
@@ -123,7 +123,7 @@ provider-services tx market lease create \
 **IMPORTANT**: Do NOT use `--chain-id` flag with send-manifest.
 
 ```bash
-provider-services send-manifest deploy-tier2-balanced.yaml \
+provider-services send-manifest deploy-production.yaml \
   --dseq 25288917 \
   --provider akash1hgulk6aekakqzc0v6wukrd3dy9n90f5gkl4ezk \
   --from trinity-wallet \
@@ -372,8 +372,8 @@ RPC_NODE="https://rpc.akashnet.net:443"
 | Bid arrival | 10-15 seconds |
 | Lease creation | 5-10 seconds |
 | Manifest send | 2-5 seconds |
-| Docker pull (Tier 1) | 30-60 seconds |
-| Docker pull (Tier 2) | 60-90 seconds |
+| Docker pull (test tier) | 30-60 seconds |
+| Docker pull (production tier) | 60-90 seconds |
 | Model download (4.9GB) | 60-120 seconds |
 | Flask warmup | 10-30 seconds |
 | **Total cold start** | **2-5 minutes** |
@@ -397,5 +397,5 @@ done
 
 ---
 
-*Last updated: 2026-01-28*
+*Last updated: 2026-02-15*
 *Based on: provider-services CLI, Akash mainnet (akashnet-2)*

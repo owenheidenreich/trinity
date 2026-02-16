@@ -8,19 +8,31 @@ const SALT_STRING = 'TRINITY_KEY_SALT';
 const ITERATIONS = 50_000;
 const KEY_LENGTH = 256; // bits
 
-/** Derive a browser-fingerprint-based encryption key */
+/**
+ * Derive a browser-fingerprint-based encryption key.
+ *
+ * IMPORTANT: The fingerprint must remain **stable** across browser updates,
+ * OS patches, and window resizes. We intentionally exclude volatile values
+ * like navigator.userAgent / navigator.platform / screen dimensions.
+ *
+ * Components used (all stable for a given browser profile):
+ *   - origin:        always https://dubya.ai
+ *   - hardwareConcurrency: CPU core count (rarely changes)
+ *   - language:      user locale (stable per profile)
+ *   - colorDepth:    display colour depth (stable per monitor)
+ */
 async function deriveKey(): Promise<CryptoKey> {
   const encoder = new TextEncoder();
 
-  // Browser fingerprint components
+  // Stable fingerprint components — intentionally excludes userAgent/platform/screen size
   const origin = 'https://dubya.ai';
-  const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
-  const platform = typeof navigator !== 'undefined' ? navigator.platform : '';
-  const screen =
-    typeof window !== 'undefined'
-      ? `${window.screen.width}x${window.screen.height}`
-      : '0x0';
-  const passphrase = `${origin}:${ua}:${platform}:${screen}`;
+  const cores =
+    typeof navigator !== 'undefined' ? String(navigator.hardwareConcurrency ?? 0) : '0';
+  const lang =
+    typeof navigator !== 'undefined' ? (navigator.language ?? 'en') : 'en';
+  const depth =
+    typeof screen !== 'undefined' ? String(screen.colorDepth ?? 24) : '24';
+  const passphrase = `${origin}:${cores}:${lang}:${depth}`;
 
   const keyMaterial = await crypto.subtle.importKey(
     'raw',

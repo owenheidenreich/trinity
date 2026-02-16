@@ -17,6 +17,8 @@ const RETRY_BACKOFF = 2;
 export function useAutosave(onSaveSuccess?: () => void) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryCountRef = useRef(0);
+  /** Circuit breaker: once exhausted, cloud sync is disabled until a save succeeds. */
+  const circuitOpenRef = useRef(false);
   const onSaveSuccessRef = useRef(onSaveSuccess);
   onSaveSuccessRef.current = onSaveSuccess;
 
@@ -122,6 +124,15 @@ export function useAutosave(onSaveSuccess?: () => void) {
 
       // Cloud sync
       try {
+        // Skip cloud sync when circuit breaker is open (previous retries exhausted)
+        if (circuitOpenRef.current) {
+          Logger.info('Autosave circuit breaker open — local save only');
+          setAutosaveStatus('saved');
+          setUnsavedChanges(false);
+          setTimeout(() => setAutosaveStatus('idle'), 2000);
+          return true;
+        }
+
         setAutosaveStatus('saving');
         const headers = await buildAuthHeaders('/chat/autosave');
         if (!headers) throw new Error('Auth headers unavailable');
@@ -141,6 +152,7 @@ export function useAutosave(onSaveSuccess?: () => void) {
         setAutosaveStatus('saved');
         setUnsavedChanges(false);
         retryCountRef.current = 0;
+        circuitOpenRef.current = false; // Reset circuit breaker on success
 
         // Refresh sidebar after successful cloud sync
         onSaveSuccessRef.current?.();
@@ -155,12 +167,20 @@ export function useAutosave(onSaveSuccess?: () => void) {
         // Queue for later sync
         await IndexedDBStorage.queueForSync(currentChatId, chatData);
 
-        // Retry with exponential backoff
+        // Retry with exponential backoff up to MAX_RETRIES, then open circuit breaker
         if (retryCountRef.current < MAX_RETRIES) {
           retryCountRef.current++;
           const delay = RETRY_BASE_MS * Math.pow(RETRY_BACKOFF, retryCountRef.current - 1);
           Logger.info(`Autosave retry ${retryCountRef.current}/${MAX_RETRIES} in ${delay}ms`);
           setTimeout(() => void executeSave(buildAuthHeaders), delay);
+        } else {
+          // Open circuit breaker — stop hammering the backend
+          circuitOpenRef.current = true;
+          Logger.warn(
+            `Autosave circuit breaker opened after ${MAX_RETRIES} failures. ` +
+            'Cloud sync disabled until next successful save or page reload.',
+          );
+          setAutosaveStatus('error');
         }
 
         return false;

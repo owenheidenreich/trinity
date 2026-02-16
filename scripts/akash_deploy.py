@@ -6,7 +6,7 @@ Handles: tier selection, provider discovery, lease creation, manifest sending
 Usage:
   python3 akash_deploy.py <deploy_dir> <image_tag> [tier]
   
-  tier: 1 (TinyLlama), 2 (Llama 8B), 3 (Qwen 72B)
+  tier: production (Qwen2.5-Coder 32B), test (Qwen2.5-Coder 7B)
         If not specified, prompts for selection
 """
 
@@ -624,14 +624,11 @@ def main():
             continue
         print("OK")
         
-        # Wait for container - much longer timeout for Tier 3 (72B model)
-        # Tier 3 can take 15-20+ minutes to pull the model on first deploy
-        if selected_tier == 1:
-            max_wait = 180   # 3 min for TinyLlama
-        elif selected_tier == 2:
-            max_wait = 420   # 7 min for Llama 8B  
+        # Wait for container - production tier (32B) needs longer to pull model
+        if selected_tier == "test":
+            max_wait = 420   # 7 min for Qwen2.5-Coder 7B
         else:
-            max_wait = 1200  # 20 min for Qwen 72B (it's huge!)
+            max_wait = 1200  # 20 min for Qwen2.5-Coder 32B
         
         print(f"  Waiting for container (up to {max_wait//60} min for Tier {selected_tier})...")
         uri = None

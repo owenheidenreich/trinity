@@ -34,7 +34,6 @@ interface WelcomeModalProps {
   onImportKey: (key: string) => Promise<{ success: boolean }>;
   onSetupPassphrase: (passphrase: string) => Promise<boolean>;
   onUnlockPassphrase: (passphrase: string) => Promise<boolean>;
-  onSkipPassphrase: () => void;
   onShowBackupKey: () => void;
   onDismissBackupKey: () => void;
 }
@@ -49,7 +48,6 @@ export function WelcomeModal({
   onImportKey,
   onSetupPassphrase,
   onUnlockPassphrase,
-  onSkipPassphrase,
   onShowBackupKey,
   onDismissBackupKey,
 }: WelcomeModalProps) {
@@ -173,15 +171,6 @@ export function WelcomeModal({
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }, [backupKey]);
-
-  // Skip passphrase (for "Get Started" users who don't want a password)
-  const handleSkip = useCallback(() => {
-    onSkipPassphrase();
-    if (backupKey) {
-      onShowBackupKey();
-      setStep('backup');
-    }
-  }, [backupKey, onSkipPassphrase, onShowBackupKey]);
 
   // Don't render if fully authenticated + unlocked (and not showing backup key)
   if (isAuthenticated && passphraseStatus === 'unlocked' && step !== 'backup') {
@@ -314,9 +303,6 @@ export function WelcomeModal({
                 onKeyDown={(e) => e.key === 'Enter' && handleSetup()}
               />
               <div className={styles.footer} style={{ marginTop: '16px' }}>
-                <button className={styles.secondaryBtn} onClick={handleSkip}>
-                  Skip for now
-                </button>
                 <button
                   className={styles.primaryBtn}
                   onClick={handleSetup}

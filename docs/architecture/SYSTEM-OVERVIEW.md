@@ -160,11 +160,10 @@ Trinity supports multiple deployment configurations depending on budget and comp
 
 | Tier | Model | GPU RAM | CPU | Storage | Approx. Cost |
 |------|-------|---------|-----|---------|--------------|
-| Tier 1 — Basic | `qwen3:1.7b` | 16 GB | 4 cores | 20 GB | ~$30/mo |
-| Tier 2 — Balanced | `qwen2.5:14b` | 16 GB | 8 cores | 40 GB | ~$50/mo |
-| Tier 3 — Complex | `qwen2.5-coder:32b` | 48 GB | 8 cores | 80 GB | ~$200/mo |
+| Production | `qwen2.5-coder:32b` | 48 GB | 8 cores | 80 GB | ~$600-1000/mo |
+| Test | `qwen2.5-coder:7b` | 16 GB | 4 cores | 40 GB | ~$40-100/mo |
 
-Additionally, specialty "King" configurations exist for specific use cases (CodeLlama, DeepSeek, Mixtral, Llama 70B, Qwen 72B).
+Deploy with `./scripts/trinity-deploy-production.sh production` or `./scripts/trinity-deploy-production.sh test`.
 
 ---
 
