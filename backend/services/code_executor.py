@@ -320,6 +320,11 @@ def execute_tool(tool_name: str, params: Dict, context: Dict = None) -> Tuple[bo
                 tracker.set_status("error")
             return success, result
 
+        elif tool_name == "current_datetime":
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc)
+            return True, f"Current date and time: {now.strftime('%A, %B %d, %Y at %H:%M:%S UTC')}"
+
         elif tool_name == "web_search":
             return _execute_web_search(params, tracker)
 

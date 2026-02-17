@@ -23,6 +23,9 @@ You have access to these tools. Call them when you need external information or 
 **calculator** — Evaluate math expressions.
   <tool_call name="calculator"><expression>sqrt(16) + 2^3</expression></tool_call>
 
+**current_datetime** — Get the current date and time.
+  <tool_call name="current_datetime"></tool_call>
+
 **web_search** — Search the web for current/real-time information.
   <tool_call name="web_search"><query>Bitcoin price today</query></tool_call>
 

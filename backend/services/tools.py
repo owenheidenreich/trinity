@@ -356,7 +356,20 @@ def detect_tools_needed(query: str, understanding: Dict = None) -> List[str]:
             tools.append("calculator")
             break
 
-    # Web search detection - anchored to avoid matching casual uses of "now", "current", etc.
+    # Date/time detection
+    datetime_patterns = [
+        r"what (day|date|time) is it",
+        r"what('?s| is) today",
+        r"current (date|time|day)",
+        r"today'?s date",
+        r"what year is it",
+    ]
+    for pattern in datetime_patterns:
+        if re.search(pattern, query_lower):
+            tools.append("current_datetime")
+            break
+
+    # Web search detection
     search_patterns = [
         r"current (price|news|weather|status|version|events?|situation)",
         r"today'?s?\s+(news|weather|price|date|events?)",
@@ -365,8 +378,14 @@ def detect_tools_needed(query: str, understanding: Dict = None) -> List[str]:
         r"recent (events?|news|developments?|updates?)",
         r"20\d\d|price of|stock price|bitcoin|crypto",
         r"(breaking|trending)\s+news",
-        r"who is \w+\s+\w+|where is \w+\s+\w+",  # "who is Elon Musk" but not "who is this"
+        r"who is \w+\s+\w+|where is \w+\s+\w+",
         r"when (was|did)\s+\w+\s+(born|founded|released|created|happen)",
+        r"\bsearch\b.*(internet|web|online|for)",
+        r"(look|search)\s+(it\s+)?(up|for)",
+        r"(find|get)\s+(me\s+)?(info|information|data|details)\s+(on|about)",
+        r"(google|bing|browse)\b",
+        r"what (is|are) the .*(score|result|winner|weather|price|rate)",
+        r"how much (does|is|are|did)",
     ]
     for pattern in search_patterns:
         if re.search(pattern, query_lower):

@@ -28,7 +28,7 @@ export const useStore = create<StoreState>((set, get) => ({
 
   // ===== Context Memory =====
   contextMemory: [],
-  CONTEXT_WINDOW_SIZE: 20,
+  CONTEXT_WINDOW_SIZE: 50,
 
   // ===== Autosave Tracking =====
   autosaveStatus: 'idle',

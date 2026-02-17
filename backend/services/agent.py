@@ -622,7 +622,9 @@ class AgentPipeline:
         # For direct queries, check if search keywords are present.
         if not tools_needed and is_search_available():
             search_keywords = ["latest", "current", "today", "news", "price", "weather",
-                               "recent", "update", "2024", "2025", "2026", "who won", "score"]
+                               "recent", "update", "2024", "2025", "2026", "who won", "score",
+                               "search", "look up", "find out", "how much", "what day",
+                               "what time", "right now", "bitcoin", "stock", "crypto"]
             question_lower = question.lower()
             if any(kw in question_lower for kw in search_keywords):
                 yield format_phase_update("searching")
