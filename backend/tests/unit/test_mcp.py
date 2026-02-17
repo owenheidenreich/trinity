@@ -430,6 +430,26 @@ class TestMCPToolIntegration:
         assert success
         assert result == "15"
 
+    def test_execute_tool_current_datetime(self):
+        """current_datetime tool returns success with formatted UTC string."""
+        import re
+        from services.code_executor import execute_tool
+
+        success, result = execute_tool("current_datetime", {})
+        assert success is True
+        assert "Current date and time:" in result
+        assert "UTC" in result
+        # Verify full format: "Current date and time: Wednesday, February 17, 2026 at 14:30:00 UTC"
+        pattern = r"Current date and time: \w+, \w+ \d{1,2}, \d{4} at \d{2}:\d{2}:\d{2} UTC"
+        assert re.match(pattern, result), f"Format mismatch: {result}"
+
+    def test_execute_tool_current_datetime_no_params(self):
+        """current_datetime works with None params."""
+        from services.code_executor import execute_tool
+
+        success, _ = execute_tool("current_datetime", None)
+        assert success is True
+
 
 # ============================================================================
 # ASYNC MCP SERVER (if mcp package available)

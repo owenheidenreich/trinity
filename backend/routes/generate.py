@@ -5,6 +5,7 @@ Routes: /generate, /generate/agent
 
 import hashlib
 import json
+import threading
 import time
 from datetime import datetime
 
@@ -405,25 +406,37 @@ def generate_agent():
                     record_token_usage(get_user_id(), len(full_response.split()))
                 record_request(True, 0, 0)
 
-                if V4_FEATURES_AVAILABLE and principal and chat_id:
-                    try:
-                        from services.memory import get_semantic_memory
-                        sem_memory = get_semantic_memory(principal)
-                        idx = message_index if message_index is not None else 0
-                        sem_memory.index_message(chat_id, idx, "user", user_prompt)
-                        if full_response:
-                            sem_memory.index_message(chat_id, idx + 1, "assistant", full_response)
-                    except Exception as idx_error:
-                        logger.debug(f"V4.0 indexing skipped: {idx_error}")
+                # Post-streaming work (embedding, memory ingestion) runs in a
+                # background thread so the HTTP stream closes immediately and
+                # the frontend can re-enable the input without waiting.
+                _post_response = full_response
+                _post_principal = principal
+                _post_prompt = user_prompt
+                _post_chat_id = chat_id
+                _post_msg_idx = message_index
+                _post_v4 = V4_FEATURES_AVAILABLE
 
-                if principal:
-                    _enqueue_async_ingestion(principal, user_prompt, full_response, chat_id=chat_id)
-                    try:
-                        from services.slo_metrics import record_unsolicited_personal_reference
+                def _post_stream_work():
+                    if _post_v4 and _post_principal and _post_chat_id:
+                        try:
+                            from services.memory import get_semantic_memory
+                            sem_memory = get_semantic_memory(_post_principal)
+                            idx = _post_msg_idx if _post_msg_idx is not None else 0
+                            sem_memory.index_message(_post_chat_id, idx, "user", _post_prompt)
+                            if _post_response:
+                                sem_memory.index_message(_post_chat_id, idx + 1, "assistant", _post_response)
+                        except Exception as idx_error:
+                            logger.debug(f"V4.0 indexing skipped: {idx_error}")
 
-                        record_unsolicited_personal_reference(user_prompt, full_response)
-                    except Exception:
-                        pass
+                    if _post_principal:
+                        _enqueue_async_ingestion(_post_principal, _post_prompt, _post_response, chat_id=_post_chat_id)
+                        try:
+                            from services.slo_metrics import record_unsolicited_personal_reference
+                            record_unsolicited_personal_reference(_post_prompt, _post_response)
+                        except Exception:
+                            pass
+
+                threading.Thread(target=_post_stream_work, daemon=True).start()
 
             except Exception as e:
                 logger.error(f"Agent streaming error: {e}")
