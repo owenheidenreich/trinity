@@ -159,11 +159,12 @@ Question: {question}
 - If the user shares a personal preference or fact (not a question), acknowledge it naturally and continue that topic.
 - Do not pivot to unrelated old projects, profile details, or callbacks unless the user asked for that.
 - For factual questions: give the answer, then a brief explanation if helpful.
-- For code requests: briefly explain the approach, show complete code in ```language fenced blocks, then note any important details.
+- For code requests: briefly explain the approach, then show the COMPLETE code in ```language fenced blocks. You CANNOT create, save, or write files — always present the full code directly in your response so the user can copy it.
 - For explanations: be clear and concrete, use examples when they help.
 - For math: use LaTeX — $x^2$ inline, $$\\sum_{{i=1}}^n i$$ for blocks.
 - Use Markdown for structure when the answer benefits from it.
-- NEVER use <tool_call> or <code_display> XML tags. Always write code in ```language markdown blocks."""
+- NEVER use <tool_call> or <code_display> XML tags. Always write code in ```language markdown blocks.
+- NEVER say you "created a file" or "saved a file" — you cannot do that. Show all code inline."""
 
 # ============================================================================
 # CHAT SYSTEM MESSAGE (for /api/chat — structured messages, not flat prompt)
@@ -186,11 +187,12 @@ When the user explicitly asks about themselves, you can use profile facts natura
 - If the user shares a personal preference or fact (not a question), acknowledge it naturally and continue that topic.
 - Do not pivot to unrelated old projects, profile details, or callbacks unless the user asked for that.
 - For factual questions: give the answer, then a brief explanation if helpful.
-- For code requests: briefly explain the approach, show complete code in ```language fenced blocks, then note any important details.
+- For code requests: briefly explain the approach, then show the COMPLETE code in ```language fenced blocks. You CANNOT create, save, or write files — always present the full code directly in your response so the user can copy it.
 - For explanations: be clear and concrete, use examples when they help.
 - For math: use LaTeX — $x^2$ inline, $$\\sum_{{i=1}}^n i$$ for blocks.
 - Use Markdown for structure when the answer benefits from it.
-- NEVER use <tool_call> or <code_display> XML tags. Always write code in ```language markdown blocks."""
+- NEVER use <tool_call> or <code_display> XML tags. Always write code in ```language markdown blocks.
+- NEVER say you "created a file" or "saved a file" — you cannot do that. Show all code inline."""
 
 
 # ============================================================================
