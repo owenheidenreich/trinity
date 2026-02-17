@@ -1,7 +1,7 @@
 # Trinity Codebase Map
 
 > **Purpose:** Single-file reference for any LLM to understand Trinity without searching the codebase.
-> **Last Updated:** February 15, 2026
+> **Last Updated:** February 16, 2026
 > **Accuracy:** Verified against live codebase on `phase-5.5-legacy-cleanup` branch.
 
 ---
@@ -26,19 +26,20 @@ backend/
 ├── lighthouse.py            # IPFS upload/download via Lighthouse
 ├── database.py              # SQLAlchemy ORM (NOT integrated — future feature)
 │
-├── routes/                  # 8 blueprints
+├── routes/                  # 9 blueprints, 53 endpoints
 │   ├── __init__.py          # ALL_BLUEPRINTS list
 │   ├── shared.py            # Shared helpers
 │   ├── health.py            # /health, /metrics, /stats
-│   ├── admin.py             # /admin/* cache, quota, storage status
+│   ├── admin.py             # /admin/* cache, quota, storage, SLO
 │   ├── generate.py          # /generate, /generate/agent
 │   ├── chat.py              # /chat/*, /user/* CRUD + memory + export
 │   ├── tools.py             # /tools/* search, browse, documents
 │   ├── v4.py                # /v4/* vector store, tool execution
 │   ├── session.py           # /session/*, /funding/*
-│   └── mcp.py               # /mcp (MCP JSON-RPC 2.0)
+│   ├── mcp.py               # /mcp (MCP JSON-RPC 2.0)
+│   └── passphrase.py        # /api/passphrase/* setup, unlock, change, lock, status
 │
-├── services/                # Business logic
+├── services/                # 33 business logic modules
 │   ├── __init__.py          # Service exports
 │   ├── agent.py             # Single-pass orchestrator (detect tools → ReAct or direct)
 │   ├── agent_prompts.py     # System prompts, ReAct prompts
@@ -47,12 +48,20 @@ backend/
 │   ├── tools.py             # Tool definitions, detection, parsing
 │   ├── memory_tools.py      # MemGPT save/recall/search/update/forget with embeddings
 │   ├── profile_extractor.py # Background auto-extraction of user profile facts
+│   ├── memory.py            # Semantic memory retrieval
+│   ├── memory_ingestion.py  # Async ingestion worker for memory/profile/graph
+│   ├── memory_eval.py       # Memory quality evaluation
+│   ├── graph_memory.py      # Kuzu-backed graph memory
+│   ├── graph_extractor.py   # Entity/relationship extraction for graph
+│   ├── model_router.py      # Route queries to conversation vs coder model
 │   ├── ollama.py            # Ollama HTTP client
+│   ├── ollama_provider.py   # Ollama LLM provider implementation
+│   ├── llm_provider.py      # Abstract LLM provider interface
+│   ├── provider_factory.py  # Provider factory (Ollama, vLLM, etc.)
 │   ├── search.py            # Brave web search
 │   ├── fact_check.py        # Dual-search fact verification
 │   ├── embeddings.py        # FastEmbed (384-dim)
 │   ├── vector_store.py      # Per-user SQLite vector DB
-│   ├── memory.py            # Semantic memory retrieval
 │   ├── caching.py           # Embedding + semantic + token caches
 │   ├── prompts.py           # System prompt construction
 │   ├── structured.py        # Structured output parsing
@@ -60,6 +69,7 @@ backend/
 │   ├── akash.py             # Akash deployment info
 │   ├── user_data_store.py   # IPFS persistence pipeline (retry, sync, restore, manifest)
 │   ├── session_manager.py   # Session passphrase management
+│   ├── slo_metrics.py       # SLO tracking and burn-rate alerting
 │   ├── mcp_server.py        # MCP server (JSON-RPC 2.0)
 │   ├── mcp_client.py        # MCP client (external tool connector)
 │   ├── repo_map.py          # Repository structure visualization
@@ -73,7 +83,7 @@ backend/
 │
 ├── mcp_stdio_server.py      # MCP stdio entry point (Claude Desktop)
 │
-└── tests/                   # 858 tests, 91%+ coverage
+└── tests/                   # 976 tests
     ├── conftest.py          # Root fixtures
     ├── fixtures/
     │   └── auth_fixtures.py # Ed25519 test keypairs
@@ -92,16 +102,19 @@ trinity-icp/src-react/
 ├── components/
 │   ├── chat/           # CodeBlock, Message, MessageInput, MessageList,
 │   │                   # StreamingMessage, MarkdownRenderer, MathBlock,
-│   │                   # CopyAllButton, ContinueButton, DownloadCards
+│   │                   # CopyAllButton, ContinueButton, DownloadCards,
+│   │                   # TypingIndicator
 │   ├── layout/         # AppShell, EmptyState
-│   ├── modals/         # AuthModal, ConfirmModal, InfoModal, KeyExportModal
+│   ├── modals/         # AuthModal, ConfirmModal, InfoModal, KeyExportModal,
+│   │                   # PassphraseModal, WelcomeModal
 │   ├── notifications/  # AutosaveIndicator, ToastProvider
 │   └── sidebar/        # Sidebar
-├── hooks/              # useAuth, useChat, useAutosave, useConnection
+├── hooks/              # useAuth, useChat, useAutosave, useConnection, usePassphrase
+├── services/           # canister.ts (ICP canister integration)
 ├── store/              # Zustand store (index.ts, types.ts)
 ├── types/              # api.ts, auth.ts, message.ts
-├── utils/              # crypto, markdown, sse, indexedDB, lighthouse, logger
-└── styles/             # CSS Modules + tokens.css + global.css
+├── utils/              # crypto, markdown, sse, indexedDB, lighthouse, logger, codeParser
+└── styles/             # tokens.css + global.css + components/
 ```
 
 ### Frontend — Vanilla JS (`trinity-icp/src/` — LEGACY, still buildable)
@@ -114,7 +127,7 @@ trinity-icp/src/
 ├── config.js                # API endpoints, feature flags
 ├── core/                    # api.js, sse.js, environment.js, logger.js
 ├── features/                # generate.js, auth.js, chatManagement.js, memory.js
-├── auth/                    # authManager.js, icp-auth.js, keyExportModal.js
+├── auth/                    # auth-entry.js, authManager.js, icp-auth.js, keyExportModal.js
 ├── state/                   # store.js (Zustand, CONTEXT_WINDOW_SIZE=20)
 ├── storage/                 # autosave.js, indexedDB.js, lighthouse.js
 ├── ui/                      # messages.js, sidebar.js, modals.js, etc.
@@ -127,17 +140,19 @@ trinity-icp/src/
 deploy/
 ├── docker/
 │   ├── Dockerfile           # NVIDIA CUDA base, Ollama, Flask
-│   └── startup.sh           # Container entrypoint (model pull + server start)
+│   ├── Dockerfile.vllm      # vLLM-based alternative (multi-GPU)
+│   ├── startup.sh           # Container entrypoint (model pull + server start)
+│   └── startup-vllm.sh      # vLLM entrypoint
 ├── akash/
-│   ├── deploy-production.yaml       # Qwen2.5-Coder 32B (production)
-│   └── deploy-test.yaml            # Qwen2.5-Coder 7B (smoke-testing)
+│   ├── deploy-production.yaml       # Qwen3 32B (production)
+│   └── deploy-test.yaml            # Qwen3 8B (smoke-testing)
 └── cloudflare-worker/
     └── worker.js            # SSL termination proxy
 ```
 
 ---
 
-## API Endpoints (8 Blueprints)
+## API Endpoints (9 Blueprints)
 
 ### No Auth Required
 
@@ -199,6 +214,18 @@ deploy/
 | GET | `/admin/tokens/usage` | Token usage stats |
 | GET | `/admin/quota/usage` | Quota usage stats |
 | GET | `/admin/storage/status` | IPFS sync status, pending syncs |
+| POST | `/admin/storage/rollback/<principal_id>` | Rollback user manifest |
+| GET | `/admin/slo/status` | SLO burn-rate status |
+
+### Passphrase (Auth Required)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/passphrase/setup` | Set up passphrase for user |
+| POST | `/api/passphrase/unlock` | Unlock with passphrase |
+| POST | `/api/passphrase/change` | Change passphrase |
+| POST | `/api/passphrase/lock` | Lock session |
+| GET | `/api/passphrase/status` | Check passphrase status |
 
 ---
 
@@ -236,8 +263,8 @@ Nonce is required on protected endpoints.
 
 | Constant | Default |
 |----------|---------|
-| `MODEL_NAME` | `qwen2.5-coder:32b` |
-| `NUM_CTX` | `32768` |
+| `MODEL_NAME` | `qwen3:32b` |
+| `NUM_CTX` | `65536` |
 | `DEFAULT_MAX_TOKENS` | `8000` |
 | `DEFAULT_TEMPERATURE` | `0.7` |
 | `OLLAMA_TIMEOUT` | `600` (10 min) |
@@ -249,7 +276,7 @@ Nonce is required on protected endpoints.
 |----------|---------|
 | `REACT_ENABLED` | `true` |
 | `REACT_MAX_ITERATIONS` | `15` |
-| `REACT_TOKEN_BUDGET` | `24000` |
+| `REACT_TOKEN_BUDGET` | `48000` |
 | `REFLEXION_MAX_RETRIES` | `3` |
 
 ### Storage & Security
@@ -257,7 +284,7 @@ Nonce is required on protected endpoints.
 | Constant | Default |
 |----------|---------|
 | `CHATS_DIR` | `/var/lib/trinity/chats` |
-| `MAX_PROMPT_LENGTH` | `50000` |
+| `MAX_PROMPT_LENGTH` | `100000` |
 | `MAX_ARCHIVED_CHATS` | `20` |
 | `CODE_EXECUTION_ENABLED` | `false` |
 | `WORKSPACE_ROOT` | `/workspace` |

@@ -1,7 +1,7 @@
 /**
  * MessageInput — textarea + send/stop + file attachment.
  */
-import { useState, useCallback, useRef, type KeyboardEvent, type ChangeEvent } from 'react';
+import { useState, useCallback, useRef, useEffect, type KeyboardEvent, type ChangeEvent } from 'react';
 import styles from '../../styles/components/MessageInput.module.css';
 
 interface MessageInputProps {
@@ -16,6 +16,26 @@ export function MessageInput({ onSend, onStop, isGenerating, disabled }: Message
   const [attachment, setAttachment] = useState<File | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const wasGeneratingRef = useRef(false);
+
+  // Auto-focus on mount (user just logged in) and when generation finishes
+  useEffect(() => {
+    if (!disabled && !isGenerating) {
+      // Small delay so the DOM is settled after re-enable
+      const id = setTimeout(() => textareaRef.current?.focus(), 50);
+      return () => clearTimeout(id);
+    }
+  }, [disabled]); // on initial enable (login)
+
+  useEffect(() => {
+    // Detect transition from generating → not generating
+    if (wasGeneratingRef.current && !isGenerating && !disabled) {
+      const id = setTimeout(() => textareaRef.current?.focus(), 50);
+      wasGeneratingRef.current = false;
+      return () => clearTimeout(id);
+    }
+    wasGeneratingRef.current = isGenerating;
+  }, [isGenerating, disabled]);
 
   const handleSend = useCallback(() => {
     const trimmed = value.trim();

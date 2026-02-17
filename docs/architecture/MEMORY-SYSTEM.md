@@ -11,13 +11,13 @@ Trinity uses a **three-tier memory system** that gives the AI context, personali
 │                        MEMORY ARCHITECTURE                           │
 │                                                                      │
 │  ┌────────────────────┐                                              │
-│  │   WORKING MEMORY   │  Last 3 messages from current chat           │
+│  │   WORKING MEMORY   │  Last 5 messages from current chat           │
 │  │   (Short-term)     │  Always available, zero retrieval cost       │
 │  │                    │  Source: vector_store.get_recent_messages()   │
 │  └────────┬───────────┘                                              │
 │           │                                                          │
 │  ┌────────┴───────────┐                                              │
-│  │  SEMANTIC MEMORY   │  Top 5 most relevant past messages           │
+│  │  SEMANTIC MEMORY   │  Top 8 most relevant past messages           │
 │  │  (Medium-term)     │  Retrieved by embedding similarity           │
 │  │                    │  Weighted by recency (30% recency, 70% sim)  │
 │  │                    │  Source: vector_store.search_messages()       │
@@ -41,8 +41,8 @@ Trinity uses a **three-tier memory system** that gives the AI context, personali
 
 **What:** The last few messages from the current conversation.  
 **Purpose:** Ensures the AI has immediate context about what was just said.  
-**Size:** 3 messages (configurable via `WORKING_MEMORY_SIZE`).  
-**Source:** `vector_store.get_recent_messages(chat_id, limit=3)`
+**Size:** 5 messages (configurable via `WORKING_MEMORY_SIZE`).  
+**Source:** `vector_store.get_recent_messages(chat_id, limit=5)`
 
 This is the cheapest tier — no embedding search needed, just a simple database query sorted by timestamp. These messages are always included in the LLM context regardless of relevance.
 
@@ -51,12 +51,12 @@ This is the cheapest tier — no embedding search needed, just a simple database
 ```
 User sends message #10 in a conversation
 │
-├── Messages #8, #9, #10 are automatically included
-│   as working memory (last 3)
+├── Messages #6, #7, #8, #9, #10 are automatically included
+│   as working memory (last 5)
 │
 └── No embedding computation needed
     Just: SELECT * FROM message_embeddings
-          WHERE chat_id = ? ORDER BY timestamp DESC LIMIT 3
+          WHERE chat_id = ? ORDER BY timestamp DESC LIMIT 5
 ```
 
 ---
@@ -65,8 +65,8 @@ User sends message #10 in a conversation
 
 **What:** Past messages from any conversation that are semantically relevant to the current query.  
 **Purpose:** Surfaces context from earlier in a conversation (or other conversations) that helps answer the current question.  
-**Size:** 5 results (configurable via `SEMANTIC_MEMORY_SIZE`).  
-**Source:** `vector_store.search_messages(query_embedding, top_k=5, chat_id)`
+**Size:** 8 results (configurable via `SEMANTIC_MEMORY_SIZE`).  
+**Source:** `vector_store.search_messages(query_embedding, top_k=8, chat_id)`
 
 ### How Retrieval Works
 
@@ -85,7 +85,7 @@ User asks: "What was that Python sorting trick you showed me?"
 │                       + RECENCY_WEIGHT × recency_bonus
 │                       = 0.7 × similarity + 0.3 × recency_bonus
 │
-├── Return top 5 by final_score
+├── Return top 8 by final_score
 │
 └── Format for prompt injection:
     "[From earlier conversation] <role>: <content>"
@@ -323,8 +323,8 @@ AgentPipeline.process_streaming(prompt, context_messages, ...)
 │     context_messages=last_N_messages,
 │     chat_id=current_chat_id
 │   )
-│   ├── Working memory: last 3 messages
-│   └── Semantic memory: top 5 relevant past messages
+│   ├── Working memory: last 5 messages
+│   └── Semantic memory: top 8 relevant past messages
 │
 ├── Build system prompt:
 │   build_system_prompt(

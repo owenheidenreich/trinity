@@ -86,7 +86,9 @@ src-react/
 │   │   ├── AuthModal.tsx       # Login/import key/generate identity
 │   │   ├── ConfirmModal.tsx    # Generic yes/no confirmation
 │   │   ├── InfoModal.tsx       # Rich info about infrastructure
-│   │   └── KeyExportModal.tsx  # Private key display + copy + warnings
+│   │   ├── KeyExportModal.tsx  # Private key display + copy + warnings
+│   │   ├── PassphraseModal.tsx # Passphrase setup/unlock flow
+│   │   └── WelcomeModal.tsx    # First-time user welcome
 │   │
 │   ├── notifications/
 │   │   ├── AutosaveIndicator.tsx  # Save status badge (saving/saved/error)
@@ -99,7 +101,11 @@ src-react/
 │   ├── useAuth.ts              # Ed25519 identity management
 │   ├── useAutosave.ts          # Debounced save to IndexedDB + cloud
 │   ├── useChat.ts              # SSE streaming, send/stop/continue
-│   └── useConnection.ts       # Backend health polling
+│   ├── useConnection.ts       # Backend health polling
+│   └── usePassphrase.ts       # Passphrase lock/unlock management
+│
+├── services/
+│   └── canister.ts             # ICP canister interaction
 │
 ├── store/
 │   ├── index.ts                # Zustand store implementation
@@ -471,7 +477,7 @@ The sidebar displays all user chats sorted with pinned items first, then by most
 │  [+ New Chat]                                   │
 │                                                 │
 │  Connection: 🟢 Connected                       │
-│  Model: qwen2.5-coder:32b                      │
+│  Model: qwen3:32b                      │
 │                                                 │
 │  📌 Pinned Chat Title               🗑️         │
 │  Recent Chat Title                   🗑️         │

@@ -99,7 +99,7 @@ trinity/
 ├── backend/                    # Python Flask backend
 │   ├── inference_server.py     # App factory + blueprint registration
 │   ├── config.py               # All constants, env vars, defaults
-│   ├── routes/                 # 8 API blueprints (42+ endpoints)
+│   ├── routes/                 # 9 API blueprints (53 endpoints)
 │   │   ├── health.py           # /health, /metrics, /stats
 │   │   ├── generate.py         # /generate, /generate/agent
 │   │   ├── chat.py             # /chat/*, /user/*
@@ -112,12 +112,12 @@ trinity/
 │   ├── services/               # Business logic
 │   │   ├── agent.py            # Single-pass agent orchestrator
 │   │   ├── react_loop.py       # ReAct agentic loop (tool calling)
-│   │   ├── tools.py            # Tool definitions (13 tools)
+│   │   ├── tools.py            # Tool definitions (15 tools)
 │   │   ├── code_executor.py    # Tool dispatcher
 │   │   ├── caching.py          # Embedding + semantic caching
 │   │   ├── memory.py           # Semantic memory retrieval
 │   │   └── ...                 # embeddings, search, ollama, etc.
-│   └── tests/                  # 615 tests, 91% coverage
+│   └── tests/                  # 976 tests
 │       ├── unit/               # Unit tests
 │       ├── integration/        # Integration tests
 │       └── e2e/                # End-to-end tests

@@ -16,11 +16,21 @@ interface MessageProps {
   onEdit?: (content: string) => void;
 }
 
+/** Minimum lines for a code block to be offered as a download */
+const MIN_DOWNLOAD_LINES = 3;
+
 /**  Map extracted code blocks → DownloadFile[] */
 function codeBlocksToFiles(content: string): DownloadFile[] {
+  // Fast exit: no triple-backtick fences means no code blocks to scan
+  if (!content.includes('```')) return [];
+
   const blocks = extractCodeBlocks(content);
   return blocks
-    .filter((b) => b.code.trim().length > 0)
+    .filter((b) => {
+      const trimmed = b.code.trim();
+      // Skip empty blocks and tiny snippets (inline examples)
+      return trimmed.length > 0 && trimmed.split('\n').length >= MIN_DOWNLOAD_LINES;
+    })
     .map((b) => ({
       filename: b.filename || b.displayName,
       content: b.code,

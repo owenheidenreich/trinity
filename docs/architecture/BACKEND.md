@@ -22,16 +22,17 @@ backend/
 ├── lighthouse.py              # IPFS/Lighthouse upload/download integration
 ├── mcp_stdio_server.py        # MCP stdio entry point (Claude Desktop integration)
 │
-├── routes/                    # 8 Flask Blueprints (42+ endpoints)
+├── routes/                    # 9 Flask Blueprints (53 endpoints)
 │   ├── __init__.py            # Blueprint registration
 │   ├── health.py              # Health checks, metrics, system stats
 │   ├── generate.py            # LLM inference (standard + agentic)
 │   ├── chat.py                # Chat CRUD, user memory, archives
 │   ├── tools.py               # Web search, browsing, documents
 │   ├── v4.py                  # Vector/RAG features
-│   ├── admin.py               # Admin operations (cache, tokens, quotas)
+│   ├── admin.py               # Admin operations (cache, tokens, quotas, SLO, rollback)
 │   ├── session.py             # Funding status, private sessions
 │   ├── mcp.py                 # Model Context Protocol (JSON-RPC)
+│   ├── passphrase.py          # Passphrase setup, unlock, change, lock, status
 │   └── shared.py              # Shared utilities (error responses, caches)
 │
 ├── middleware/                 # Request processing layers
@@ -39,7 +40,7 @@ backend/
 │   ├── rate_limit.py          # Rate limiting + token quotas
 │   └── icp_cache.py           # ICP idempotency cache (for subnet replicas)
 │
-├── services/                  # 17 business logic modules
+├── services/                  # 33 business logic modules
 │   ├── agent.py               # AgentPipeline orchestrator + OllamaClient
 │   ├── agent_prompts.py       # System prompts + tool documentation
 │   ├── react_loop.py          # ReAct + Reflexion engine
@@ -47,16 +48,28 @@ backend/
 │   ├── code_executor.py       # Tool execution dispatcher + sandboxing
 │   ├── memory.py              # Semantic memory (working + semantic retrieval)
 │   ├── memory_tools.py        # Memory tool handlers (save/recall/search)
+│   ├── memory_ingestion.py    # Async ingestion worker for memory/profile/graph
+│   ├── memory_eval.py         # Memory quality evaluation
+│   ├── profile_extractor.py   # Background auto-extraction of user profile facts
+│   ├── graph_memory.py        # Kuzu-backed graph memory
+│   ├── graph_extractor.py     # Entity/relationship extraction for graph
+│   ├── model_router.py        # Route queries to conversation vs coder model
 │   ├── embeddings.py          # Text embeddings (FastEmbed, BAAI/bge-small-en-v1.5)
 │   ├── vector_store.py        # Per-user SQLite vector database
 │   ├── caching.py             # Embedding cache, semantic cache, token tracker
 │   ├── ollama.py              # Ollama client utilities
+│   ├── ollama_provider.py     # Ollama LLM provider implementation
+│   ├── llm_provider.py        # Abstract LLM provider interface
+│   ├── provider_factory.py    # Provider factory (Ollama, vLLM, etc.)
 │   ├── prompts.py             # Core system prompts + prompt builders
 │   ├── search.py              # Brave Search API integration
 │   ├── fact_check.py          # Dual-search fact verification
 │   ├── structured.py          # Constrained JSON generation (Outlines)
 │   ├── akash.py               # Akash blockchain integration (AKT price, escrow)
 │   ├── loading_messages.py    # Whimsical loading phrases by phase
+│   ├── user_data_store.py     # IPFS persistence pipeline (retry, sync, manifest)
+│   ├── session_manager.py     # Session passphrase management
+│   ├── slo_metrics.py         # SLO tracking and burn-rate alerting
 │   ├── repo_map.py            # Workspace file structure analyzer
 │   ├── tracing.py             # Structured request tracing + quality reports
 │   ├── mcp_server.py          # MCP server implementation
@@ -65,7 +78,7 @@ backend/
 └── tests/                     # Test suite
     ├── conftest.py             # Shared fixtures
     ├── fixtures/               # Auth fixtures
-    ├── unit/                   # Unit tests (14 files)
+    ├── unit/                   # Unit tests (33 files)
     ├── integration/            # Integration tests
     └── e2e/                    # End-to-end pipeline tests
 ```
@@ -83,9 +96,9 @@ create_app()
 ├── Configure flask-compress (gzip responses)
 ├── Configure flask-cors (ICP canister origins, dubya.ai, localhost)
 │
-├── Register 8 route blueprints:
+├── Register 9 route blueprints:
 │   health_bp, admin_bp, generate_bp, chat_bp,
-│   tools_bp, v4_bp, session_bp, mcp_bp
+│   tools_bp, v4_bp, session_bp, mcp_bp, passphrase_bp
 │
 ├── Feature detection (try/except imports):
 │   embeddings, vector_store, memory, tools,
@@ -175,7 +188,7 @@ All gated behind `V4_FEATURES_AVAILABLE` flag — gracefully return 501 if depen
 | POST | `/v4/tools/execute` | `@require_auth` | Execute a specific tool by name |
 | GET | `/v4/status` | None | Feature availability check |
 
-### Admin (4 endpoints)
+### Admin (7 endpoints)
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
@@ -183,6 +196,9 @@ All gated behind `V4_FEATURES_AVAILABLE` flag — gracefully return 501 if depen
 | POST | `/admin/cache/clear` | `@require_admin` | Clear all caches |
 | GET | `/admin/tokens/usage` | `@require_admin` | Token usage stats |
 | GET | `/admin/quota/usage` | `@require_admin` | Per-user quota usage |
+| GET | `/admin/storage/status` | `@require_admin` | IPFS sync status, pending syncs |
+| POST | `/admin/storage/rollback/<principal_id>` | `@require_admin` | Rollback user manifest |
+| GET | `/admin/slo/status` | `@require_admin` | SLO burn-rate status |
 
 ### Sessions & Funding (4 endpoints)
 
@@ -199,6 +215,16 @@ All gated behind `V4_FEATURES_AVAILABLE` flag — gracefully return 501 if depen
 |--------|------|------|-------------|
 | GET | `/mcp` | None | MCP server info + capabilities |
 | POST | `/mcp` | `@require_auth` + rate-limited | JSON-RPC 2.0: `initialize`, `tools/list`, `tools/call`, `ping` |
+
+### Passphrase (5 endpoints)
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| POST | `/api/passphrase/setup` | `@require_auth` | Set up passphrase for user |
+| POST | `/api/passphrase/unlock` | `@require_auth` | Unlock session with passphrase |
+| POST | `/api/passphrase/change` | `@require_auth` | Change passphrase |
+| POST | `/api/passphrase/lock` | `@require_auth` | Lock session |
+| GET | `/api/passphrase/status` | `@require_auth` | Check passphrase status |
 
 ---
 
@@ -251,6 +277,8 @@ When called from an ICP canister via HTTP Outcalls, a request may be executed by
 ---
 
 ## Database Layer
+
+> **NOT INTEGRATED** — `database.py` contains 298 lines of SQLAlchemy ORM models but is not imported by any route or service. It exists as scaffolding for a future feature. Do not import from it.
 
 SQLite database accessed via SQLAlchemy ORM (`database.py`).
 
@@ -322,10 +350,10 @@ All values have sensible defaults and can be overridden via environment variable
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `MODEL_NAME` | `qwen2.5-coder:32b` | Ollama model to use |
+| `MODEL_NAME` | `qwen3:32b` | Ollama model to use |
 | `MODEL_BACKEND` | `ollama` | Inference backend |
 | `OLLAMA_HOST` | `http://localhost:11434` | Ollama API URL |
-| `NUM_CTX` | `32768` | Context window size (tokens) |
+| `NUM_CTX` | `65536` | Context window size (tokens) |
 | `DEFAULT_MAX_TOKENS` | `8000` | Max tokens per response |
 | `OLLAMA_TIMEOUT` | `600` seconds | Request timeout |
 
@@ -342,8 +370,8 @@ All values have sensible defaults and can be overridden via environment variable
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `WORKING_MEMORY_SIZE` | `3` | Recent messages kept in working memory |
-| `SEMANTIC_MEMORY_SIZE` | `5` | Top semantic matches retrieved |
+| `WORKING_MEMORY_SIZE` | `5` | Recent messages kept in working memory |
+| `SEMANTIC_MEMORY_SIZE` | `8` | Top semantic matches retrieved |
 | `RECENCY_WEIGHT` | `0.3` | Weight given to recency vs similarity |
 
 ### ReAct Agent
@@ -351,14 +379,14 @@ All values have sensible defaults and can be overridden via environment variable
 | Key | Default | Description |
 |-----|---------|-------------|
 | `REACT_MAX_ITERATIONS` | `15` | Max Think→Act→Observe cycles |
-| `REACT_TOKEN_BUDGET` | `24000` | Total token budget per request |
+| `REACT_TOKEN_BUDGET` | `48000` | Total token budget per request |
 | `REFLEXION_MAX_RETRIES` | `3` | Self-correction attempts on tool errors |
 
 ### Security
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| Auth timestamp window | `5` minutes | Signature expiry |
+| Auth timestamp window | `60` seconds | Signature expiry |
 | `PBKDF2_ITERATIONS` | `100,000` | PBKDF2 fallback key derivation rounds |
 | `ADMIN_PRINCIPALS` | env var | Comma-separated admin principal IDs |
 
@@ -369,7 +397,7 @@ All values have sensible defaults and can be overridden via environment variable
 | `MAX_QUEUE_SIZE` | `10` | Concurrent request limit |
 | `MAX_ARCHIVED_CHATS` | `20` | Max archived chats per user |
 | `CHAT_INACTIVE_DAYS` | `7` | Days before inactive chat cleanup |
-| `MAX_DOCUMENT_CONTEXT_CHARS` | `30,000` | Max doc context injected into prompt |
+| `MAX_DOCUMENT_CONTEXT_CHARS` | `60,000` | Max doc context injected into prompt |
 | `CODE_EXECUTION_TIMEOUT` | `5` seconds | Python sandbox timeout |
 
 ---

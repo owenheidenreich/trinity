@@ -193,3 +193,27 @@
   display: flex;
   gap: var(--space-sm);
 }
+
+/* ── Loading bar ───────────────────────────────────────────────────── */
+
+.loadingBar {
+  height: 2px;
+  width: 100%;
+  background: var(--color-bg-tertiary);
+  overflow: hidden;
+  border-radius: 1px;
+  margin-bottom: var(--space-xs);
+}
+
+.loadingBarFill {
+  height: 100%;
+  width: 40%;
+  background: var(--color-accent);
+  border-radius: 1px;
+  animation: loadingSlide 1.2s ease-in-out infinite;
+}
+
+@keyframes loadingSlide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
+}

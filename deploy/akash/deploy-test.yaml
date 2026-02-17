@@ -1,13 +1,13 @@
 version: "2.0"
 
 # ============================================================================
-# Trinity Test: Qwen2.5-Coder 7B
+# Trinity Test: Qwen3 8B
 # ============================================================================
 #
 # Cheap deploy for smoke-testing before committing to production GPU costs.
-# Same model family as production (qwen2.5-coder), just smaller.
+# Same model family as production (qwen3), just smaller.
 #
-# Model: Qwen2.5-Coder 7B (~4.5GB)
+# Model: Qwen3 8B (~5GB)
 # Cost: ~$0.05-0.15/hour (~$40-100/month)
 # GPU: Any NVIDIA GPU (T4, RTX 3090, 4090, A10, etc.)
 #
@@ -17,10 +17,10 @@ version: "2.0"
 
 services:
   trinity:
-    image: gdubx/trinity-inference:v2-20260216-010717
+    image: gdubx/trinity-inference:v2-20260216-223612
     env:
-      - PROVIDER_ID=trinity-test-qwen25-coder-7b
-      - MODEL_NAME=qwen2.5-coder:7b
+      - PROVIDER_ID=trinity-test-qwen3-8b
+      - MODEL_NAME=qwen3:8b
       - MODEL_BACKEND=ollama
       - GPU_TYPE=NVIDIA-GPU
       - MAX_QUEUE_SIZE=10

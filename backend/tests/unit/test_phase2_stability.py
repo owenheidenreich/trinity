@@ -519,7 +519,7 @@ class TestBetterErrorMessages:
 
     def test_prompt_too_long_structured_error(self, client):
         """Prompt too long returns structured error with details."""
-        long_prompt = "x" * 100000  # Exceeds MAX_PROMPT_LENGTH
+        long_prompt = "x" * 200000  # Exceeds MAX_PROMPT_LENGTH (100000)
         response = client.post(
             "/generate",
             json={"prompt": long_prompt},

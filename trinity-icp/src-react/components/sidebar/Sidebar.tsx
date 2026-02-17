@@ -11,6 +11,7 @@ interface SidebarProps {
   chats: ChatListItem[];
   currentChatId: string | null;
   connectionStatus: ConnectionStatus;
+  isLoadingChats?: boolean;
   onNewChat: () => void;
   onLoadChat: (chatId: string) => void;
   onDeleteChat: (chatId: string) => void;
@@ -27,6 +28,7 @@ export function Sidebar({
   chats,
   currentChatId,
   connectionStatus,
+  isLoadingChats,
   onNewChat,
   onLoadChat,
   onDeleteChat,
@@ -67,6 +69,11 @@ export function Sidebar({
       </div>
 
       <div className={styles.chatList}>
+        {isLoadingChats && (
+          <div className={styles.loadingBar}>
+            <div className={styles.loadingBarFill} />
+          </div>
+        )}
         {sortedChats.map((chat) => (
           <ChatItem
             key={chat.chatId}
@@ -78,7 +85,7 @@ export function Sidebar({
             onExport={onExportChat}
           />
         ))}
-        {chats.length === 0 && (
+        {!isLoadingChats && chats.length === 0 && (
           <div style={{ padding: '16px', color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>
             No chats yet
           </div>

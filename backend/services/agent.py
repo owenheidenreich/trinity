@@ -466,6 +466,11 @@ class AgentPipeline:
         """
         inside_think = False
         buf = ""
+        # Track how many chars have been consumed inside a think block.
+        # If the model never closes the tag we flush after a generous limit
+        # so the user isn't left with a blank screen.
+        think_chars = 0
+        _THINK_CHAR_LIMIT = 200_000  # ~50k tokens of reasoning is more than enough
 
         for token in token_stream:
             if isinstance(token, dict):
@@ -480,10 +485,31 @@ class AgentPipeline:
                     if close_match:
                         buf = buf[close_match.end():]
                         inside_think = False
+                        think_chars = 0
                         continue
                     else:
-                        if len(buf) > 8:
-                            buf = buf[-8:]
+                        # Keep the tail large enough that a split </think>
+                        # tag is never lost.  Previous value of 8 was too
+                        # small — "</think>" is 8 chars, so we need at
+                        # least that much overlap.
+                        think_chars += max(0, len(buf) - 16)
+                        if len(buf) > 16:
+                            buf = buf[-16:]
+
+                        # Safety: if we've been inside <think> for way too
+                        # long, the close tag was probably never emitted.
+                        # Break out so the remaining text reaches the user.
+                        if think_chars > _THINK_CHAR_LIMIT:
+                            logger.warning(
+                                "Think block exceeded %d chars without closing — "
+                                "flushing remaining text to user.",
+                                _THINK_CHAR_LIMIT,
+                            )
+                            inside_think = False
+                            think_chars = 0
+                            # Don't discard buf — it may contain the start
+                            # of the real answer.
+                            continue
                         break
                 else:
                     open_match = _THINK_OPEN.search(buf)
@@ -494,6 +520,7 @@ class AgentPipeline:
                             yield before
                         buf = buf[open_match.end():]
                         inside_think = True
+                        think_chars = 0
                         continue
                     else:
                         if len(buf) > 7:
@@ -503,8 +530,14 @@ class AgentPipeline:
                             yield safe
                         break
 
-        # Flush remaining buffer
-        if buf and not inside_think:
+        # Flush remaining buffer — even if we're technically still inside
+        # an unclosed think block, yield it so the user sees *something*.
+        if buf:
+            if inside_think:
+                logger.warning(
+                    "Stream ended inside unclosed <think> block — flushing %d chars.",
+                    len(buf),
+                )
             accumulator.append(buf)
             yield buf
 

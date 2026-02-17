@@ -3,13 +3,20 @@ Trinity Backend - IPFS Storage Module
 IPFS pinning via Lighthouse (plan-dependent quotas)
 
 v4.0: Added vector database sync for persistence across Akash redeployments
+v4.1: Migrated to pooled http_session with retry adapter; added timing instrumentation
 """
 
 import logging
+import time
 from typing import Optional
 
-import requests
-from config import LIGHTHOUSE_API, LIGHTHOUSE_API_KEY, LIGHTHOUSE_GATEWAY, LIGHTHOUSE_NODE
+from config import (
+    LIGHTHOUSE_API,
+    LIGHTHOUSE_API_KEY,
+    LIGHTHOUSE_GATEWAY,
+    LIGHTHOUSE_NODE,
+    http_session,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +52,7 @@ def upload_to_ipfs(
         logger.warning("Lighthouse API key not configured - skipping archive")
         return None
 
+    t0 = time.monotonic()
     try:
         endpoint = f"{LIGHTHOUSE_NODE}/api/v0/add"
 
@@ -54,28 +62,32 @@ def upload_to_ipfs(
 
         logger.info(f"📤 Uploading to Lighthouse: {filename} ({len(file_data)} bytes)")
 
-        response = requests.post(endpoint, headers=headers, files=files, timeout=60)
+        response = http_session.post(endpoint, headers=headers, files=files, timeout=60)
 
+        elapsed = time.monotonic() - t0
         if response.status_code == 200:
             result = response.json()
             cid = result.get("Hash")
             size = result.get("Size", len(file_data))
 
-            logger.info(f"✅ Uploaded to Lighthouse/IPFS: {cid}")
+            logger.info(f"✅ Uploaded to Lighthouse/IPFS: {cid} ({elapsed:.2f}s)")
             logger.info(f"   Size: {size} bytes")
             logger.info(f"   Principal: {principal_id}")
             logger.info(f"   Gateway: {LIGHTHOUSE_GATEWAY}/ipfs/{cid}")
 
             return cid
         else:
-            logger.error(f"❌ Lighthouse upload failed: {response.status_code} - {response.text}")
+            logger.error(
+                f"❌ Lighthouse upload failed: {response.status_code} - {response.text} ({elapsed:.2f}s)"
+            )
             return None
 
-    except requests.Timeout:
-        logger.error("❌ Lighthouse upload timed out")
-        return None
     except Exception as e:
-        logger.error(f"❌ Lighthouse upload error: {e}", exc_info=True)
+        elapsed = time.monotonic() - t0
+        if "timeout" in str(type(e).__name__).lower() or "timeout" in str(e).lower():
+            logger.error(f"❌ Lighthouse upload timed out ({elapsed:.2f}s)")
+        else:
+            logger.error(f"❌ Lighthouse upload error ({elapsed:.2f}s): {e}", exc_info=True)
         return None
 
 
@@ -94,6 +106,7 @@ def get_lighthouse_uploads(principal_id: str = None, file_type: str = None) -> l
         logger.warning("Lighthouse API key not configured")
         return []
 
+    t0 = time.monotonic()
     try:
         headers = {"Authorization": f"Bearer {LIGHTHOUSE_API_KEY}"}
         url = f"{LIGHTHOUSE_API}/api/user/files_uploaded"
@@ -105,10 +118,13 @@ def get_lighthouse_uploads(principal_id: str = None, file_type: str = None) -> l
             if last_key:
                 params["lastKey"] = last_key
 
-            response = requests.get(url, headers=headers, params=params, timeout=30)
+            response = http_session.get(url, headers=headers, params=params, timeout=30)
 
             if response.status_code != 200:
-                logger.error(f"Lighthouse listing failed: {response.status_code} - {response.text}")
+                elapsed = time.monotonic() - t0
+                logger.error(
+                    f"Lighthouse listing failed: {response.status_code} - {response.text} ({elapsed:.2f}s)"
+                )
                 return []
 
             result = response.json() or {}
@@ -123,16 +139,18 @@ def get_lighthouse_uploads(principal_id: str = None, file_type: str = None) -> l
             if page_idx == _LIST_MAX_PAGES - 1:
                 logger.warning("Reached Lighthouse listing page cap (%s pages)", _LIST_MAX_PAGES)
 
+        elapsed = time.monotonic() - t0
         files.sort(key=_created_at_key, reverse=True)
 
-        logger.info(f"📦 Found {len(files)} files in Lighthouse storage")
+        logger.info(f"📦 Found {len(files)} files in Lighthouse storage ({elapsed:.2f}s)")
         return files
 
-    except requests.Timeout:
-        logger.error("Lighthouse listing timed out")
-        return []
     except Exception as e:
-        logger.error(f"Lighthouse listing error: {e}", exc_info=True)
+        elapsed = time.monotonic() - t0
+        if "timeout" in str(type(e).__name__).lower() or "timeout" in str(e).lower():
+            logger.error(f"Lighthouse listing timed out ({elapsed:.2f}s)")
+        else:
+            logger.error(f"Lighthouse listing error ({elapsed:.2f}s): {e}", exc_info=True)
         return []
 
 
@@ -146,6 +164,7 @@ def download_from_ipfs(cid: str) -> Optional[bytes]:
     if not cid:
         return None
 
+    t0 = time.monotonic()
     try:
         gateways = [
             f"{LIGHTHOUSE_GATEWAY}/ipfs/{cid}",
@@ -154,27 +173,38 @@ def download_from_ipfs(cid: str) -> Optional[bytes]:
             f"https://cloudflare-ipfs.com/ipfs/{cid}",
         ]
 
-        for gateway in gateways:
+        for idx, gateway in enumerate(gateways):
+            gw_t0 = time.monotonic()
             try:
                 logger.info(f"Attempting download from: {gateway}")
-                response = requests.get(gateway, timeout=30)
+                response = http_session.get(gateway, timeout=30)
 
+                gw_elapsed = time.monotonic() - gw_t0
                 if response.status_code == 200:
-                    logger.info(f"✅ File downloaded from IPFS: {cid}")
+                    total_elapsed = time.monotonic() - t0
+                    logger.info(
+                        f"✅ File downloaded from IPFS: {cid} "
+                        f"(gateway {idx + 1}/{len(gateways)}, {gw_elapsed:.2f}s, total {total_elapsed:.2f}s)"
+                    )
                     return response.content
                 else:
-                    logger.warning(f"Gateway {gateway} returned {response.status_code}")
-            except requests.Timeout:
-                logger.warning(f"Gateway {gateway} timed out")
-                continue
-            except Exception as e:
-                logger.warning(f"Gateway {gateway} error: {e}")
+                    logger.warning(
+                        f"Gateway {gateway} returned {response.status_code} ({gw_elapsed:.2f}s)"
+                    )
+            except Exception as gw_e:
+                gw_elapsed = time.monotonic() - gw_t0
+                if "timeout" in str(type(gw_e).__name__).lower() or "timeout" in str(gw_e).lower():
+                    logger.warning(f"Gateway {gateway} timed out ({gw_elapsed:.2f}s)")
+                else:
+                    logger.warning(f"Gateway {gateway} error ({gw_elapsed:.2f}s): {gw_e}")
                 continue
 
-        logger.error(f"❌ All gateways failed for CID: {cid}")
+        total_elapsed = time.monotonic() - t0
+        logger.error(f"❌ All gateways failed for CID: {cid} ({total_elapsed:.2f}s)")
         return None
     except Exception as e:
-        logger.error(f"❌ IPFS download error: {e}", exc_info=True)
+        total_elapsed = time.monotonic() - t0
+        logger.error(f"❌ IPFS download error ({total_elapsed:.2f}s): {e}", exc_info=True)
         return None
 
 

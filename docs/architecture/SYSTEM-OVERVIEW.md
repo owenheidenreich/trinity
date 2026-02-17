@@ -72,15 +72,15 @@ A Cloudflare Worker sits between the frontend and backend to provide SSL termina
 │  │  ┌──────────────────────────────────┐  ┌────────────────────────────┐  │  │
 │  │  │    Flask Inference Server :8000  │  │     Ollama LLM :11434     │  │  │
 │  │  │                                  │  │                            │  │  │
-│  │  │  ┌────────────┐ ┌────────────┐  │  │  qwen2.5-coder:32b        │  │  │
-│  │  │  │ 8 Route    │ │ 3 Middle-  │  │  │  (or other model from     │  │  │
-│  │  │  │ Blueprints │ │ ware       │  │  │   deployment tier)         │  │  │
-│  │  │  │ 42+ API    │ │ Modules    │  │  │                            │  │  │
-│  │  │  │ endpoints  │ │            │  │  │  GPU: NVIDIA (Akash mkt)   │  │  │
-│  │  │  └────────────┘ └────────────┘  │  │  Context: 32,768 tokens    │  │  │
+│  │  │  ┌────────────┐ ┌────────────┐  │  │  qwen3:32b                  │  │
+│  │  │  │ 9 Route    │ │ 3 Middle-  │  │  │  (or other model from     │  │
+│  │  │  │ Blueprints │ │ ware       │  │  │   deployment tier)         │  │
+│  │  │  │ 53 API     │ │ Modules    │  │  │                            │  │
+│  │  │  │ endpoints  │ │            │  │  │  GPU: NVIDIA (Akash mkt)   │  │
+│  │  │  └────────────┘ └────────────┘  │  │  Context: 65,536 tokens    │  │
 │  │  │                                  │  │                            │  │  │
 │  │  │  ┌────────────┐ ┌────────────┐  │  └────────────────────────────┘  │  │
-│  │  │  │ 17 Service │ │ SQLite DB  │  │                                  │  │
+│  │  │  │ 33 Service │ │ SQLite DB  │  │                                  │  │
 │  │  │  │ Modules    │ │ (sessions, │  │  ┌────────────────────────────┐  │  │
 │  │  │  │            │ │  rate lim, │  │  │  Persistent Volume         │  │  │
 │  │  │  │ Agent      │ │  usage,    │  │  │  (Akash beta3 class)       │  │  │
@@ -160,8 +160,8 @@ Trinity supports multiple deployment configurations depending on budget and comp
 
 | Tier | Model | GPU RAM | CPU | Storage | Approx. Cost |
 |------|-------|---------|-----|---------|--------------|
-| Production | `qwen2.5-coder:32b` | 48 GB | 8 cores | 80 GB | ~$600-1000/mo |
-| Test | `qwen2.5-coder:7b` | 16 GB | 4 cores | 40 GB | ~$40-100/mo |
+| Production | `qwen3:32b` | 48 GB | 8 cores | 80 GB | ~$600-1000/mo |
+| Test | `qwen3:32b` | 16 GB | 4 cores | 40 GB | ~$40-100/mo |
 
 Deploy with `./scripts/trinity-deploy-production.sh production` or `./scripts/trinity-deploy-production.sh test`.
 
@@ -307,9 +307,9 @@ Trinity/
 │   ├── storage.py                    # User data file operations
 │   ├── validation.py                 # Input validation + SSRF
 │   ├── lighthouse.py                 # IPFS/Lighthouse integration
-│   ├── routes/                       # 8 Flask blueprints (42+ endpoints)
+│   ├── routes/                       # 9 Flask blueprints (53 endpoints)
 │   ├── middleware/                    # Observability, rate limiting, caching
-│   ├── services/                     # 21 service modules (agent, memory, tools, etc.)
+│   ├── services/                     # 33 service modules (agent, memory, tools, etc.)
 │   └── tests/                        # Unit, integration, and E2E tests
 │
 ├── trinity-icp/                      # Frontend (ICP canister)

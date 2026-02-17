@@ -56,14 +56,14 @@ This isn't marketing. This is "here's where to look."
 │  └─────────────────────────────────────────────────────────────────┘   │
 │  ┌─────────────────────────────────────────────────────────────────┐   │
 │  │                      INFERENCE LAYER                             │   │
-│  │  Ollama (local) → qwen2.5-coder:32b model (Tier 3)                   │   │
+│  │  Ollama (local) → qwen3:32b model (Tier 3)                          │   │
 │  │  Single-pass agent pipeline with optional ReAct tool calling          │   │
-│  │  Tool execution (calculator, code sandbox, web search, 13 tools)     │   │
+│  │  Tool execution (calculator, code sandbox, web search, 15 tools)     │   │
 │  └─────────────────────────────────────────────────────────────────┘   │
 │  ┌─────────────────────────────────────────────────────────────────┐   │
 │  │                      STORAGE LAYER                               │   │
 │  │  Per-user directories: /data/chats/{principal_id}/              │   │
-│  │  AES-256-GCM encryption (PBKDF2 100k iterations)                │   │
+│  │  AES-256-GCM encryption (Argon2id primary / PBKDF2 100k fallback)  │   │
 │  │  SQLite-VSS for vector embeddings                               │   │
 │  └─────────────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────────┘
@@ -529,4 +529,4 @@ Good luck with the audit. The system was built with security in mind, but fresh 
 
 *Document version: 1.0*  
 *Last updated: February 2026*  
-*Test results: 615 passed, 0 failed*
+*Test results: 976 passed, 9 skipped*

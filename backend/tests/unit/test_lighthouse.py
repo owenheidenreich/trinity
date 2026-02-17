@@ -27,29 +27,29 @@ def mock_lighthouse_key():
 @pytest.fixture
 def mock_upload_success():
     """Mock a successful Lighthouse upload."""
-    with patch("lighthouse.requests.post") as mock_post:
+    with patch("lighthouse.http_session") as mock_session:
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = {"Hash": FAKE_CID, "Size": 1024}
-        mock_post.return_value = mock_resp
-        yield mock_post
+        mock_session.post.return_value = mock_resp
+        yield mock_session.post
 
 
 @pytest.fixture
 def mock_upload_failure():
     """Mock a failed Lighthouse upload."""
-    with patch("lighthouse.requests.post") as mock_post:
+    with patch("lighthouse.http_session") as mock_session:
         mock_resp = MagicMock()
         mock_resp.status_code = 500
         mock_resp.text = "Internal Server Error"
-        mock_post.return_value = mock_resp
-        yield mock_post
+        mock_session.post.return_value = mock_resp
+        yield mock_session.post
 
 
 @pytest.fixture
 def mock_listing_success():
     """Mock successful file listing from Lighthouse."""
-    with patch("lighthouse.requests.get") as mock_get:
+    with patch("lighthouse.http_session") as mock_session:
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = {
@@ -58,8 +58,8 @@ def mock_listing_success():
                 {"fileName": "chat_backup.json", "cid": "QmOther123", "createdAt": 1699000000},
             ]
         }
-        mock_get.return_value = mock_resp
-        yield mock_get
+        mock_session.get.return_value = mock_resp
+        yield mock_session.get
 
 
 # =============================================================================
@@ -92,7 +92,8 @@ class TestUploadToIpfs:
         from lighthouse import upload_to_ipfs
         import requests
 
-        with patch("lighthouse.requests.post", side_effect=requests.Timeout("timed out")):
+        with patch("lighthouse.http_session") as mock_session:
+            mock_session.post.side_effect = requests.Timeout("timed out")
             cid = upload_to_ipfs(b"test data", "test.json")
             assert cid is None
 
@@ -107,7 +108,8 @@ class TestUploadToIpfs:
         from lighthouse import upload_to_ipfs
         import requests
 
-        with patch("lighthouse.requests.post", side_effect=requests.ConnectionError("refused")):
+        with patch("lighthouse.http_session") as mock_session:
+            mock_session.post.side_effect = requests.ConnectionError("refused")
             cid = upload_to_ipfs(b"test data", "test.json")
             assert cid is None
 
@@ -134,17 +136,17 @@ class TestDownloadFromIpfs:
     def test_download_success_first_gateway(self):
         from lighthouse import download_from_ipfs
 
-        with patch("lighthouse.requests.get") as mock_get:
+        with patch("lighthouse.http_session") as mock_session:
             mock_resp = MagicMock()
             mock_resp.status_code = 200
             mock_resp.content = b"downloaded data"
-            mock_get.return_value = mock_resp
+            mock_session.get.return_value = mock_resp
 
             result = download_from_ipfs(FAKE_CID)
 
         assert result == b"downloaded data"
         # Only first gateway should be tried if it succeeds
-        assert mock_get.call_count == 1
+        assert mock_session.get.call_count == 1
 
     def test_download_falls_back_to_second_gateway(self):
         from lighthouse import download_from_ipfs
@@ -157,7 +159,8 @@ class TestDownloadFromIpfs:
         success_resp.status_code = 200
         success_resp.content = b"fallback data"
 
-        with patch("lighthouse.requests.get", side_effect=[fail_resp, success_resp]):
+        with patch("lighthouse.http_session") as mock_session:
+            mock_session.get.side_effect = [fail_resp, success_resp]
             result = download_from_ipfs(FAKE_CID)
 
         assert result == b"fallback data"
@@ -168,7 +171,8 @@ class TestDownloadFromIpfs:
         fail_resp = MagicMock()
         fail_resp.status_code = 500
 
-        with patch("lighthouse.requests.get", return_value=fail_resp):
+        with patch("lighthouse.http_session") as mock_session:
+            mock_session.get.return_value = fail_resp
             result = download_from_ipfs(FAKE_CID)
 
         assert result is None
@@ -187,7 +191,8 @@ class TestDownloadFromIpfs:
         success_resp.status_code = 200
         success_resp.content = b"success"
 
-        with patch("lighthouse.requests.get", side_effect=[requests.Timeout, success_resp]):
+        with patch("lighthouse.http_session") as mock_session:
+            mock_session.get.side_effect = [requests.Timeout, success_resp]
             result = download_from_ipfs(FAKE_CID)
 
         assert result == b"success"
@@ -213,11 +218,11 @@ class TestGetLighthouseUploads:
     def test_listing_empty(self):
         from lighthouse import get_lighthouse_uploads
 
-        with patch("lighthouse.requests.get") as mock_get:
+        with patch("lighthouse.http_session") as mock_session:
             mock_resp = MagicMock()
             mock_resp.status_code = 200
             mock_resp.json.return_value = {"fileList": []}
-            mock_get.return_value = mock_resp
+            mock_session.get.return_value = mock_resp
 
             files = get_lighthouse_uploads()
 
@@ -234,7 +239,8 @@ class TestGetLighthouseUploads:
         from lighthouse import get_lighthouse_uploads
         import requests
 
-        with patch("lighthouse.requests.get", side_effect=requests.Timeout):
+        with patch("lighthouse.http_session") as mock_session:
+            mock_session.get.side_effect = requests.Timeout
             files = get_lighthouse_uploads()
             assert files == []
 
@@ -258,14 +264,15 @@ class TestGetLighthouseUploads:
             ],
         }
 
-        with patch("lighthouse.requests.get", side_effect=[page1, page2]) as mock_get:
+        with patch("lighthouse.http_session") as mock_session:
+            mock_session.get.side_effect = [page1, page2]
             files = get_lighthouse_uploads("principal-123")
 
         assert len(files) == 2
         assert files[0]["cid"] == "cid-2"  # sorted newest first
         assert files[1]["cid"] == "cid-1"
-        assert mock_get.call_count == 2
-        second_call = mock_get.call_args_list[1]
+        assert mock_session.get.call_count == 2
+        second_call = mock_session.get.call_args_list[1]
         params = second_call.kwargs.get("params", second_call[1].get("params", {}))
         assert params.get("lastKey") == "cursor-1"
 
@@ -281,11 +288,12 @@ class TestGetLighthouseUploads:
             "lastKey": "same-cursor",
         }
 
-        with patch("lighthouse.requests.get", side_effect=[repeated, repeated]) as mock_get:
+        with patch("lighthouse.http_session") as mock_session:
+            mock_session.get.side_effect = [repeated, repeated]
             files = get_lighthouse_uploads("principal-123")
 
         assert len(files) == 2  # both pages were consumed before cursor-stability stop
-        assert mock_get.call_count == 2
+        assert mock_session.get.call_count == 2
 
 
 # =============================================================================

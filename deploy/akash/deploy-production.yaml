@@ -1,12 +1,12 @@
 version: "2.0"
 
 # ============================================================================
-# Trinity Production: Qwen2.5-Coder 32B
+# Trinity Production: Qwen3 32B
 # ============================================================================
 #
 # The production deployment. This is the only tier that matters.
 #
-# Model: Qwen2.5-Coder 32B — 72.9% on Aider benchmark, 128K context
+# Model: Qwen3 32B — Q4_K_M quantized, 128K native context (64K active)
 # Cost: ~$0.80-1.50/hour (~$600-1000/month)
 # Response Time: 5-20 seconds
 # GPU: Fits on A100 40GB, A6000, or RTX 4090 24GB (Q4_K_M ~20GB VRAM)
@@ -17,10 +17,10 @@ version: "2.0"
 
 services:
   trinity:
-    image: gdubx/trinity-inference:v2-20260216-010717
+    image: gdubx/trinity-inference:v2-20260216-223612
     env:
-      - PROVIDER_ID=trinity-production-qwen25-coder-32b
-      - MODEL_NAME=qwen2.5-coder:32b
+      - PROVIDER_ID=trinity-production-qwen3-32b
+      - MODEL_NAME=qwen3:32b
       - MODEL_BACKEND=ollama
       - GPU_TYPE=A100
       - MAX_QUEUE_SIZE=5

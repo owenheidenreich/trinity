@@ -6,7 +6,7 @@ Handles: tier selection, provider discovery, lease creation, manifest sending
 Usage:
   python3 akash_deploy.py <deploy_dir> <image_tag> [tier]
   
-  tier: production (Qwen2.5-Coder 32B), test (Qwen2.5-Coder 7B)
+  tier: production (Qwen3 32B), test (Qwen3 8B)
         If not specified, prompts for selection
 """
 
@@ -57,8 +57,8 @@ WALLET_NAME = "trinity-wallet"
 
 # Tier definitions: production (32B) + test (7B)
 TIERS = {
-    "production": {"yaml": "deploy-production.yaml", "desc": "Qwen2.5-Coder 32B (Production)", "cost": "~$600-1000/mo"},
-    "test": {"yaml": "deploy-test.yaml", "desc": "Qwen2.5-Coder 7B (Test)", "cost": "~$40-100/mo"},
+    "production": {"yaml": "deploy-production.yaml", "desc": "Qwen3 32B (Production)", "cost": "~$600-1000/mo"},
+    "test": {"yaml": "deploy-test.yaml", "desc": "Qwen3 8B (Test)", "cost": "~$40-100/mo"},
 }
 
 # Minimum price thresholds per tier (below this = hardware too weak)
@@ -449,8 +449,8 @@ def select_tier():
     print("\n┌─────────────────────────────────────────────────────────────┐")
     print("│                    SELECT DEPLOYMENT TIER                    │")
     print("├─────────────────────────────────────────────────────────────┤")
-    print("│  1) production  — Qwen2.5-Coder 32B (~$600-1000/mo)        │")
-    print("│  2) test        — Qwen2.5-Coder 7B  (~$40-100/mo)          │")
+    print("│  1) production  — Qwen3 32B (~$600-1000/mo)              │")
+    print("│  2) test        — Qwen3 8B  (~$40-100/mo)                │")
     print("└─────────────────────────────────────────────────────────────┘")
     
     while True:
@@ -626,9 +626,9 @@ def main():
         
         # Wait for container - production tier (32B) needs longer to pull model
         if selected_tier == "test":
-            max_wait = 420   # 7 min for Qwen2.5-Coder 7B
+            max_wait = 420   # 7 min for Qwen3 8B
         else:
-            max_wait = 1200  # 20 min for Qwen2.5-Coder 32B
+            max_wait = 1200  # 20 min for Qwen3 32B
         
         print(f"  Waiting for container (up to {max_wait//60} min for Tier {selected_tier})...")
         uri = None

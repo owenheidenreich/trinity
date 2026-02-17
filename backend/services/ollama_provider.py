@@ -32,8 +32,8 @@ class OllamaProvider(LLMProvider):
     def __init__(
         self,
         host: str = "http://localhost:11434",
-        model: str = "qwen2.5-coder:32b",
-        num_ctx: int = 32768,
+        model: str = "qwen3:32b",
+        num_ctx: int = 65536,
     ):
         self.host = host
         self.model = model

@@ -29,6 +29,7 @@ export function AppShell() {
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [showKeyExport, setShowKeyExport] = useState(false);
   const [infoVariant, setInfoVariant] = useState<InfoVariant | null>(null);
+  const [isLoadingChats, setIsLoadingChats] = useState(false);
 
   // Store
   const chatHistory = useStore((s) => s.chatHistory);
@@ -55,6 +56,7 @@ export function AppShell() {
 
   const loadChats = useCallback(async () => {
     try {
+      setIsLoadingChats(true);
       const headers = await auth.buildAuthHeaders('/chat/list');
       if (!headers) return;
       const response = await fetch(`${CONFIG.API_URL}/chat/list`, {
@@ -66,6 +68,8 @@ export function AppShell() {
       }
     } catch (err) {
       Logger.error('Failed to load chats:', err);
+    } finally {
+      setIsLoadingChats(false);
     }
   }, [auth.buildAuthHeaders, setAllChats]);
 
@@ -158,6 +162,8 @@ export function AppShell() {
       const finalTokens = chat.getTokens();
       if (finalTokens) {
         addMessage('assistant', finalTokens);
+      } else {
+        addMessage('assistant', '*The model processed your request but returned an empty response. Please try again — sometimes rephrasing helps.*');
       }
 
       autosave.scheduleAutosave(auth.buildAuthHeaders);
@@ -354,6 +360,7 @@ export function AppShell() {
             chats={allChats}
             currentChatId={currentChatId}
             connectionStatus={connectionStatus}
+            isLoadingChats={isLoadingChats}
             onNewChat={handleNewChat}
             onLoadChat={handleLoadChat}
             onDeleteChat={(chatId) => setDeleteTarget(chatId)}

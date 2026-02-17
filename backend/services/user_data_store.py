@@ -1174,14 +1174,13 @@ def unpin_cid(cid: str):
     but will eventually be garbage-collected without a pin.
     """
     try:
-        import requests
-        from config import LIGHTHOUSE_API_KEY, LIGHTHOUSE_API
+        from config import LIGHTHOUSE_API_KEY, LIGHTHOUSE_API, http_session
 
         if not LIGHTHOUSE_API_KEY:
             return
 
         headers = {"Authorization": f"Bearer {LIGHTHOUSE_API_KEY}"}
-        response = requests.delete(
+        response = http_session.delete(
             f"{LIGHTHOUSE_API}/api/data/remove",
             headers=headers,
             json={"cid": cid},

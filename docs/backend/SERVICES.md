@@ -26,15 +26,24 @@ backend/
     ├── agent.py             # Single-pass orchestrator
     ├── agent_prompts.py     # System prompts, ReAct prompts
     ├── react_loop.py        # ReAct agentic loop (dual-mode tools)
-    ├── code_executor.py     # Tool dispatcher (13 tools)
+    ├── code_executor.py     # Tool dispatcher (15 tools)
     ├── tools.py             # Tool definitions & parsing
-    ├── memory_tools.py      # MemGPT save/recall/search
+    ├── memory_tools.py      # MemGPT save/recall/search/update/forget
     ├── ollama.py            # Ollama HTTP client
+    ├── ollama_provider.py   # Ollama provider abstraction
+    ├── llm_provider.py      # LLM provider interface
+    ├── provider_factory.py  # Provider factory
+    ├── model_router.py      # Model routing logic
     ├── search.py            # Brave web search
     ├── fact_check.py        # Dual-search fact verification
     ├── embeddings.py        # FastEmbed (384-dim)
     ├── vector_store.py      # Per-user vector DB
     ├── memory.py            # Semantic memory retrieval
+    ├── memory_ingestion.py  # Memory ingestion pipeline
+    ├── memory_eval.py       # Memory evaluation
+    ├── graph_memory.py      # Graph-based memory
+    ├── graph_extractor.py   # Graph entity extraction
+    ├── profile_extractor.py # User profile extraction
     ├── caching.py           # Embedding + semantic + token caches
     ├── prompts.py           # System prompt construction
     ├── structured.py        # Structured output parsing
@@ -43,6 +52,8 @@ backend/
     ├── mcp_server.py        # MCP server (JSON-RPC 2.0)
     ├── mcp_client.py        # MCP client (external tools)
     ├── repo_map.py          # Repository structure visualization
+    ├── session_manager.py   # Session management
+    ├── slo_metrics.py       # SLO tracking metrics
     └── tracing.py           # Distributed tracing
 ```
 
@@ -79,20 +90,20 @@ Iterative think→act→observe loop for tool-using queries.
 2. Tool executed via `execute_tool()`, result fed back
 3. Repeat until final answer or budget exhausted
 
-**Safeguards:** Token budget (24K), max iterations (15), Reflexion (3 retries for code errors)
+**Safeguards:** Token budget (48K), max iterations (15), Reflexion (3 retries for code errors)
 
 ---
 
 ## Tool System
 
 ### Definitions (`services/tools.py`)
-13 tools in `TOOL_DEFINITIONS`. Functions: `detect_tools_needed()`, `parse_tool_calls()`, `get_tool_definitions_for_prompt()`
+15 tools in `TOOL_DEFINITIONS`. Functions: `detect_tools_needed()`, `parse_tool_calls()`, `get_tool_definitions_for_prompt()`
 
 ### Dispatcher (`services/code_executor.py`)
 `execute_tool(name, params, context)` — Routes to handler. Falls through to MCP client for unknown tools.
 
 ### Memory Tools (`services/memory_tools.py`)
-MemGPT pattern: `save_memory`, `recall_memory`, `search_memory` with 384-dim embeddings and deduplication.
+MemGPT pattern: `save_memory`, `recall_memory`, `search_memory`, `update_memory`, `forget_memory` with 384-dim embeddings and deduplication.
 
 ---
 
@@ -120,7 +131,7 @@ MemGPT pattern: `save_memory`, `recall_memory`, `search_memory` with 384-dim emb
 
 ## MCP Integration
 
-- **Server** (`mcp_server.py`): Exposes all 13 tools via JSON-RPC 2.0 (HTTP + stdio)
+- **Server** (`mcp_server.py`): Exposes all 15 tools via JSON-RPC 2.0 (HTTP + stdio)
 - **Client** (`mcp_client.py`): Connects to external MCP servers, namespaced as `server:tool`
 
 ---
@@ -151,5 +162,5 @@ MemGPT pattern: `save_memory`, `recall_memory`, `search_memory` with 384-dim emb
 ## Testing
 
 ```bash
-cd backend && python -m pytest tests/ -x -q    # 615 passed, 91.30% coverage
+cd backend && python -m pytest tests/ -x -q    # 976 passed
 ```

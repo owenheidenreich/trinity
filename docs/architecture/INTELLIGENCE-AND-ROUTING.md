@@ -29,7 +29,7 @@ User message arrives at POST /generate/agent
 │                                │
 │                                ├── Think → Act → Observe → Think → ...
 │                                ├── Up to 15 iterations
-│                                ├── 24,000 token budget
+│                                ├── 48,000 token budget
 │                                └── Self-correction on errors (Reflexion)
 │
 └── Tools detected? ─── NO ───> Direct Chat (single LLM call)
@@ -87,8 +87,8 @@ Before the LLM is called, context is assembled from multiple sources:
 │  └───────────────────────────────────────────────────────────┘   │
 │                                                                  │
 │  ┌── From Semantic Memory ──────────────────────────────────┐   │
-│  │  Working memory: last 3 messages from current chat        │   │
-│  │  Semantic memory: top 5 relevant past messages            │   │
+│  │  Working memory: last 5 messages from current chat        │   │
+│  │  Semantic memory: top 8 relevant past messages            │   │
 │  │  (weighted: 70% similarity + 30% recency)                 │   │
 │  └───────────────────────────────────────────────────────────┘   │
 │                                                                  │
@@ -122,8 +122,8 @@ OllamaClient.chat_stream(
         ...context_messages,
         {role: "user", content: prompt}
     ],
-    model="qwen2.5-coder:32b",
-    options={num_ctx: 32768}
+    model="qwen3:32b",
+    options={num_ctx: 65536}
 )
 
 → Yields SSE events: {token: "..."} for each generated token
@@ -177,7 +177,7 @@ The loop stops when any of these occur:
 |-----------|-------------|
 | `<final_answer>` tag detected | LLM is done — stream the answer |
 | Max iterations reached (15) | Force a final answer generation |
-| Token budget exhausted (24,000) | Force a final answer generation |
+| Token budget exhausted (48,000) | Force a final answer generation |
 | No tool calls and no final answer for 2 iterations | Treat the response as the final answer |
 
 ### SSE Events During ReAct
@@ -200,7 +200,7 @@ The frontend's `TypingIndicator` component shows phase-appropriate animations du
 
 ---
 
-## The 13 Tools
+## The 15 Tools
 
 **File:** `services/tools.py` (definitions), `services/code_executor.py` (execution)
 
@@ -214,11 +214,13 @@ The frontend's `TypingIndicator` component shows phase-appropriate animations du
 | 6 | `save_memory` | Memory | Save a fact about the user (with deduplication) |
 | 7 | `recall_memory` | Memory | Retrieve relevant facts by semantic similarity |
 | 8 | `search_memory` | Memory | Search facts by exact match, semantic, or hybrid |
-| 9 | `read_file` | Filesystem | Read file contents (sandboxed to workspace) |
-| 10 | `write_file` | Filesystem | Create/write files (sandboxed to workspace) |
-| 11 | `list_directory` | Filesystem | List directory contents (recursive, depth-limited) |
-| 12 | `search_codebase` | Filesystem | Glob-based code search |
-| 13 | `run_command` | Execution | Run restricted commands (python, pytest, node only) |
+| 9 | `update_memory` | Memory | Update an existing fact with new information |
+| 10 | `forget_memory` | Memory | Soft-delete a fact (preserved in exports) |
+| 11 | `read_file` | Filesystem | Read file contents (sandboxed to workspace) |
+| 12 | `write_file` | Filesystem | Create/write files (sandboxed to workspace) |
+| 13 | `list_directory` | Filesystem | List directory contents (recursive, depth-limited) |
+| 14 | `search_codebase` | Filesystem | Glob-based code search |
+| 15 | `run_command` | Execution | Run restricted commands (python, pytest, node only) |
 
 ### Tool Call Format
 
@@ -360,7 +362,7 @@ Each ReAct execution has a token budget to prevent runaway costs:
 
 | Parameter | Value | Purpose |
 |-----------|-------|---------|
-| `REACT_TOKEN_BUDGET` | 24,000 tokens | Total budget for all iterations |
+| `REACT_TOKEN_BUDGET` | 48,000 tokens | Total budget for all iterations |
 | Token estimation | ~4 chars per token | Approximate counting |
 
 ```
@@ -397,7 +399,7 @@ Defines Trinity's personality, capabilities, and formatting guidelines. Includes
 Used when tools are available. Includes:
 - The core identity
 - ReAct pattern instructions (Think → Act → Observe → Repeat)
-- Tool documentation for all 13 tools
+- Tool documentation for all 15 tools
 - `<final_answer>` tag usage
 - Error handling instructions
 
@@ -425,7 +427,7 @@ def build_system_prompt(context, memory, search_results, tools):
         prompt += search_results
 
     if tools:
-        prompt += TOOL_PROMPT_SECTION      # 13 tool docs
+        prompt += TOOL_PROMPT_SECTION      # 15 tool docs
         prompt += REACT_SYSTEM_PROMPT      # ReAct instructions
 
     return prompt
@@ -534,7 +536,7 @@ Trinity implements both sides of the MCP standard:
 
 **File:** `services/mcp_server.py`
 
-Exposes Trinity's 13 tools via the MCP JSON-RPC 2.0 protocol:
+Exposes Trinity's 15 tools via the MCP JSON-RPC 2.0 protocol:
 - HTTP endpoint: `POST /mcp`
 - Stdio transport: `mcp_stdio_server.py` (for Claude Desktop)
 
@@ -620,13 +622,13 @@ A ring buffer holds the last 500 traces in memory:
 | Key | Default | Description |
 |-----|---------|-------------|
 | `REACT_MAX_ITERATIONS` | 15 | Maximum Think→Act→Observe cycles |
-| `REACT_TOKEN_BUDGET` | 24,000 | Total token budget per request |
+| `REACT_TOKEN_BUDGET` | 48,000 | Total token budget per request |
 | `REFLEXION_MAX_RETRIES` | 3 | Self-correction attempts on tool errors |
-| `NUM_CTX` | 32,768 | Ollama context window size |
+| `NUM_CTX` | 65,536 | Ollama context window size |
 | `DEFAULT_MAX_TOKENS` | 8,000 | Max tokens per response |
 | `CODE_EXECUTION_ENABLED` | `False` | Whether sandboxed code execution is active |
 | `CODE_EXECUTION_TIMEOUT` | 5 seconds | Python sandbox timeout |
-| `MAX_DOCUMENT_CONTEXT_CHARS` | 30,000 | Max document context in prompt |
+| `MAX_DOCUMENT_CONTEXT_CHARS` | 60,000 | Max document context in prompt |
 | `WORKSPACE_ROOT` | `/workspace` | Filesystem sandbox root |
 
 ---

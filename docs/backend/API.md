@@ -7,7 +7,7 @@
 
 ## Overview
 
-Trinity exposes API endpoints organized into 8 blueprints. Auth uses Ed25519 signatures on protected routes (`/chat/*`, `/user/*`, `/tools/*`, `/mcp` POST, and `/v4/*`).
+Trinity exposes API endpoints organized into 9 blueprints. Auth uses Ed25519 signatures on protected routes (`/chat/*`, `/user/*`, `/tools/*`, `/mcp` POST, `/api/passphrase/*`, and `/v4/*`).
 
 **Auth headers:** `ICP-Principal`, `ICP-Timestamp`, `ICP-Signature`, `ICP-PublicKey`, `ICP-Nonce`
 **Signed message:** `{principal}:{timestamp}:{endpoint}:{nonce}`
@@ -108,6 +108,9 @@ data: {"done": true, "response": {"complexity": "medium"}}
 | POST | `/admin/cache/clear` | Clear all caches |
 | GET | `/admin/tokens/usage` | Token usage |
 | GET | `/admin/quota/usage` | Quota status |
+| GET | `/admin/storage/status` | Storage status |
+| POST | `/admin/storage/rollback/<principal_id>` | Rollback user storage |
+| GET | `/admin/slo/status` | SLO metrics status |
 
 ---
 
@@ -119,6 +122,18 @@ data: {"done": true, "response": {"complexity": "medium"}}
 | GET | `/session/status` | Session info |
 | POST | `/session/request` | Request session |
 | GET | `/session/check/<id>` | Check session |
+
+---
+
+## Passphrase (Auth Required)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/passphrase/setup` | Set up passphrase for user |
+| POST | `/api/passphrase/unlock` | Unlock with passphrase (rate-limited) |
+| POST | `/api/passphrase/change` | Change passphrase |
+| POST | `/api/passphrase/lock` | Lock session |
+| GET | `/api/passphrase/status` | Get passphrase status |
 
 ---
 
@@ -185,5 +200,5 @@ Minor interface fixes documented in code and tests:
 - Autosave now uses latest chat state so full conversation history is persisted per chat.
 
 Validation snapshots:
-- Security patch set: `867 passed, 9 skipped` (`backend/tests/`, no coverage gate).
+- Security patch set: `976 passed, 9 skipped` (`backend/tests/`, no coverage gate).
 - UI/chat fixes: backend lifecycle tests + frontend `useChat` tests + TypeScript check pass.

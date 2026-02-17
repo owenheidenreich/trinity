@@ -718,7 +718,7 @@ class TestPhase5Config:
         """REACT_TOKEN_BUDGET config exists."""
         from config import REACT_TOKEN_BUDGET
 
-        assert REACT_TOKEN_BUDGET == 24000
+        assert REACT_TOKEN_BUDGET == 48000
 
     def test_reflexion_retries_config(self):
         """REFLEXION_MAX_RETRIES defaults to 3."""

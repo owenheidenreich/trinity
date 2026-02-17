@@ -233,9 +233,9 @@ def build_system_prompt(
     # Format context
     if context_messages:
         context_parts = []
-        for msg in context_messages[-20:]:
+        for msg in context_messages[-40:]:
             role = msg.get("role", "unknown")
-            content = msg.get("content", "")[:2000]
+            content = msg.get("content", "")[:4000]
             context_parts.append(f"{role.title()}: {content}")
         context = "\n".join(context_parts)
     else:

@@ -1,6 +1,6 @@
 # Trinity — AI Context Reference
 
-> **Last Updated:** February 15, 2026 · **Model:** qwen2.5-coder:32b on Akash
+> **Last Updated:** February 16, 2026 · **Model:** qwen3:32b on Akash
 
 ---
 
@@ -24,7 +24,7 @@ dubya.ai → ICP Canister (React frontend) → Cloudflare Worker (SSL) → Akash
                                                                   Encrypted storage + IPFS backup
 ```
 
-**Stack:** React 19 / TypeScript / Zustand on ICP · Flask 3 / Python 3.11 on Akash · Ollama LLM · Cloudflare Worker SSL proxy · IPFS via Lighthouse
+**Stack:** React 19 / TypeScript / Zustand on ICP · Flask 3 / Python 3.11 on Akash · Ollama (qwen3:32b) · Cloudflare Worker SSL proxy · IPFS via Lighthouse
 
 ---
 
@@ -62,10 +62,10 @@ This file is a quick orientation. For implementation detail, read the architectu
 backend/                         # Python Flask server
 ├── inference_server.py          # App factory, blueprint registration
 ├── config.py                    # All constants + env vars
-├── routes/                      # 8 blueprints, 42+ endpoints
-├── services/                    # 21 modules (agent, tools, memory, search, etc.)
+├── routes/                      # 9 blueprints, 53 endpoints
+├── services/                    # 33 modules (agent, tools, memory, search, etc.)
 ├── middleware/                  # Observability, rate limiting, ICP cache
-└── tests/                       # 858 tests, 91% coverage
+└── tests/                       # 976 tests, 67% coverage
 
 trinity-icp/                     # Frontend (ICP canister)
 ├── src-react/                   # Active: React 19 + TypeScript (v3.0.0)
@@ -82,9 +82,9 @@ docs/                            # Architecture docs, guides, AI context
 
 **Auth:** Ed25519 keypair → principal ID (base32). Signed message format: `{principal}:{timestamp}:{endpoint}:{nonce}`. Backend verifies via `@require_auth` decorator. 60s replay window.
 
-**Agent Pipeline:** User prompt → heuristic tool detection → if tools needed, ReAct loop (max 15 iterations, 24K token budget, 15 tools) → if not, direct LLM generation. Reflexion self-correction on errors. Auto-extraction of profile facts runs in background after each response.
+**Agent Pipeline:** User prompt → heuristic tool detection → if tools needed, ReAct loop (max 15 iterations, 48K token budget, 15 tools) → if not, direct LLM generation. Reflexion self-correction on errors. Auto-extraction of profile facts runs in background after each response.
 
-**Memory:** Three tiers — working (last 3 messages), semantic (top 5 by vector similarity), user memory (v2.0 structured profile with categories, token-budget injection, soft-delete, auto-extraction, encrypted on IPFS). 15 tools include `update_memory` and `forget_memory`.
+**Memory:** Three tiers — working (last 5 messages), semantic (top 8 by vector similarity), user memory (v2.0 structured profile with categories, token-budget injection, soft-delete, auto-extraction, encrypted on IPFS). 15 tools include `update_memory` and `forget_memory`.
 
 **Storage:** AES-256-GCM + Argon2id KDF. Encrypted client-side before transmission. IPFS (Lighthouse) is source of truth; IndexedDB is session cache. Autosave with 2s debounce.
 
@@ -104,7 +104,7 @@ docs/                            # Architecture docs, guides, AI context
 
 **Testing:**
 ```bash
-cd backend && python -m pytest tests/ -x -q    # 726 tests, 91% coverage
+cd backend && python -m pytest tests/ -x -q    # 976 tests
 ```
 
 ---
@@ -128,4 +128,5 @@ cd backend && python -m pytest tests/ -x -q    # 726 tests, 91% coverage
 - **Feb 2026:** Prometheus observability consolidated as single source of truth
 - **Feb 2026:** AI context files optimized — CONVENTIONS.md added, copilot-instructions.md trimmed, deduplication across docs
 - **Feb 2026:** Memory v2.0 overhaul — structured user profile (identity/work/interests/preferences/relationships), token-budget injection, auto-extraction, update_memory/forget_memory tools, soft-delete, bulk export ZIP, user stats endpoint
+- **Feb 2026:** Upgraded model from qwen2.5-coder:32b to qwen3:32b; raised context window from 32K to 64K; IPFS layer migrated to pooled http_session with retry adapter and timing instrumentation
 - **Feb 2026:** MiniMax M2.5 migration attempted (vLLM, 4× A100 80GB on Akash) — abandoned due to Akash /dev/shm 64MB limitation blocking NCCL multi-GPU

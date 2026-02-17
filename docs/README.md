@@ -13,10 +13,10 @@
 |----------|-------------|
 | [architecture/SYSTEM-OVERVIEW.md](architecture/SYSTEM-OVERVIEW.md) | **Full system overview** — tech stack, diagrams, request lifecycle, security model |
 | [architecture/FRONTEND.md](architecture/FRONTEND.md) | React component tree, hooks, state management, rendering pipeline |
-| [architecture/BACKEND.md](architecture/BACKEND.md) | Flask server, 42+ API endpoints, middleware, configuration |
+| [architecture/BACKEND.md](architecture/BACKEND.md) | Flask server, 53 API endpoints, middleware, configuration |
 | [architecture/MEMORY-SYSTEM.md](architecture/MEMORY-SYSTEM.md) | Three-tier memory: working, semantic, and user memory |
 | [architecture/STORAGE-AND-ENCRYPTION.md](architecture/STORAGE-AND-ENCRYPTION.md) | Encryption, IPFS, autosave, IndexedDB, recovery |
-| [architecture/INTELLIGENCE-AND-ROUTING.md](architecture/INTELLIGENCE-AND-ROUTING.md) | Agent pipeline, ReAct loop, 13 tools, decision-making |
+| [architecture/INTELLIGENCE-AND-ROUTING.md](architecture/INTELLIGENCE-AND-ROUTING.md) | Agent pipeline, ReAct loop, 15 tools, decision-making |
 
 ### For Developers
 
@@ -59,9 +59,9 @@
 Trinity/
 ├── backend/                         # Python Flask inference server
 │   ├── inference_server.py          # App factory + blueprint registration
-│   ├── routes/                      # 8 blueprints (42+ endpoints)
+│   ├── routes/                      # 9 blueprints (53 endpoints)
 │   ├── middleware/                   # Observability, rate limiting, caching
-│   ├── services/                    # 21 service modules (agent, memory, tools, etc.)
+│   ├── services/                    # 33 service modules (agent, memory, tools, etc.)
 │   └── tests/                       # Unit, integration, and E2E tests
 │
 ├── trinity-icp/                     # Frontend (ICP canister)

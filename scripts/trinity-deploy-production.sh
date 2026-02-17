@@ -8,8 +8,8 @@
 #
 # Usage:
 #   ./scripts/trinity-deploy-production.sh             # Interactive tier selection
-#   ./scripts/trinity-deploy-production.sh production  # Qwen2.5-Coder 32B (~$600-1000/mo)
-#   ./scripts/trinity-deploy-production.sh test        # Qwen2.5-Coder 7B (~$40-100/mo)
+#   ./scripts/trinity-deploy-production.sh production  # Qwen3 32B (~$600-1000/mo)
+#   ./scripts/trinity-deploy-production.sh test        # Qwen3 8B (~$40-100/mo)
 #
 # =============================================================================
 
@@ -47,8 +47,8 @@ TIER_YAML[production]="deploy-production.yaml"
 TIER_YAML[test]="deploy-test.yaml"
 
 typeset -A TIER_DESC
-TIER_DESC[production]="Qwen2.5-Coder 32B — Production (~\$600-1000/mo)"
-TIER_DESC[test]="Qwen2.5-Coder 7B — Test/Smoke (~\$40-100/mo)"
+TIER_DESC[production]="Qwen3 32B — Production (~\$600-1000/mo)"
+TIER_DESC[test]="Qwen3 8B — Test/Smoke (~\$40-100/mo)"
 
 # =============================================================================
 # HELPER FUNCTIONS
@@ -189,8 +189,8 @@ select_tier() {
     echo "┌─────────────────────────────────────────────────────────────┐"
     echo "│                    SELECT DEPLOYMENT TIER                    │"
     echo "├─────────────────────────────────────────────────────────────┤"
-    echo "│  1) production  — Qwen2.5-Coder 32B (~\$600-1000/mo)        │"
-    echo "│  2) test        — Qwen2.5-Coder 7B  (~\$40-100/mo)          │"
+    echo "│  1) production  — Qwen3 32B (~\$600-1000/mo)              │"
+    echo "│  2) test        — Qwen3 8B  (~\$40-100/mo)                │"
     echo "└─────────────────────────────────────────────────────────────┘"
     echo ""
     

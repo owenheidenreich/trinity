@@ -53,7 +53,7 @@ http_session = create_http_session()
 
 # ===== SERVER CONFIGURATION =====
 PROVIDER_ID = os.getenv("PROVIDER_ID", "local-mac-mini")
-MODEL_NAME = os.getenv("MODEL_NAME", "qwen2.5-coder:32b")
+MODEL_NAME = os.getenv("MODEL_NAME", "qwen3:32b")
 # Model routing: use a conversational model for general chat, coder model for code tasks.
 MODEL_ROUTING_ENABLED = os.getenv("MODEL_ROUTING_ENABLED", "true").lower() == "true"
 CONVERSATION_MODEL_NAME = os.getenv("CONVERSATION_MODEL_NAME", MODEL_NAME)
@@ -100,10 +100,10 @@ AUTH_TIMESTAMP_WINDOW_MS = int(os.getenv("AUTH_TIMESTAMP_WINDOW_MS", "60000"))
 ADMIN_PRINCIPALS = [p.strip() for p in os.getenv("ADMIN_PRINCIPALS", "").split(",") if p.strip()]
 
 # ===== PROMPT VALIDATION =====
-MAX_PROMPT_LENGTH = 50000  # 50KB max prompt to prevent DoS
+MAX_PROMPT_LENGTH = 100000  # 100KB max prompt (doubled for 64K context window)
 
 # ===== INFERENCE DEFAULTS =====
-NUM_CTX = 32768                        # Explicit Ollama context window (prompt + response)
+NUM_CTX = 65536                        # Explicit Ollama context window (prompt + response)
 DEFAULT_MAX_TOKENS = 8000             # Default max_length for /generate
 REASONING_MIN_TOKENS = 8000        # Min tokens when reasoning mode active
 DEFAULT_TEMPERATURE = 0.7          # Default sampling temperature
@@ -111,7 +111,7 @@ OLLAMA_TIMEOUT = 600               # Full generation timeout (seconds)
 OLLAMA_TIMEOUT_TOOLS = 300         # Tools/summarize timeout (seconds)
 
 # ===== DOCUMENT / CONTEXT LIMITS =====
-MAX_DOCUMENT_CONTEXT_CHARS = 30000    # Chars of document context sent to LLM
+MAX_DOCUMENT_CONTEXT_CHARS = 60000    # Chars of document context sent to LLM
 MAX_WEB_SCRAPE_CHARS = 30000          # Default max chars from browse endpoint
 MAX_WEB_SCRAPE_CHARS_CAP = 50000      # Hard cap for browse endpoint
 WEB_FETCH_TIMEOUT = 15                # Seconds for URL fetching
@@ -190,8 +190,8 @@ REACT_ENABLED = os.getenv("REACT_ENABLED", "true").lower() == "true"
 # Maximum tool-calling iterations before forcing a final answer
 REACT_MAX_ITERATIONS = int(os.getenv("REACT_MAX_ITERATIONS", "15"))
 # Token budget guard — force final answer if approaching context limit
-# 75% of context window (32K default → 24K budget)
-REACT_TOKEN_BUDGET = int(os.getenv("REACT_TOKEN_BUDGET", "24000"))
+# 75% of context window (64K default → 48K budget)
+REACT_TOKEN_BUDGET = int(os.getenv("REACT_TOKEN_BUDGET", "48000"))
 # Maximum Reflexion retries for code execution errors
 REFLEXION_MAX_RETRIES = int(os.getenv("REFLEXION_MAX_RETRIES", "3"))
 

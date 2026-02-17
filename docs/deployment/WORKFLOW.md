@@ -52,10 +52,10 @@ This script handles everything:
 
 | Tier | Model | GPU | Monthly Cost | Use Case |
 |------|-------|-----|--------------|----------|
-| production | Qwen2.5-Coder 32B | A100/A6000/RTX 4090 | ~$600-1000 | **Production (current)** |
-| test | Qwen2.5-Coder 7B | Any NVIDIA | ~$40-100 | Smoke-testing |
+| production | Qwen3 32B | A100/A6000/RTX 4090 | ~$600-1000 | **Production (current)** |
+| test | Qwen3 32B | Any NVIDIA | ~$40-100 | Smoke-testing |
 
-**Current Production:** `production` tier (qwen2.5-coder:32b)
+**Current Production:** `production` tier (qwen3:32b)
 
 ---
 
@@ -168,7 +168,7 @@ dfx deploy --network ic
 ```yaml
 env:
   - name: MODEL_NAME
-    value: "qwen2.5-coder:32b"
+    value: "qwen3:32b"
   - name: OLLAMA_HOST
     value: "http://localhost:11434"
   - name: DEPLOYMENT_TIER
@@ -202,7 +202,7 @@ curl https://api.dubya.ai/health
 {
   "status": "healthy",
   "version": "4.0.2",
-  "model": "qwen2.5-coder:32b",
+  "model": "qwen3:32b",
   "tier": "production"
 }
 ```

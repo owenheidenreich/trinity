@@ -117,7 +117,7 @@
 
 ### Automated Test Suite
 - **Where**: `backend/tests/`
-- **Count**: 726 tests, 91% coverage
+- **Count**: 976 tests
 - **Run**: `cd backend && python -m pytest tests/ -x -q`
 - **Rationale**: `docs/architecture/RATIONALE-TEST-COVERAGE.md`
 - **Status**: All passing
