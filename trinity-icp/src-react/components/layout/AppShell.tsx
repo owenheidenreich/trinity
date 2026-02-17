@@ -237,12 +237,8 @@ export function AppShell() {
       }
 
       autosave.scheduleAutosave(auth.buildAuthHeaders);
-      // Refresh memory panel to show any newly extracted facts.
-      // Memory extraction runs in a background thread on the backend,
-      // so we poll twice: once quickly (in case it's already done)
-      // and once after a delay to catch slower embedding work.
-      setTimeout(() => void loadUserMemory(), 1500);
-      setTimeout(() => void loadUserMemory(), 5000);
+      // Refresh memory panel after backend background extraction completes (~2-3s)
+      setTimeout(() => void loadUserMemory(), 3000);
     },
     [addMessage, setCurrentChatId, chat, auth.buildAuthHeaders, autosave, loadUserMemory]
   );

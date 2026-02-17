@@ -22,8 +22,8 @@ logger = logging.getLogger(__name__)
 RATE_LIMIT = 30  # requests per window (generous for legitimate users)
 RATE_WINDOW = 60  # seconds
 
-# Stricter limits for storage endpoints (prevent abuse)
-STORAGE_RATE_LIMIT = 10  # requests per window
+# Storage endpoint limits (must accommodate memory panel + autosave + CRUD)
+STORAGE_RATE_LIMIT = 30  # requests per window
 STORAGE_RATE_WINDOW = 60  # seconds
 
 # Token quota configuration (Phase 5)
