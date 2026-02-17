@@ -307,7 +307,9 @@ def _format_user_memory(
             sections.append(f"### {label}")
             sections.extend(lines_by_category[cat])
 
-    return "## What you know about this user\n" + "\n".join(sections)
+    header = "## What you know about this user\n"
+    footer = "\n\n*(This is everything you know. If it's not listed here, you don't know it — say so.)*"
+    return header + "\n".join(sections) + footer
 
 
 def _format_semantic_context(semantic_context: Optional[List[Dict]]) -> str:

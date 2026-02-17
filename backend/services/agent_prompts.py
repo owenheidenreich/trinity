@@ -11,6 +11,8 @@ Plus REACT_SYSTEM_PROMPT for the ReAct loop's own system message.
 import re
 from typing import Dict, List, Optional
 
+_NO_MEMORY_MSG = "You have no stored information about this user. If asked personal questions, say you don't know yet."
+
 # ============================================================================
 # TOOL DEFINITIONS (for prompt injection)
 # ============================================================================
@@ -236,7 +238,7 @@ def build_system_prompt(
     # Format user memory
     if isinstance(user_memory, str):
         # Pre-formatted memory string (from _format_user_memory)
-        memory = user_memory if user_memory else "No stored information about this user."
+        memory = user_memory if user_memory else _NO_MEMORY_MSG
     elif user_memory and user_memory.get("facts"):
         # Fallback: if raw dict passed, format non-deleted facts
         active = [f for f in user_memory["facts"] if not f.get("deleted", False)]
@@ -247,9 +249,9 @@ def build_system_prompt(
             ]
             memory = "\n".join(memory_parts)
         else:
-            memory = "No stored information about this user."
+            memory = _NO_MEMORY_MSG
     else:
-        memory = "No stored information about this user."
+        memory = _NO_MEMORY_MSG
 
     # Format search context
     formatted_search = f"\nWeb research results:\n{search_context}\n" if search_context else ""
@@ -314,7 +316,7 @@ def build_chat_messages(
     tools_section = TOOL_PROMPT_SECTION if include_tools else ""
 
     system_content = CHAT_SYSTEM_MESSAGE.format(
-        user_memory=memory if memory else "No stored information about this user.",
+        user_memory=memory if memory else _NO_MEMORY_MSG,
         search_context=formatted_search,
         tools_section=tools_section,
     )
