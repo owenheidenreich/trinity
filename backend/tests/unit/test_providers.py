@@ -333,6 +333,7 @@ class TestPipelineIntegration:
             )
         )
 
+        mock_provider.chat_stream.assert_not_called()
         mock_provider.generate_stream.assert_not_called()
         tokens = [e["token"] for e in events if isinstance(e, dict) and "token" in e]
         done_events = [e for e in events if isinstance(e, dict) and e.get("done")]
@@ -342,11 +343,11 @@ class TestPipelineIntegration:
         assert len(done_events) == 1
 
     def test_non_personal_query_omits_identity_prompt_memory(self):
-        """Neutral factual prompts should not inject identity memory into prompt context."""
+        """Neutral factual prompts should not inject identity memory into chat messages."""
         from services.agent import AgentPipeline
 
         mock_provider = MagicMock()
-        mock_provider.generate_stream.return_value = iter(["answer", {"__done_reason": "stop"}])
+        mock_provider.chat_stream.return_value = iter(["answer", {"__done_reason": "stop"}])
 
         pipeline = AgentPipeline(provider=mock_provider)
         list(
@@ -362,17 +363,22 @@ class TestPipelineIntegration:
             )
         )
 
-        mock_provider.generate_stream.assert_called_once()
-        prompt = mock_provider.generate_stream.call_args[0][0]
-        assert "User's name is Owen" not in prompt
-        assert "User prefers concise responses" in prompt
+        mock_provider.chat_stream.assert_called_once()
+        messages = mock_provider.chat_stream.call_args[0][0]
+        # Messages should be a list of dicts with role/content
+        assert isinstance(messages, list)
+        assert all(isinstance(m, dict) and "role" in m for m in messages)
+        # System message should contain preferences but not identity
+        system_msg = messages[0]["content"]
+        assert "User's name is Owen" not in system_msg
+        assert "User prefers concise responses" in system_msg
 
     def test_personal_disclosure_omits_irrelevant_cross_chat_memory(self):
         """Personal disclosures should not inject unrelated profile/semantic/graph context."""
         from services.agent import AgentPipeline
 
         mock_provider = MagicMock()
-        mock_provider.generate_stream.return_value = iter(["ok", {"__done_reason": "stop"}])
+        mock_provider.chat_stream.return_value = iter(["ok", {"__done_reason": "stop"}])
 
         pipeline = AgentPipeline(provider=mock_provider)
         list(
@@ -394,11 +400,13 @@ class TestPipelineIntegration:
             )
         )
 
-        mock_provider.generate_stream.assert_called_once()
-        prompt = mock_provider.generate_stream.call_args[0][0]
-        assert "User's project is Trinity" not in prompt
-        assert "Let's work on Trinity deployment" not in prompt
-        assert "builds Trinity" not in prompt
+        mock_provider.chat_stream.assert_called_once()
+        messages = mock_provider.chat_stream.call_args[0][0]
+        # Flatten all message content to check for suppressed memory
+        all_content = " ".join(m["content"] for m in messages)
+        assert "User's project is Trinity" not in all_content
+        assert "Let's work on Trinity deployment" not in all_content
+        assert "builds Trinity" not in all_content
 
     def test_react_loop_accepts_any_provider(self):
         """ReactLoop should work with any provider implementing chat/chat_stream."""

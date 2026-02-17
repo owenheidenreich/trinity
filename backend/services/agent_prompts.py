@@ -165,6 +165,33 @@ Question: {question}
 - Use Markdown for structure when the answer benefits from it.
 - NEVER use <tool_call> or <code_display> XML tags. Always write code in ```language markdown blocks."""
 
+# ============================================================================
+# CHAT SYSTEM MESSAGE (for /api/chat — structured messages, not flat prompt)
+# ============================================================================
+
+CHAT_SYSTEM_MESSAGE = """You are Trinity, a sharp and knowledgeable AI assistant.
+
+Use profile memory only when it materially improves the current answer.
+Do not force personalized greetings or random profile callbacks.
+If the user asks a neutral factual or coding question, answer directly without making it about prior memory.
+When the user explicitly asks about themselves, you can use profile facts naturally and concisely.
+
+{user_memory}
+{search_context}
+{tools_section}
+## How to respond
+- Respond naturally to the conversation. Match the user's energy and intent.
+- If engaged in a game, role-play, or creative exercise, maintain your role and follow the rules.
+- Answer directly and substantively — no filler phrases.
+- If the user shares a personal preference or fact (not a question), acknowledge it naturally and continue that topic.
+- Do not pivot to unrelated old projects, profile details, or callbacks unless the user asked for that.
+- For factual questions: give the answer, then a brief explanation if helpful.
+- For code requests: briefly explain the approach, show complete code in ```language fenced blocks, then note any important details.
+- For explanations: be clear and concrete, use examples when they help.
+- For math: use LaTeX — $x^2$ inline, $$\\sum_{{i=1}}^n i$$ for blocks.
+- Use Markdown for structure when the answer benefits from it.
+- NEVER use <tool_call> or <code_display> XML tags. Always write code in ```language markdown blocks."""
+
 
 # ============================================================================
 # XML PARSING
@@ -230,13 +257,14 @@ def build_system_prompt(
     Returns:
         Fully formatted prompt string.
     """
-    # Format context — cap at 10 messages × 2000 chars to stay within
+    # Format context — cap at 20 messages × 4000 chars to stay within
     # the ~49K token prompt budget (NUM_CTX=65536 − num_predict=16384).
+    # 20 × 4000 chars ≈ 20K tokens — well within budget.
     if context_messages:
         context_parts = []
-        for msg in context_messages[-10:]:
+        for msg in context_messages[-20:]:
             role = msg.get("role", "unknown")
-            content = msg.get("content", "")[:2000]
+            content = msg.get("content", "")[:4000]
             context_parts.append(f"{role.title()}: {content}")
         context = "\n".join(context_parts)
     else:
@@ -273,3 +301,74 @@ def build_system_prompt(
         tools_section=tools_section,
         question=question,
     )
+
+
+def _format_memory_for_chat(user_memory) -> str:
+    """Format user memory consistently for both build_system_prompt and build_chat_messages."""
+    if isinstance(user_memory, str):
+        return user_memory if user_memory else ""
+    elif user_memory and user_memory.get("facts"):
+        active = [f for f in user_memory["facts"] if not f.get("deleted", False)]
+        if active:
+            memory_parts = [
+                f"- {fact.get('text', str(fact)) if isinstance(fact, dict) else fact}"
+                for fact in active[:25]
+            ]
+            return "\n".join(memory_parts)
+    return ""
+
+
+def build_chat_messages(
+    question: str,
+    context_messages: List[Dict] = None,
+    user_memory=None,
+    search_context: str = "",
+    include_tools: bool = False,
+) -> List[Dict]:
+    """Build a structured messages array for /api/chat.
+
+    Unlike build_system_prompt() which flattens everything into a single string
+    for /api/generate, this returns a proper messages array where each
+    conversation turn is a separate message with the correct role. This gives
+    the model structural awareness of turn-taking — critical for games,
+    role-play, and multi-turn reasoning.
+
+    Args:
+        question: The user's current message.
+        context_messages: Recent conversation history.
+        user_memory: Pre-formatted memory string or dict with 'facts'.
+        search_context: Formatted web search results (if any).
+        include_tools: Whether to inject tool definitions.
+
+    Returns:
+        List of message dicts: [{"role": "system"|"user"|"assistant", "content": ...}]
+    """
+    messages = []
+
+    # --- System message: identity + memory + search + tools ---
+    memory = _format_memory_for_chat(user_memory)
+    formatted_search = f"\nWeb research results:\n{search_context}\n" if search_context else ""
+    tools_section = TOOL_PROMPT_SECTION if include_tools else ""
+
+    system_content = CHAT_SYSTEM_MESSAGE.format(
+        user_memory=memory if memory else "No stored information about this user.",
+        search_context=formatted_search,
+        tools_section=tools_section,
+    )
+    messages.append({"role": "system", "content": system_content})
+
+    # --- Conversation history as structured messages ---
+    # Cap at 20 messages × 4000 chars (matching build_system_prompt).
+    # Each turn is a separate message with its original role, preserving
+    # turn-taking structure that /api/generate loses.
+    if context_messages:
+        for msg in context_messages[-20:]:
+            role = msg.get("role", "user")
+            content = (msg.get("content") or "")[:4000]
+            if role in ("user", "assistant") and content:
+                messages.append({"role": role, "content": content})
+
+    # --- Current user message ---
+    messages.append({"role": "user", "content": question})
+
+    return messages

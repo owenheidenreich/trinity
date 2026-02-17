@@ -176,11 +176,12 @@ class ReactLoop:
         )
         messages.append({"role": "system", "content": system_content})
 
-        # Prior conversation context — cap to stay within context window
+        # Prior conversation context — cap at 20 messages × 4000 chars
+        # to stay within context window and match direct-chat path.
         if context_messages:
-            for msg in context_messages[-10:]:
+            for msg in context_messages[-20:]:
                 role = msg.get("role", "user")
-                content = (msg.get("content") or "")[:2000]
+                content = (msg.get("content") or "")[:4000]
                 if role in ("user", "assistant") and content:
                     messages.append({"role": role, "content": content})
 

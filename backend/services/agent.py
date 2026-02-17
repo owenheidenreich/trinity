@@ -22,7 +22,7 @@ import requests
 
 from middleware.observability import record_complexity, record_routing, track_agent_pass
 
-from .agent_prompts import build_system_prompt
+from .agent_prompts import build_chat_messages, build_system_prompt
 from .llm_provider import LLMProvider
 from .loading_messages import format_phase_update
 from .search import format_search_context, is_search_available, search_web
@@ -652,16 +652,18 @@ class AgentPipeline:
                         full_response += event["token"]
                     yield event
             else:
-                # Direct single-pass generation (think=False to avoid
+                # Direct single-pass chat (think=False to avoid
                 # proxy timeouts — think blocks produce no SSE events
                 # and the 60s Akash read_timeout kills the connection).
-                prompt = build_system_prompt(
+                # Uses /api/chat with structured messages for proper
+                # turn-taking awareness (games, role-play, multi-turn).
+                messages = build_chat_messages(
                     question, context_messages, formatted_user_memory, search_context
                 )
                 filtered_parts = []
                 for token in self._filter_think_blocks(
-                    self.client.generate_stream(
-                        prompt,
+                    self.client.chat_stream(
+                        messages,
                         kwargs.get("max_tokens", MAX_TOKENS),
                         timeout=TIMEOUT,
                         think=False,
