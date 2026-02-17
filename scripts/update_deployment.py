@@ -8,8 +8,8 @@ from akash_deploy import inject_env_values
 WALLET_NAME = 'trinity-wallet'
 AKASH_NODE = 'https://rpc.akashnet.net:443'
 AKASH_CHAIN_ID = 'akashnet-2'
-DSEQ = '25569447'
-PROVIDER = 'akash175llqyjvxfle9qwt740vm46772dzaznpzgm576'
+DSEQ = '25575579'
+PROVIDER = 'akash1ut3m97h62tty06qdq9lds85r34dxe3snjj0xfe'
 YAML_PATH = os.path.join(os.path.dirname(__file__), '..', 'deploy', 'akash', 'deploy-production.yaml')
 
 # Read and prepare YAML
