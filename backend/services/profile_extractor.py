@@ -28,50 +28,62 @@ logger = logging.getLogger(__name__)
 
 _PATTERNS = [
     # Identity
-    (re.compile(r"\bmy name is (\w[\w\s]{0,30})", re.I), "identity", 5,
+    # Name: capture 1-2 words, stop before "and", punctuation, etc.
+    (re.compile(r"\bmy name is (\w+(?:\s(?!and\b|but\b|or\b|i\b)\w+)?)\b", re.I), "identity", 5,
      "User's name is {0}"),
-    (re.compile(r"\bi(?:'m| am) (\w[\w\s]{0,30})(?:\.|,|$)", re.I), "identity", 4,
+    # "I am/I'm X" — stop at conjunctions, punctuation, pronouns
+    (re.compile(r"\bi(?:'m| am) ((?:a |an )?[\w]+(?:\s[\w]+){0,3})(?:\s+and\b|\s+but\b|\s+who\b|\.|,|!|$)", re.I), "identity", 4,
      "User is {0}"),
-    (re.compile(r"\bi live in ([\w\s,]{2,40})", re.I), "identity", 4,
+    (re.compile(r"\bi live in ([\w]+(?:[\s,][\w]+){0,4})(?:\s+and\b|\s+but\b|\.|,|!|$)", re.I), "identity", 4,
      "User lives in {0}"),
-    (re.compile(r"\bi(?:'m| am) from ([\w\s,]{2,40})", re.I), "identity", 3,
+    (re.compile(r"\bi(?:'m| am) from ([\w]+(?:[\s,][\w]+){0,4})(?:\s+and\b|\s+but\b|\.|,|!|$)", re.I), "identity", 3,
      "User is from {0}"),
-    (re.compile(r"\bi speak ([\w\s,]+?)(?:\.|,|$)", re.I), "identity", 3,
+    (re.compile(r"\bi speak ([\w]+(?:[\s,][\w]+){0,3})(?:\s+and\b|\s+but\b|\.|,|!|$)", re.I), "identity", 3,
      "User speaks {0}"),
 
     # Work
-    (re.compile(r"\bi work (?:at|for) ([\w\s&.]{2,40})", re.I), "work", 4,
+    (re.compile(r"\bi work (?:at|for) ([\w&.]+(?:\s[\w&.]+){0,4})(?:\s+and\b|\s+but\b|\.|,|!|$)", re.I), "work", 4,
      "User works at {0}"),
-    (re.compile(r"\bmy (?:job|role|title) is ([\w\s]{2,40})", re.I), "work", 4,
+    (re.compile(r"\bmy (?:job|role|title) is ([\w]+(?:\s[\w]+){0,4})(?:\s+and\b|\s+but\b|\.|,|!|$)", re.I), "work", 4,
      "User's role is {0}"),
-    (re.compile(r"\bi(?:'m| am) (?:a |an )([\w\s]{2,40})(?:developer|engineer|designer|manager|architect|founder|scientist|researcher|analyst|consultant)", re.I), "work", 4,
+    (re.compile(r"\bi(?:'m| am) (?:a |an )([\w\s]{2,40}?(?:developer|engineer|designer|manager|architect|founder|scientist|researcher|analyst|consultant))", re.I), "work", 4,
      "User is a {0}"),
-    (re.compile(r"\bi(?:'m| am) (?:building|working on|developing) ([\w\s]{2,60})", re.I), "work", 4,
+    (re.compile(r"\bi(?:'m| am) (?:building|working on|developing) ([\w]+(?:\s[\w]+){0,6})(?:\s+and\b|\s+but\b|\.|,|!|$)", re.I), "work", 4,
      "User is building {0}"),
-    (re.compile(r"\bmy (?:project|app|product|startup|company) (?:is called |is |called )([\w\s]{2,40})", re.I), "work", 4,
+    (re.compile(r"\bmy (?:project|app|product|startup|company) (?:is called |is |called )([\w]+(?:\s[\w]+){0,4})(?:\s+and\b|\s+but\b|\.|,|!|$)", re.I), "work", 4,
      "User's project is {0}"),
     (re.compile(r"\bour tech stack (?:is|includes) ([\w\s,/+]{2,80})", re.I), "work", 3,
      "User's tech stack includes {0}"),
 
     # Interests
-    (re.compile(r"\bi(?:'m| am) (?:interested in|passionate about|studying|learning) ([\w\s]{2,60})", re.I), "interests", 3,
+    (re.compile(r"\bi(?:'m| am) (?:interested in|passionate about|studying|learning) ([\w]+(?:\s[\w]+){0,6})(?:\s+and\b|\s+but\b|\.|,|!|$)", re.I), "interests", 3,
      "User is interested in {0}"),
-    (re.compile(r"\bi (?:like|love|enjoy) ([\w\s]{2,60})(?:\.|,|$)", re.I), "interests", 3,
+    (re.compile(r"\bi (?:like|love|enjoy) ([\w]+(?:\s[\w]+){0,6})(?:\s+and\b|\s+but\b|\.|,|!|$)", re.I), "interests", 3,
      "User enjoys {0}"),
-    (re.compile(r"\bmy (?:goal|aim) is (?:to )?([\w\s]{2,80})", re.I), "interests", 4,
+    (re.compile(r"\bmy (?:goal|aim) is (?:to )?([\w]+(?:\s[\w]+){0,8})(?:\s+and\b|\s+but\b|\.|,|!|$)", re.I), "interests", 4,
      "User's goal is to {0}"),
 
     # Preferences
-    (re.compile(r"\bi prefer ([\w\s]{2,60})(?: over| to| instead)", re.I), "preferences", 3,
+    (re.compile(r"\bi prefer ([\w]+(?:\s[\w]+){0,6})(?: over| to| instead)", re.I), "preferences", 3,
      "User prefers {0}"),
-    (re.compile(r"\bplease (?:always |)(respond|answer|write|code|explain) (?:in |with |using )?([\w\s]{2,40})", re.I), "preferences", 4,
+    (re.compile(r"\bplease (?:always |)(respond|answer|write|code|explain) (?:in |with |using )?([\w]+(?:\s[\w]+){0,4})", re.I), "preferences", 4,
      "User prefers responses in {0} {1}"),
-    (re.compile(r"\bi (?:don't|do not) like ([\w\s]{2,40})(?:\.|,|$)", re.I), "preferences", 3,
+    (re.compile(r"\bi (?:don't|do not) like ([\w]+(?:\s[\w]+){0,4})(?:\s+and\b|\s+but\b|\.|,|!|$)", re.I), "preferences", 3,
      "User doesn't like {0}"),
 
     # Relationships
-    (re.compile(r"\bmy (?:friend|colleague|partner|wife|husband|boss|cofounder|co-founder) (\w[\w\s]{0,30})", re.I), "relationships", 3,
+    (re.compile(r"\bmy (?:friend|colleague|partner|wife|husband|boss|cofounder|co-founder) (\w+(?:\s\w+)?)\b", re.I), "relationships", 3,
      "User's relationship: {0}"),
+
+    # Possessions / personal details
+    (re.compile(r"\bi (?:have|own|drive|ride) (?:a |an )([\w]+(?:\s[\w]+){0,4})(?:\s+and\b|\s+but\b|\.|,|!|$)", re.I), "identity", 3,
+     "User has a {0}"),
+    (re.compile(r"\bmy (?:car|truck|vehicle|bike|motorcycle) is (?:a |an )?([\w]+(?:\s[\w]+){0,4})(?:\s+and\b|\s+but\b|\.|,|!|$)", re.I), "identity", 3,
+     "User's vehicle is a {0}"),
+    (re.compile(r"\bmy (?:dog|cat|pet|bird|fish) (?:is called |is named |named )([\w]+(?:\s\w+)?)\b", re.I), "identity", 3,
+     "User's pet is named {0}"),
+    (re.compile(r"\bi(?:'m| am) (\d{1,3}) years old", re.I), "identity", 4,
+     "User is {0} years old"),
 ]
 
 # Phrases that indicate the user is NOT making a personal statement
