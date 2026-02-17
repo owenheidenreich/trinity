@@ -250,7 +250,50 @@ def parse_tool_calls(text: str) -> List[ToolCall]:
     if not matches:
         matches = re.findall(pattern_lenient, text, re.DOTALL | re.IGNORECASE)
 
-    # Fallback: bare tool names without <tool_call> wrapper
+    # Fallback 2: <tool_call> WITHOUT name attribute — infer tool from child tags.
+    # Qwen3 sometimes emits: <tool_call><expression>2+2</expression></tool_call>
+    if not matches:
+        nameless_strict = r'<tool_call\s*>(.*?)</tool_call>'
+        nameless_lenient = r'<tool_call\s*>(.*?)(?:</tool_call>|\Z)'
+        nameless = re.findall(nameless_strict, text, re.DOTALL | re.IGNORECASE)
+        if not nameless:
+            nameless = re.findall(nameless_lenient, text, re.DOTALL | re.IGNORECASE)
+        if nameless:
+            # Map parameter tags → tool name
+            _TAG_TO_TOOL = {
+                "expression": "calculator",
+                "claim": "fact_check",
+                "fact": "save_memory",
+                "new_value": "update_memory",
+                "command": "run_command",
+                "file_pattern": "search_codebase",
+                "search_type": "search_memory",
+                "language": "code_display",
+                "execute": "code_display",
+                "recursive": "list_directory",
+                "start_line": "read_file",
+                "end_line": "read_file",
+                "content": "write_file",
+            }
+            for body in nameless:
+                # Find all child tags
+                child_tags = re.findall(r'<(\w+)>', body, re.IGNORECASE)
+                inferred = None
+                for tag in child_tags:
+                    tag_lower = tag.lower()
+                    if tag_lower in _TAG_TO_TOOL:
+                        inferred = _TAG_TO_TOOL[tag_lower]
+                        break
+                if not inferred:
+                    # <query> alone → web_search (most common); <path> alone → read_file
+                    if "query" in [t.lower() for t in child_tags]:
+                        inferred = "web_search"
+                    elif "path" in [t.lower() for t in child_tags]:
+                        inferred = "read_file"
+                if inferred:
+                    matches.append((inferred, body))
+
+    # Fallback 3: bare tool names without <tool_call> wrapper
     # e.g. "recall_memory  <query>name</query>" or "save_memory <fact>...</fact>"
     if not matches:
         _KNOWN_TOOLS = (

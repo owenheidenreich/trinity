@@ -176,11 +176,11 @@ class ReactLoop:
         )
         messages.append({"role": "system", "content": system_content})
 
-        # Prior conversation context
+        # Prior conversation context — cap to stay within context window
         if context_messages:
-            for msg in context_messages:
+            for msg in context_messages[-10:]:
                 role = msg.get("role", "user")
-                content = msg.get("content", "")
+                content = (msg.get("content") or "")[:2000]
                 if role in ("user", "assistant") and content:
                     messages.append({"role": role, "content": content})
 
@@ -198,15 +198,19 @@ class ReactLoop:
     def _get_response_content(self, response) -> str:
         """Extract text content from response.
 
-        Strips <think>...</think> blocks from the visible output.
-        If stripping produces empty content, falls back to the text inside
-        the think blocks (the model put its answer there).
+        Strips <think>...</think> blocks and residual <tool_call> XML from
+        the visible output.  If stripping produces empty content, falls back
+        to the text inside the think blocks (the model put its answer there).
         """
         raw = response if isinstance(response, str) else ""
         # Extract think-block content before stripping (fallback if stripped is empty)
         think_contents = re.findall(r"<think>(.*?)</think>", raw, flags=re.DOTALL)
         # Strip Qwen3 thinking blocks — keep only the visible answer
         content = re.sub(r"<think>.*?</think>\s*", "", raw, flags=re.DOTALL).strip()
+        # Strip any residual <tool_call> XML so it never reaches the user
+        content = re.sub(
+            r"</?tool_call[^>]*>", "", content, flags=re.IGNORECASE
+        ).strip()
         if not content and think_contents:
             # Model put entire answer inside think blocks — use it as the answer
             content = "\n".join(tc.strip() for tc in think_contents if tc.strip())
@@ -257,7 +261,7 @@ class ReactLoop:
 
         for iteration in range(self.max_iterations):
             with track_agent_pass("react_iteration"):
-                # THINK: Ask the model
+                # THINK: Ask the model (think=False to save tokens)
                 response = self.client.chat(
                     messages,
                     max_tokens=max_tokens,
@@ -265,6 +269,7 @@ class ReactLoop:
                     timeout=timeout,
                     pass_name="execute",
                     complexity=complexity,
+                    think=False,
                 )
 
                 if not response:
@@ -362,6 +367,7 @@ class ReactLoop:
             timeout=timeout,
             pass_name="execute",
             complexity=complexity,
+            think=False,
         )
 
         return ReactResult(
@@ -403,7 +409,9 @@ class ReactLoop:
 
         for iteration in range(self.max_iterations):
             with track_agent_pass("react_iteration"):
-                # Non-final iterations: use non-streaming to detect tool calls
+                # Non-final iterations: use non-streaming to detect tool calls.
+                # think=False avoids burning output tokens on hidden reasoning
+                # and prevents proxy timeouts during idle SSE gaps.
                 response = self.client.chat(
                     messages,
                     max_tokens=max_tokens,
@@ -411,6 +419,7 @@ class ReactLoop:
                     timeout=timeout,
                     pass_name="execute",
                     complexity=complexity,
+                    think=False,
                 )
 
                 if not response:
@@ -510,7 +519,8 @@ class ReactLoop:
             "content": "You've used all your tool calls. Now give your final answer based on everything you've gathered.",
         })
 
-        # Collect streaming response, strip think blocks, then re-stream
+        # Collect streaming response with think disabled — save all tokens
+        # for the actual answer instead of burning budget on reasoning.
         raw_tokens = []
         for token in self.client.chat_stream(
             messages,
@@ -519,6 +529,7 @@ class ReactLoop:
             timeout=timeout,
             pass_name="execute",
             complexity=complexity,
+            think=False,
         ):
             if isinstance(token, dict) and "__done_reason" in token:
                 continue

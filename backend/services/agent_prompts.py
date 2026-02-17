@@ -230,12 +230,13 @@ def build_system_prompt(
     Returns:
         Fully formatted prompt string.
     """
-    # Format context
+    # Format context — cap at 10 messages × 2000 chars to stay within
+    # the ~49K token prompt budget (NUM_CTX=65536 − num_predict=16384).
     if context_messages:
         context_parts = []
-        for msg in context_messages[-40:]:
+        for msg in context_messages[-10:]:
             role = msg.get("role", "unknown")
-            content = msg.get("content", "")[:4000]
+            content = msg.get("content", "")[:2000]
             context_parts.append(f"{role.title()}: {content}")
         context = "\n".join(context_parts)
     else:

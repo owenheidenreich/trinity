@@ -381,6 +381,7 @@ def generate_agent():
             try:
                 full_response = ""
                 first_token_recorded = False
+
                 for event in pipeline.process_streaming(
                     question=user_prompt, context_messages=enhanced_context,
                     user_memory=user_memory,

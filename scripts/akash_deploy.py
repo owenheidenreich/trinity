@@ -62,8 +62,11 @@ TIERS = {
 }
 
 # Minimum price thresholds per tier (below this = hardware too weak)
+# Production needs 40GB+ VRAM GPUs (A100, A6000, H100, L40S, A40, RTX 4090).
+# Cheap providers (~$300-400/mo) often have RTX 3090 (24GB) which can't fit
+# the full qwen3:32b model in VRAM, causing >60s time-to-first-token.
 MIN_PRICE_MONTHLY = {
-    "production": 80,   # 32B needs serious GPU
+    "production": 400,  # 32B needs 40GB+ VRAM GPU (A100/A6000/H100)
     "test": 5,          # 7B runs on anything with a GPU
 }
 

@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 # CONFIGURATION
 # ============================================================================
 
-MAX_TOKENS = 24000       # Generous token limit for thorough responses
+MAX_TOKENS = 16384       # Visible answer only (think=False default)
 TIMEOUT = 300            # 5 min connection timeout (streaming keeps alive)
 SEARCH_TIMEOUT = 30      # Web search timeout
 
@@ -470,7 +470,8 @@ class AgentPipeline:
         # If the model never closes the tag we flush after a generous limit
         # so the user isn't left with a blank screen.
         think_chars = 0
-        _THINK_CHAR_LIMIT = 200_000  # ~50k tokens of reasoning is more than enough
+        _THINK_CHAR_LIMIT = 80_000  # ~20k tokens; triggers safety flush early
+        #                            enough that the model still has output budget
 
         for token in token_stream:
             if isinstance(token, dict):
@@ -651,14 +652,19 @@ class AgentPipeline:
                         full_response += event["token"]
                     yield event
             else:
-                # Direct single-pass generation
+                # Direct single-pass generation (think=False to avoid
+                # proxy timeouts — think blocks produce no SSE events
+                # and the 60s Akash read_timeout kills the connection).
                 prompt = build_system_prompt(
                     question, context_messages, formatted_user_memory, search_context
                 )
                 filtered_parts = []
                 for token in self._filter_think_blocks(
                     self.client.generate_stream(
-                        prompt, kwargs.get("max_tokens", MAX_TOKENS), timeout=TIMEOUT
+                        prompt,
+                        kwargs.get("max_tokens", MAX_TOKENS),
+                        timeout=TIMEOUT,
+                        think=False,
                     ),
                     filtered_parts,
                 ):

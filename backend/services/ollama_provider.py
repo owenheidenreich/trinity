@@ -89,18 +89,23 @@ class OllamaProvider(LLMProvider):
     ) -> Generator:
         """Streaming prompt completion via /api/generate (NDJSON)."""
         try:
+            payload = {
+                "model": self.model,
+                "prompt": prompt,
+                "stream": True,
+                "options": {
+                    "num_predict": max_tokens,
+                    "temperature": temperature,
+                    "num_ctx": self.num_ctx,
+                },
+            }
+            # Qwen3: control <think> block generation at the engine level
+            if "think" in kwargs:
+                payload["think"] = kwargs["think"]
+
             response = requests.post(
                 f"{self.host}/api/generate",
-                json={
-                    "model": self.model,
-                    "prompt": prompt,
-                    "stream": True,
-                    "options": {
-                        "num_predict": max_tokens,
-                        "temperature": temperature,
-                        "num_ctx": self.num_ctx,
-                    },
-                },
+                json=payload,
                 stream=True,
                 timeout=timeout,
             )
@@ -153,6 +158,9 @@ class OllamaProvider(LLMProvider):
             }
             if tools:
                 payload["tools"] = tools
+            # Qwen3: control <think> block generation at the engine level
+            if "think" in kwargs:
+                payload["think"] = kwargs["think"]
 
             response = requests.post(
                 f"{self.host}/api/chat",
@@ -184,18 +192,23 @@ class OllamaProvider(LLMProvider):
     ) -> Generator:
         """Streaming chat completion via /api/chat (NDJSON)."""
         try:
+            payload = {
+                "model": self.model,
+                "messages": messages,
+                "stream": True,
+                "options": {
+                    "num_predict": max_tokens,
+                    "temperature": temperature,
+                    "num_ctx": self.num_ctx,
+                },
+            }
+            # Qwen3: control <think> block generation at the engine level
+            if "think" in kwargs:
+                payload["think"] = kwargs["think"]
+
             response = requests.post(
                 f"{self.host}/api/chat",
-                json={
-                    "model": self.model,
-                    "messages": messages,
-                    "stream": True,
-                    "options": {
-                        "num_predict": max_tokens,
-                        "temperature": temperature,
-                        "num_ctx": self.num_ctx,
-                    },
-                },
+                json=payload,
                 stream=True,
                 timeout=timeout,
             )
