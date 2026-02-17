@@ -64,4 +64,8 @@ export interface StoreState {
   setChatStarted: (started: boolean) => void;
   removeLastMessage: () => ChatMessage | null;
   getLastUserMessage: () => ChatMessage | null;
+
+  // ===== Memory Actions =====
+  updateMemoryFact: (index: number, updates: { text?: string; category?: string; importance?: number }) => void;
+  deleteMemoryFact: (index: number) => void;
 }

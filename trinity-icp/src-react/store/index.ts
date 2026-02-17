@@ -178,6 +178,28 @@ export const useStore = create<StoreState>((set, get) => ({
     }
     return null;
   },
+
+  // ===== Memory Actions =====
+
+  updateMemoryFact: (index, updates) => {
+    const state = get();
+    if (!state.userMemory) return;
+    const facts = [...state.userMemory.facts];
+    const existing = facts[index];
+    if (!existing) return;
+    facts[index] = { ...existing, ...updates };
+    set({ userMemory: { ...state.userMemory, facts } });
+  },
+
+  deleteMemoryFact: (index) => {
+    const state = get();
+    if (!state.userMemory) return;
+    const facts = [...state.userMemory.facts];
+    const existing = facts[index];
+    if (!existing) return;
+    facts[index] = { ...existing, deleted: true, deleted_at: Date.now() };
+    set({ userMemory: { ...state.userMemory, facts } });
+  },
 }));
 
 /**

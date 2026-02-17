@@ -691,8 +691,16 @@ def get_user_memory():
 
         memory = load_user_memory(principal)
 
+        # Strip embeddings from response — they're 384-dim float arrays
+        # (~3KB each) the frontend never needs. Keeps payload small and readable.
+        response_memory = {**memory}
+        response_memory["facts"] = [
+            {k: v for k, v in fact.items() if k != "embedding"}
+            for fact in memory.get("facts", [])
+        ]
+
         logger.debug(f'📖 Loaded user memory: {len(memory.get("facts", []))} facts')
-        return jsonify(memory)
+        return jsonify(response_memory)
 
     except Exception as e:
         logger.error(f"❌ Error loading user memory: {e}", exc_info=True)
@@ -772,6 +780,62 @@ def add_memory_fact():
 
     except Exception as e:
         logger.error(f"❌ Error adding memory fact: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@chat_bp.route("/user/memory/fact/<int:index>", methods=["PUT"])
+@require_auth
+@storage_rate_limit
+def edit_memory_fact(index):
+    """Edit a fact's text, category, or importance.
+    Re-embeds text if it changed."""
+    try:
+        principal = request.principal
+        data = request.json
+
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+
+        memory = load_user_memory(principal)
+        facts = memory.get("facts", [])
+
+        if index < 0 or index >= len(facts):
+            return jsonify({"error": "Invalid fact index"}), 400
+
+        fact = facts[index]
+        if fact.get("deleted", False):
+            return jsonify({"error": "Cannot edit a deleted fact"}), 400
+
+        text_changed = False
+        if "text" in data and data["text"] != fact.get("text"):
+            fact["text"] = data["text"]
+            text_changed = True
+        if "category" in data:
+            fact["category"] = data["category"]
+        if "importance" in data:
+            fact["importance"] = int(data["importance"])
+
+        # Re-embed if text changed
+        if text_changed:
+            try:
+                from services.embeddings import embed_text
+                emb = embed_text(fact["text"])
+                if emb is not None:
+                    fact["embedding"] = emb.tolist()
+            except Exception:
+                pass  # keep old embedding if re-embed fails
+
+        fact["last_mentioned"] = int(time.time() * 1000)
+        memory["facts"] = facts
+        save_user_memory(principal, memory)
+
+        # Return without embedding
+        display_fact = {k: v for k, v in fact.items() if k != "embedding"}
+        logger.info(f'✏️ Edited fact #{index}')
+        return jsonify({"success": True, "fact": display_fact})
+
+    except Exception as e:
+        logger.error(f"❌ Error editing memory fact: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 

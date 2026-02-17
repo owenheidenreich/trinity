@@ -69,9 +69,12 @@ export interface MemoryFact {
   fact?: string;
   category: string;
   importance?: number;
-  embedding?: number[];
   source_chat_id?: string;
   created_at: number;
+  deleted?: boolean;
+  deleted_at?: number;
+  last_mentioned?: number;
+  invalid_at?: number | null;
 }
 
 /** ICP authentication headers */

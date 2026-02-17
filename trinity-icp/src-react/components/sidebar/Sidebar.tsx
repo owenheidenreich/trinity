@@ -2,9 +2,10 @@
  * Sidebar — collapsible sidebar with chat list, status, and identity management.
  */
 import { useCallback, useMemo } from 'react';
-import type { ChatListItem } from '../../types';
+import type { ChatListItem, MemoryFact } from '../../types';
 import type { ConnectionStatus } from '../../hooks/useConnection';
 import type { InfoVariant } from '../modals/InfoModal';
+import { MemoryPanel } from './MemoryPanel';
 import styles from '../../styles/components/Sidebar.module.css';
 
 interface SidebarProps {
@@ -12,6 +13,7 @@ interface SidebarProps {
   currentChatId: string | null;
   connectionStatus: ConnectionStatus;
   isLoadingChats?: boolean;
+  memoryFacts: MemoryFact[];
   onNewChat: () => void;
   onLoadChat: (chatId: string) => void;
   onDeleteChat: (chatId: string) => void;
@@ -20,6 +22,9 @@ interface SidebarProps {
   onExportKey?: () => void;
   onLogout: () => void;
   onShowInfo?: (variant: InfoVariant) => void;
+  onEditMemory: (index: number, updates: { text?: string; category?: string; importance?: number }) => void;
+  onDeleteMemory: (index: number) => void;
+  onDownloadMemory: () => void;
 }
 
 const MAX_CHATS = 20;
@@ -29,6 +34,7 @@ export function Sidebar({
   currentChatId,
   connectionStatus,
   isLoadingChats,
+  memoryFacts,
   onNewChat,
   onLoadChat,
   onDeleteChat,
@@ -37,6 +43,9 @@ export function Sidebar({
   onExportKey,
   onLogout,
   onShowInfo,
+  onEditMemory,
+  onDeleteMemory,
+  onDownloadMemory,
 }: SidebarProps) {
   // Sort: pinned first, then by lastUpdated descending
   const sortedChats = useMemo(() => {
@@ -91,6 +100,13 @@ export function Sidebar({
           </div>
         )}
       </div>
+
+      <MemoryPanel
+        facts={memoryFacts}
+        onEdit={onEditMemory}
+        onDelete={onDeleteMemory}
+        onDownload={onDownloadMemory}
+      />
 
       <div className={styles.statusPanel}>
         <div className={styles.statusRow}>

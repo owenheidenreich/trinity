@@ -46,6 +46,9 @@ export function AppShell() {
   const setChatStarted = useStore((s) => s.setChatStarted);
   const setContextMemory = useStore((s) => s.setContextMemory);
   const setUserMemory = useStore((s) => s.setUserMemory);
+  const userMemory = useStore((s) => s.userMemory);
+  const updateMemoryFact = useStore((s) => s.updateMemoryFact);
+  const deleteMemoryFact = useStore((s) => s.deleteMemoryFact);
   const reset = useStore((s) => s.reset);
 
   // Hooks
@@ -107,6 +110,73 @@ export function AppShell() {
     }
   }, [auth.buildAuthHeaders, setUserMemory]);
 
+  // Edit a memory fact via backend PUT, then optimistic local update
+  const handleEditMemory = useCallback(
+    async (index: number, updates: { text?: string; category?: string; importance?: number }) => {
+      try {
+        const headers = await auth.buildAuthHeaders(`/user/memory/fact/${index}`);
+        if (!headers) return;
+        const response = await fetch(`${CONFIG.API_URL}/user/memory/fact/${index}`, {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify(updates),
+        });
+        if (response.ok) {
+          updateMemoryFact(index, updates);
+        } else {
+          toastManager.error('Failed to update memory');
+        }
+      } catch (err) {
+        Logger.error('Failed to edit memory fact:', err);
+        toastManager.error('Failed to update memory');
+      }
+    },
+    [auth.buildAuthHeaders, updateMemoryFact]
+  );
+
+  // Delete a memory fact via backend DELETE, then optimistic local update
+  const handleDeleteMemory = useCallback(
+    async (index: number) => {
+      try {
+        const headers = await auth.buildAuthHeaders(`/user/memory/fact/${index}`);
+        if (!headers) return;
+        const response = await fetch(`${CONFIG.API_URL}/user/memory/fact/${index}`, {
+          method: 'DELETE',
+          headers,
+        });
+        if (response.ok) {
+          deleteMemoryFact(index);
+        } else {
+          toastManager.error('Failed to delete memory');
+        }
+      } catch (err) {
+        Logger.error('Failed to delete memory fact:', err);
+        toastManager.error('Failed to delete memory');
+      }
+    },
+    [auth.buildAuthHeaders, deleteMemoryFact]
+  );
+
+  // Download memory as JSON
+  const handleDownloadMemory = useCallback(() => {
+    const mem = useStore.getState().userMemory;
+    if (!mem) return;
+    const activeFacts = mem.facts.filter(
+      (f) => !f.deleted && !f.invalid_at
+    );
+    const blob = new Blob(
+      [JSON.stringify({ facts: activeFacts, preferences: mem.preferences }, null, 2)],
+      { type: 'application/json' }
+    );
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'trinity-memories.json';
+    a.click();
+    URL.revokeObjectURL(url);
+    toastManager.success('Memories downloaded');
+  }, []);
+
   // Register handler
   const handleRegister = useCallback(
     async (username: string, password: string) => {
@@ -167,6 +237,8 @@ export function AppShell() {
       }
 
       autosave.scheduleAutosave(auth.buildAuthHeaders);
+      // Refresh memory panel to show any newly extracted facts
+      void loadUserMemory();
     },
     [addMessage, setCurrentChatId, chat, auth.buildAuthHeaders, autosave]
   );
@@ -361,6 +433,7 @@ export function AppShell() {
             currentChatId={currentChatId}
             connectionStatus={connectionStatus}
             isLoadingChats={isLoadingChats}
+            memoryFacts={userMemory?.facts ?? []}
             onNewChat={handleNewChat}
             onLoadChat={handleLoadChat}
             onDeleteChat={(chatId) => setDeleteTarget(chatId)}
@@ -369,6 +442,9 @@ export function AppShell() {
             onExportKey={handleExportKey}
             onLogout={auth.logout}
             onShowInfo={setInfoVariant}
+            onEditMemory={handleEditMemory}
+            onDeleteMemory={handleDeleteMemory}
+            onDownloadMemory={handleDownloadMemory}
           />
         </div>
       )}

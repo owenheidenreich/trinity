@@ -1,0 +1,267 @@
+/* ── Memory Panel (sidebar section) ──────────────────────────────── */
+
+.memorySection {
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 40vh;
+}
+
+.memoryHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-sm) var(--space-md);
+  cursor: pointer;
+  user-select: none;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  transition: background var(--transition-fast);
+}
+
+.memoryHeader:hover {
+  background: var(--color-bg-hover);
+}
+
+.memoryTitle {
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.memoryCount {
+  color: var(--color-text-muted);
+  font-weight: 400;
+}
+
+.headerActions {
+  display: flex;
+  gap: var(--space-xs);
+  align-items: center;
+}
+
+.iconBtn {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 2px 4px;
+  font-size: var(--font-size-xs);
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+  line-height: 1;
+}
+
+.iconBtn:hover {
+  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
+}
+
+.chevron {
+  font-size: 10px;
+  transition: transform var(--transition-fast);
+}
+
+.chevronOpen {
+  transform: rotate(90deg);
+}
+
+/* ── Fact List ──────────────────────────────────────────────────── */
+
+.factList {
+  overflow-y: auto;
+  padding: 0 var(--space-sm) var(--space-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.emptyState {
+  padding: var(--space-md);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  text-align: center;
+  line-height: 1.4;
+}
+
+/* ── Fact Item ──────────────────────────────────────────────────── */
+
+.factItem {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  padding: var(--space-sm);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  transition: background var(--transition-fast);
+  cursor: pointer;
+}
+
+.factItem:hover {
+  background: var(--color-bg-hover);
+}
+
+.factText {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.factMeta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-shrink: 0;
+}
+
+.categoryBadge {
+  font-size: 0.625rem;
+  padding: 1px 5px;
+  border-radius: 8px;
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  text-transform: capitalize;
+}
+
+.categoryBadge[data-cat="identity"] { color: #69db7c; border: 1px solid rgba(105, 219, 124, 0.3); }
+.categoryBadge[data-cat="work"] { color: #74c0fc; border: 1px solid rgba(116, 192, 252, 0.3); }
+.categoryBadge[data-cat="interests"] { color: #ffd43b; border: 1px solid rgba(255, 212, 59, 0.3); }
+.categoryBadge[data-cat="preferences"] { color: #da77f2; border: 1px solid rgba(218, 119, 242, 0.3); }
+.categoryBadge[data-cat="relationships"] { color: #ff8787; border: 1px solid rgba(255, 135, 135, 0.3); }
+
+.deleteBtn {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 0 2px;
+  font-size: var(--font-size-sm);
+  opacity: 0;
+  transition: all var(--transition-fast);
+}
+
+.factItem:hover .deleteBtn {
+  opacity: 1;
+}
+
+.deleteBtn:hover {
+  color: var(--color-error);
+}
+
+/* ── Edit Form ─────────────────────────────────────────────────── */
+
+.editForm {
+  padding: var(--space-sm);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-tertiary);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.editTextarea {
+  width: 100%;
+  min-height: 48px;
+  padding: var(--space-sm);
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-xs);
+  font-family: inherit;
+  resize: vertical;
+  line-height: 1.4;
+}
+
+.editTextarea:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.editRow {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: center;
+}
+
+.editSelect {
+  flex: 1;
+  padding: 3px var(--space-sm);
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-xs);
+}
+
+.editSelect:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.importanceRow {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.importanceLabel {
+  font-size: 0.625rem;
+  color: var(--color-text-muted);
+  margin-right: var(--space-xs);
+}
+
+.importanceDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1px solid var(--color-text-muted);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.importanceDot:hover {
+  border-color: var(--color-accent);
+}
+
+.importanceDotActive {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.editActions {
+  display: flex;
+  gap: var(--space-sm);
+  justify-content: flex-end;
+}
+
+.editBtn {
+  padding: 2px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.editBtn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.editBtnPrimary {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-text-primary);
+}
+
+.editBtnPrimary:hover {
+  background: var(--color-accent-hover);
+}
