@@ -13,7 +13,7 @@
 |----------|-------------|
 | [architecture/SYSTEM-OVERVIEW.md](architecture/SYSTEM-OVERVIEW.md) | **Full system overview** — tech stack, diagrams, request lifecycle, security model |
 | [architecture/FRONTEND.md](architecture/FRONTEND.md) | React component tree, hooks, state management, rendering pipeline |
-| [architecture/BACKEND.md](architecture/BACKEND.md) | Flask server, 53 API endpoints, middleware, configuration |
+| [architecture/BACKEND.md](architecture/BACKEND.md) | Flask server, 54 API endpoints, middleware, configuration |
 | [architecture/MEMORY-SYSTEM.md](architecture/MEMORY-SYSTEM.md) | Three-tier memory: working, semantic, and user memory |
 | [architecture/STORAGE-AND-ENCRYPTION.md](architecture/STORAGE-AND-ENCRYPTION.md) | Encryption, IPFS, autosave, IndexedDB, recovery |
 | [architecture/INTELLIGENCE-AND-ROUTING.md](architecture/INTELLIGENCE-AND-ROUTING.md) | Agent pipeline, ReAct loop, 15 tools, decision-making |
@@ -49,7 +49,8 @@
 |----------|-------------|
 | [ai-context/CLAUDE.md](ai-context/CLAUDE.md) | Concise AI context: key files, routes, config, deployment |
 | [ai-context/CODEBASE-MAP.md](ai-context/CODEBASE-MAP.md) | File-level map with all routes and constants |
-| [ai-context/FEATURE-CATALOG.md](ai-context/FEATURE-CATALOG.md) | Feature inventory with ADR cross-references |
+| [ai-context/FEATURE-CATALOG.md](ai-context/FEATURE-CATALOG.md) | Feature inventory with code locations |
+| [ai-context/CONVENTIONS.md](ai-context/CONVENTIONS.md) | Machine-readable do/don't rules for AI coding sessions |
 
 ---
 
@@ -59,9 +60,9 @@
 Trinity/
 ├── backend/                         # Python Flask inference server
 │   ├── inference_server.py          # App factory + blueprint registration
-│   ├── routes/                      # 9 blueprints (53 endpoints)
+│   ├── routes/                      # 9 blueprints (54 endpoints)
 │   ├── middleware/                   # Observability, rate limiting, caching
-│   ├── services/                    # 33 service modules (agent, memory, tools, etc.)
+│   ├── services/                    # 34 service modules (agent, memory, tools, etc.)
 │   └── tests/                       # Unit, integration, and E2E tests
 │
 ├── trinity-icp/                     # Frontend (ICP canister)

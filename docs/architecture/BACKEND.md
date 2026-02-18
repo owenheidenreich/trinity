@@ -22,7 +22,7 @@ backend/
 ├── lighthouse.py              # IPFS/Lighthouse upload/download integration
 ├── mcp_stdio_server.py        # MCP stdio entry point (Claude Desktop integration)
 │
-├── routes/                    # 9 Flask Blueprints (53 endpoints)
+├── routes/                    # 9 Flask Blueprints (54 endpoints)
 │   ├── __init__.py            # Blueprint registration
 │   ├── health.py              # Health checks, metrics, system stats
 │   ├── generate.py            # LLM inference (standard + agentic)
@@ -40,7 +40,7 @@ backend/
 │   ├── rate_limit.py          # Rate limiting + token quotas
 │   └── icp_cache.py           # ICP idempotency cache (for subnet replicas)
 │
-├── services/                  # 33 business logic modules
+├── services/                  # 34 business logic modules
 │   ├── agent.py               # AgentPipeline orchestrator + OllamaClient
 │   ├── agent_prompts.py       # System prompts + tool documentation
 │   ├── react_loop.py          # ReAct + Reflexion engine
@@ -79,7 +79,7 @@ backend/
     ├── conftest.py             # Shared fixtures
     ├── fixtures/               # Auth fixtures
     ├── unit/                   # Unit tests (33 files)
-    ├── integration/            # Integration tests
+    ├── integration/            # Integration tests (2 files)
     └── e2e/                    # End-to-end pipeline tests
 ```
 
@@ -153,14 +153,15 @@ create_app()
 | GET | `/chat/archive/<cid>` | `@require_auth` | Download + decrypt specific archive by CID |
 | GET | `/chat/archive/status/<cid>` | None | Check IPFS availability of an archive |
 
-### User Memory (5 endpoints)
+### User Memory (6 endpoints)
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | GET | `/user/status` | `@require_auth` | Storage usage, rate limits, token quotas dashboard |
-| GET | `/user/memory` | `@require_auth` | Get user memory (facts + preferences) |
+| GET | `/user/memory` | `@require_auth` | Get user memory (facts + preferences, embeddings stripped) |
 | POST | `/user/memory` | `@require_auth` | Replace entire user memory |
 | POST | `/user/memory/fact` | `@require_auth` | Add single fact (auto-deduplicates at >0.95 similarity) |
+| PUT | `/user/memory/fact/<index>` | `@require_auth` | Edit fact text, category, or importance (re-embeds automatically) |
 | DELETE | `/user/memory/fact/<index>` | `@require_auth` | Delete memory fact by index |
 
 ### External Tools (7 endpoints)
@@ -256,7 +257,7 @@ All metrics gracefully degrade to `NoOpMetric` if `prometheus_client` is not ins
 | Limit Type | Threshold | Window |
 |------------|-----------|--------|
 | General API | 30 requests | 60 seconds |
-| Storage operations | 10 requests | 60 seconds |
+| Storage operations | 30 requests | 60 seconds |
 | Daily token quota | 100,000 tokens | 24 hours |
 | Hourly token quota | 20,000 tokens | 1 hour |
 

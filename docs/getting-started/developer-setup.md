@@ -99,7 +99,7 @@ trinity/
 ├── backend/                    # Python Flask backend
 │   ├── inference_server.py     # App factory + blueprint registration
 │   ├── config.py               # All constants, env vars, defaults
-│   ├── routes/                 # 9 API blueprints (53 endpoints)
+│   ├── routes/                 # 9 API blueprints (54 endpoints)
 │   │   ├── health.py           # /health, /metrics, /stats
 │   │   ├── generate.py         # /generate, /generate/agent
 │   │   ├── chat.py             # /chat/*, /user/*
@@ -117,7 +117,7 @@ trinity/
 │   │   ├── caching.py          # Embedding + semantic caching
 │   │   ├── memory.py           # Semantic memory retrieval
 │   │   └── ...                 # embeddings, search, ollama, etc.
-│   └── tests/                  # 976 tests
+│   └── tests/                  # 978 tests
 │       ├── unit/               # Unit tests
 │       ├── integration/        # Integration tests
 │       └── e2e/                # End-to-end tests

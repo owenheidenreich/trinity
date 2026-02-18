@@ -1,6 +1,6 @@
 # Trinity AI Copilot Instructions
 
-> **Last Updated:** February 15, 2026
+> **Last Updated:** February 17, 2026
 
 ## Stack (source of truth: `docs/ai-context/CLAUDE.md`)
 
@@ -21,7 +21,10 @@ React 19 / TypeScript / Zustand on ICP · Flask 3 / Python 3.11 on Akash · Olla
 - **Encryption**: AES-256-GCM + Argon2id KDF (primary) / PBKDF2 (fallback)
 - **Frontend**: Active code is `trinity-icp/src-react/` (React 19). `trinity-icp/src/` is legacy.
 - **Cold starts**: First request after Akash deploy takes 20-30s (model loading) — this is normal
-- **Tests**: `cd backend && python -m pytest tests/ -x -q` (976 tests)
+- **Tests**: `cd backend && python -m pytest tests/ -x -q` (978 tests)
+- **think=False**: All Ollama LLM calls must pass `think=False` to suppress Qwen3 `<think>` blocks
+- **GPU Allowlist**: Production deploy requires a100/a6000/h100/l40s/a40/rtx4090 for full model offloading
+- **Akash Timeout**: `read_timeout` hard limit is 60000ms — do not set higher
 
 ## Workflow Checklists
 
@@ -35,7 +38,7 @@ React 19 / TypeScript / Zustand on ICP · Flask 3 / Python 3.11 on Akash · Olla
 
 | Task | File(s) |
 |------|---------|
-| API routes | `backend/routes/<blueprint>.py` (9 blueprints, 53 endpoints) |
+| API routes | `backend/routes/<blueprint>.py` (9 blueprints, 54 endpoints) |
 | LLM prompts | `backend/services/agent_prompts.py` |
 | Add a tool | `backend/services/tools.py` + `code_executor.py` |
 | Memory system | `backend/storage.py`, `backend/services/memory_tools.py`, `backend/services/profile_extractor.py` |

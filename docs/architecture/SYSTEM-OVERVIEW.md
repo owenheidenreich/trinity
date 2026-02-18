@@ -80,7 +80,7 @@ A Cloudflare Worker sits between the frontend and backend to provide SSL termina
 │  │  │  └────────────┘ └────────────┘  │  │  Context: 65,536 tokens    │  │
 │  │  │                                  │  │                            │  │  │
 │  │  │  ┌────────────┐ ┌────────────┐  │  └────────────────────────────┘  │  │
-│  │  │  │ 33 Service │ │ SQLite DB  │  │                                  │  │
+│  │  │  │ 34 Service │ │ SQLite DB  │  │                                  │  │
 │  │  │  │ Modules    │ │ (sessions, │  │  ┌────────────────────────────┐  │  │
 │  │  │  │            │ │  rate lim, │  │  │  Persistent Volume         │  │  │
 │  │  │  │ Agent      │ │  usage,    │  │  │  (Akash beta3 class)       │  │  │
@@ -160,10 +160,14 @@ Trinity supports multiple deployment configurations depending on budget and comp
 
 | Tier | Model | GPU RAM | CPU | Storage | Approx. Cost |
 |------|-------|---------|-----|---------|--------------|
-| Production | `qwen3:32b` | 48 GB | 8 cores | 80 GB | ~$600-1000/mo |
+| Production | `qwen3:32b` | 48 GB | 8 cores | 80 GB | ~$400-1000/mo |
 | Test | `qwen3:32b` | 16 GB | 4 cores | 40 GB | ~$40-100/mo |
 
 Deploy with `./scripts/trinity-deploy-production.sh production` or `./scripts/trinity-deploy-production.sh test`.
+
+**GPU Model Allowlist (production):** a100, a6000, h100, l40s, a40, rtx4090 — enforced in `deploy-production.yaml` to ensure 40GB+ VRAM for full model offloading. `MIN_PRICE_MONTHLY: $400`.
+
+**Akash Constraints:** `read_timeout: 60000` (60s hard limit enforced by Akash ingress).
 
 ---
 
@@ -274,7 +278,7 @@ Browser                  CF Worker              Akash Backend           Ollama
 │                                                                   │
 │  BACKEND (trusted compute)                                        │
 │  ├── Verifies Ed25519 signatures (60s window, nonce protection)   │
-│  ├── Rate limiting (30 req/min API, 10 req/min storage)           │
+│  ├── Rate limiting (30 req/min API, 30 req/min storage)           │
 │  ├── Token quotas (100K daily, 20K hourly per user)               │
 │  ├── SSRF protection on URL fetching                              │
 │  ├── RestrictedPython sandbox for code execution                  │
@@ -307,9 +311,9 @@ Trinity/
 │   ├── storage.py                    # User data file operations
 │   ├── validation.py                 # Input validation + SSRF
 │   ├── lighthouse.py                 # IPFS/Lighthouse integration
-│   ├── routes/                       # 9 Flask blueprints (53 endpoints)
+│   ├── routes/                       # 9 Flask blueprints (54 endpoints)
 │   ├── middleware/                    # Observability, rate limiting, caching
-│   ├── services/                     # 33 service modules (agent, memory, tools, etc.)
+│   ├── services/                     # 34 service modules (agent, memory, tools, etc.)
 │   └── tests/                        # Unit, integration, and E2E tests
 │
 ├── trinity-icp/                      # Frontend (ICP canister)

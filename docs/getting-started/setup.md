@@ -380,8 +380,8 @@ wrangler secret put AKASH_URL <<< "http://provider.akash.com:12345"
 The Cloudflare Worker handles HTTPS on the frontend; the backend connection is HTTP.
 
 ### Startup Times
-- **Test tier (Qwen2.5-Coder 7B)**: Starts in ~2-5 minutes
-- **Production tier (Qwen2.5-Coder 32B)**: May take 5-10+ minutes to download and load model
+- **Test tier (Qwen3 32B)**: Starts in ~2-5 minutes
+- **Production tier (Qwen3 32B)**: May take 5-10+ minutes to download and load model
 
 If the container seems stuck, check container logs:
 ```bash

@@ -260,10 +260,10 @@ docker run -p 5000:5000 trinity-backend:latest
 # Full production deployment (interactive)
 ./scripts/trinity-deploy-production.sh
 
-# Auto-select production tier (Qwen2.5-Coder 32B)
+# Auto-select production tier (Qwen3 32B)
 ./scripts/trinity-deploy-production.sh production
 
-# Smoke-test tier (Qwen2.5-Coder 7B, cheaper)
+# Smoke-test tier (Qwen3 32B, cheaper)
 ./scripts/trinity-deploy-production.sh test
 ```
 

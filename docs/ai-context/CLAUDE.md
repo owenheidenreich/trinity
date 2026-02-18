@@ -1,6 +1,6 @@
 # Trinity — AI Context Reference
 
-> **Last Updated:** February 16, 2026 · **Model:** qwen3:32b on Akash
+> **Last Updated:** February 17, 2026 · **Model:** qwen3:32b on Akash
 
 ---
 
@@ -62,10 +62,10 @@ This file is a quick orientation. For implementation detail, read the architectu
 backend/                         # Python Flask server
 ├── inference_server.py          # App factory, blueprint registration
 ├── config.py                    # All constants + env vars
-├── routes/                      # 9 blueprints, 53 endpoints
-├── services/                    # 33 modules (agent, tools, memory, search, etc.)
+├── routes/                      # 9 blueprints, 54 endpoints
+├── services/                    # 34 modules (agent, tools, memory, search, etc.)
 ├── middleware/                  # Observability, rate limiting, ICP cache
-└── tests/                       # 976 tests, 67% coverage
+└── tests/                       # 978 tests, 66% coverage
 
 trinity-icp/                     # Frontend (ICP canister)
 ├── src-react/                   # Active: React 19 + TypeScript (v3.0.0)
@@ -82,9 +82,9 @@ docs/                            # Architecture docs, guides, AI context
 
 **Auth:** Ed25519 keypair → principal ID (base32). Signed message format: `{principal}:{timestamp}:{endpoint}:{nonce}`. Backend verifies via `@require_auth` decorator. 60s replay window.
 
-**Agent Pipeline:** User prompt → heuristic tool detection → if tools needed, ReAct loop (max 15 iterations, 48K token budget, 15 tools) → if not, direct LLM generation. Reflexion self-correction on errors. Auto-extraction of profile facts runs in background after each response.
+**Agent Pipeline:** User prompt → heuristic tool detection → if tools needed, ReAct loop (max 15 iterations, 48K token budget, 15 tools) → if not, direct LLM generation. `think=False` on all Ollama calls (suppresses Qwen3 `<think>` blocks). Agent-level `MAX_TOKENS=16384`. Context capped to 10 messages × 2000 chars. Reflexion self-correction on errors. Auto-extraction of profile facts runs in daemon thread after each response (non-blocking).
 
-**Memory:** Three tiers — working (last 5 messages), semantic (top 8 by vector similarity), user memory (v2.0 structured profile with categories, token-budget injection, soft-delete, auto-extraction, encrypted on IPFS). 15 tools include `update_memory` and `forget_memory`.
+**Memory:** Three tiers — working (last 5 messages), semantic (top 8 by vector similarity), user memory (v2.0 structured profile with categories, token-budget injection, soft-delete, auto-extraction, encrypted on IPFS). 15 tools include `update_memory` and `forget_memory`. Frontend Memory Panel provides transparent read/edit/delete of all stored facts.
 
 **Storage:** AES-256-GCM + Argon2id KDF. Encrypted client-side before transmission. IPFS (Lighthouse) is source of truth; IndexedDB is session cache. Autosave with 2s debounce.
 
@@ -104,7 +104,7 @@ docs/                            # Architecture docs, guides, AI context
 
 **Testing:**
 ```bash
-cd backend && python -m pytest tests/ -x -q    # 976 tests
+cd backend && python -m pytest tests/ -x -q    # 978 tests
 ```
 
 ---
@@ -130,3 +130,15 @@ cd backend && python -m pytest tests/ -x -q    # 976 tests
 - **Feb 2026:** Memory v2.0 overhaul — structured user profile (identity/work/interests/preferences/relationships), token-budget injection, auto-extraction, update_memory/forget_memory tools, soft-delete, bulk export ZIP, user stats endpoint
 - **Feb 2026:** Upgraded model from qwen2.5-coder:32b to qwen3:32b; raised context window from 32K to 64K; IPFS layer migrated to pooled http_session with retry adapter and timing instrumentation
 - **Feb 2026:** MiniMax M2.5 migration attempted (vLLM, 4× A100 80GB on Akash) — abandoned due to Akash /dev/shm 64MB limitation blocking NCCL multi-GPU
+- **Feb 2026:** Fixed empty responses: `think=False` on all Ollama calls, `MAX_TOKENS` reduced from 48K→16K, context capping (10 msgs × 2000 chars)
+- **Feb 2026:** Fixed tool_call XML leak: 4-tier `parse_tool_calls()` fallback (strict → lenient → nameless via `_TAG_TO_TOOL` → bare) + defensive XML stripping in `_get_response_content()`
+- **Feb 2026:** GPU compatibility: deploy YAML now has GPU model allowlist (a100, a6000, h100, l40s, a40, rtx4090), `MIN_PRICE_MONTHLY` raised to $400 for production
+- **Feb 2026:** Added `scripts/live_integration_test.py` (25 live integration tests) and `scripts/smoke_test.py` (5 smoke tests)
+- **Feb 2026:** Akash `read_timeout` hard limit discovered and enforced at 60000ms
+- **Feb 2026:** 20 Questions role inversion fix — switched `/api/generate` to `/api/chat`, stripped system prompt to minimal identity
+- **Feb 2026:** Expanded capabilities: search patterns, `current_datetime` tool, context window raised from 20→50 messages
+- **Feb 2026:** Input lock fix — moved post-streaming embedding work to daemon thread (non-blocking)
+- **Feb 2026:** Hallucination fix — closed-world memory boundary footer prevents fabricated facts
+- **Feb 2026:** Memory Panel — transparent, editable sidebar showing all stored user facts (MemoryPanel.tsx, PUT `/user/memory/fact/<index>`, store actions `updateMemoryFact`/`deleteMemoryFact`)
+- **Feb 2026:** Storage rate limit raised from 10→30 req/min; consolidated dual memory polls to single 3s delayed poll
+- **Feb 2026:** Atomic memory extraction — tightened all 39 regex patterns with conjunction-stopping capture groups (`and`/`but`/`or`), added possession/vehicle/pet/age patterns

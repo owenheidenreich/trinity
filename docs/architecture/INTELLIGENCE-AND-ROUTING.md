@@ -123,12 +123,15 @@ OllamaClient.chat_stream(
         {role: "user", content: prompt}
     ],
     model="qwen3:32b",
-    options={num_ctx: 65536}
+    options={num_ctx: 65536},
+    think=False  # Suppress Qwen3 <think> blocks
 )
 
 → Yields SSE events: {token: "..."} for each generated token
 → Final event: {done: true, done_reason: "stop"|"length"}
 ```
+
+**Agent-Level Overrides:** `MAX_TOKENS = 16384` (set in `agent.py`, overrides config's `DEFAULT_MAX_TOKENS = 8000`). Context messages are capped to 10 messages × 2000 chars each to prevent prompt bloat.
 
 ---
 
@@ -137,6 +140,22 @@ OllamaClient.chat_stream(
 **File:** `services/react_loop.py` → `ReactLoop.execute_streaming()`
 
 The ReAct (Reasoning + Acting) pattern is an iterative loop where the LLM thinks, decides on an action, observes the result, and repeats.
+
+### Qwen3 `think=False` Requirement
+
+All Ollama LLM calls in the ReAct loop pass `think=False` to suppress Qwen3's `<think>` reasoning blocks. Without this:
+- The model generates lengthy `<think>...</think>` blocks that consume tokens but are stripped from output
+- Responses appear empty after stripping
+- Token budget is exhausted faster, causing timeouts
+
+`think=False` is set on all 4 LLM call sites in `react_loop.py` (lines 272, 370, 422, 532).
+
+### Response Content Extraction
+
+`_get_response_content()` in `react_loop.py` performs defensive post-processing:
+1. Strips `<think>...</think>` blocks via regex
+2. Strips residual `<tool_call>` XML tags (prevents XML leak to user)
+3. If stripping produces empty content, falls back to text inside think blocks (model put its answer there)
 
 ### The Loop
 
@@ -232,7 +251,12 @@ The LLM generates tool calls as XML:
 </tool_call>
 ```
 
-The `parse_tool_calls()` function extracts these using regex, returning `ToolCall(name, arguments)` dataclasses.
+The `parse_tool_calls()` function extracts these using a 4-tier regex fallback:
+
+1. **Strict:** `<tool_call name="...">...</tool_call>` — well-formed XML with name attribute
+2. **Lenient:** Allows missing `</tool_call>` closing tag
+3. **Nameless:** `<tool_call>...</tool_call>` without name attribute — infers tool from child XML tags via `_TAG_TO_TOOL` mapping (e.g., `<expression>` → calculator, `<query>` → web_search)
+4. **Bare:** Tool name followed by parameter tags without `<tool_call>` wrapper
 
 ### Tool Execution Dispatch
 

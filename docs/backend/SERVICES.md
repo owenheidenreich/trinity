@@ -1,6 +1,6 @@
 # Trinity Backend Services
 
-> **Last Updated:** February 13, 2026
+> **Last Updated:** February 17, 2026
 > **Location:** [backend/services/](../../backend/services/)
 
 ---
@@ -97,7 +97,7 @@ Iterative think→act→observe loop for tool-using queries.
 ## Tool System
 
 ### Definitions (`services/tools.py`)
-15 tools in `TOOL_DEFINITIONS`. Functions: `detect_tools_needed()`, `parse_tool_calls()`, `get_tool_definitions_for_prompt()`
+15 tools in `TOOL_DEFINITIONS`. Functions: `detect_tools_needed()`, `parse_tool_calls()` (4-tier fallback: strict XML → lenient → nameless via `_TAG_TO_TOOL` → bare), `get_tool_definitions_for_prompt()`
 
 ### Dispatcher (`services/code_executor.py`)
 `execute_tool(name, params, context)` — Routes to handler. Falls through to MCP client for unknown tools.
@@ -141,7 +141,7 @@ MemGPT pattern: `save_memory`, `recall_memory`, `search_memory`, `update_memory`
 | Module | Purpose |
 |--------|---------|
 | `observability.py` | Prometheus metrics (request, inference, token, cache) |
-| `rate_limit.py` | Per-principal throttling (30/min generate, 10/min storage) |
+| `rate_limit.py` | Per-principal throttling (30/min generate, 30/min storage) |
 | `icp_cache.py` | ICP consensus replay idempotency |
 
 ---
@@ -155,12 +155,11 @@ MemGPT pattern: `save_memory`, `recall_memory`, `search_memory`, `update_memory`
 | `encryption.py` | AES-256-GCM with Argon2id (primary) / PBKDF2 (100k iterations, fallback) |
 | `storage.py` | Chat file I/O, user directory management |
 | `validation.py` | Input sanitization, SSRF protection |
-| `lighthouse.py` | IPFS upload/download via Lighthouse |
-
+| `lighthouse.py` | IPFS upload/download via Lighthouse || `user_data_store.py` | IPFS persistence pipeline (retry, sync, restore, manifest) |
 ---
 
 ## Testing
 
 ```bash
-cd backend && python -m pytest tests/ -x -q    # 976 passed
+cd backend && python -m pytest tests/ -x -q    # 978 passed
 ```

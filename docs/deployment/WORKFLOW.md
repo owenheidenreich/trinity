@@ -1,6 +1,6 @@
 # Trinity Deployment Workflow
 
-> **Last Updated:** February 15, 2026  
+> **Last Updated:** February 17, 2026  
 > **Scripts:** [scripts/](../../scripts/)  
 > **Configs:** [deploy/](../../deploy/)
 
@@ -32,8 +32,8 @@ Trinity deploys to a fully decentralized stack:
 ./scripts/trinity-deploy-production.sh
 
 # Auto-select specific tier
-./scripts/trinity-deploy-production.sh production  # Qwen2.5-Coder 32B (~$600-1000/mo)
-./scripts/trinity-deploy-production.sh test        # Qwen2.5-Coder 7B (~$40-100/mo)
+./scripts/trinity-deploy-production.sh production  # Qwen3 32B (~$600-1000/mo)
+./scripts/trinity-deploy-production.sh test        # Qwen3 32B (~$40-100/mo)
 ```
 
 This script handles everything:
@@ -52,10 +52,14 @@ This script handles everything:
 
 | Tier | Model | GPU | Monthly Cost | Use Case |
 |------|-------|-----|--------------|----------|
-| production | Qwen3 32B | A100/A6000/RTX 4090 | ~$600-1000 | **Production (current)** |
+| production | Qwen3 32B | A100/A6000/H100/L40s/A40/RTX 4090 | ~$400-1000 | **Production (current)** |
 | test | Qwen3 32B | Any NVIDIA | ~$40-100 | Smoke-testing |
 
 **Current Production:** `production` tier (qwen3:32b)
+
+**GPU Model Allowlist (production):** a100, a6000, h100, l40s, a40, rtx4090 — enforced in `deploy-production.yaml` to ensure adequate VRAM for full GPU offloading.
+
+**Akash Constraints:** `read_timeout: 60000` (60s hard limit), `MIN_PRICE_MONTHLY: $400` for production tier.
 
 ---
 
@@ -70,8 +74,8 @@ deploy/
 │   ├── Dockerfile           # Multi-stage build
 │   └── startup.sh           # Model download, server start
 └── akash/
-    ├── deploy-production.yaml   # Qwen2.5-Coder 32B (production)
-    └── deploy-test.yaml         # Qwen2.5-Coder 7B (smoke-testing)
+    ├── deploy-production.yaml   # Qwen3 32B (production)
+    └── deploy-test.yaml         # Qwen3 32B (smoke-testing)
 ```
 
 **Manual Deploy Steps:**
@@ -355,10 +359,12 @@ provider-services tx deployment close --dseq DSEQ --from trinity-wallet
 | `trinity-deploy-production.sh` | Full deployment pipeline |
 | `switch-provider.sh` | Update Cloudflare Worker backend URL |
 | `docker-cleanup.sh` | Remove old Docker images |
+| `akash_deploy.py` | Python Akash deployment helper (bid filtering, GPU allowlist) |
+| `live_integration_test.py` | 25 live integration tests against production |
+| `smoke_test.py` | 5 quick smoke tests (health, inference, streaming) |
 | `stress-test.py` | Load testing |
 | `throughput-test.py` | Benchmark inference speed |
 | `war-commander.sh` | Model comparison testing |
-| `akash_deploy.py` | Python Akash deployment helper |
 
 ---
 

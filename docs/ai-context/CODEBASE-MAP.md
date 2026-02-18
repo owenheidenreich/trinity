@@ -1,8 +1,8 @@
 # Trinity Codebase Map
 
 > **Purpose:** Single-file reference for any LLM to understand Trinity without searching the codebase.
-> **Last Updated:** February 16, 2026
-> **Accuracy:** Verified against live codebase on `phase-5.5-legacy-cleanup` branch.
+> **Last Updated:** February 17, 2026
+> **Accuracy:** Verified against live codebase on `main` branch.
 
 ---
 
@@ -26,7 +26,7 @@ backend/
 ├── lighthouse.py            # IPFS upload/download via Lighthouse
 ├── database.py              # SQLAlchemy ORM (NOT integrated — future feature)
 │
-├── routes/                  # 9 blueprints, 53 endpoints
+├── routes/                  # 9 blueprints, 54 endpoints
 │   ├── __init__.py          # ALL_BLUEPRINTS list
 │   ├── shared.py            # Shared helpers
 │   ├── health.py            # /health, /metrics, /stats
@@ -39,7 +39,7 @@ backend/
 │   ├── mcp.py               # /mcp (MCP JSON-RPC 2.0)
 │   └── passphrase.py        # /api/passphrase/* setup, unlock, change, lock, status
 │
-├── services/                # 33 business logic modules
+├── services/                # 34 business logic modules
 │   ├── __init__.py          # Service exports
 │   ├── agent.py             # Single-pass orchestrator (detect tools → ReAct or direct)
 │   ├── agent_prompts.py     # System prompts, ReAct prompts
@@ -83,12 +83,12 @@ backend/
 │
 ├── mcp_stdio_server.py      # MCP stdio entry point (Claude Desktop)
 │
-└── tests/                   # 976 tests
+└── tests/                   # 978 tests
     ├── conftest.py          # Root fixtures
     ├── fixtures/
     │   └── auth_fixtures.py # Ed25519 test keypairs
-    ├── unit/                # Unit tests
-    ├── integration/         # Integration tests
+    ├── unit/                # Unit tests (33 files)
+    ├── integration/         # Integration tests (2 files)
     └── e2e/                 # End-to-end tests
 ```
 
@@ -108,7 +108,7 @@ trinity-icp/src-react/
 │   ├── modals/         # AuthModal, ConfirmModal, InfoModal, KeyExportModal,
 │   │                   # PassphraseModal, WelcomeModal
 │   ├── notifications/  # AutosaveIndicator, ToastProvider
-│   └── sidebar/        # Sidebar
+│   └── sidebar/        # Sidebar, MemoryPanel
 ├── hooks/              # useAuth, useChat, useAutosave, useConnection, usePassphrase
 ├── services/           # canister.ts (ICP canister integration)
 ├── store/              # Zustand store (index.ts, types.ts)
@@ -189,6 +189,7 @@ deploy/
 | GET | `/user/memory` | Get user memory |
 | POST | `/user/memory` | Update user memory |
 | POST | `/user/memory/fact` | Add memory fact |
+| PUT | `/user/memory/fact/<int:index>` | Edit memory fact (text, category, importance) with re-embedding |
 | DELETE | `/user/memory/fact/<int:index>` | Soft-delete memory fact |
 | GET | `/user/export` | Download all user data as ZIP |
 | GET | `/user/stats` | User profile/chat/storage statistics |

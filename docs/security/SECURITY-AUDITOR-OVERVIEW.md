@@ -529,4 +529,4 @@ Good luck with the audit. The system was built with security in mind, but fresh 
 
 *Document version: 1.0*  
 *Last updated: February 2026*  
-*Test results: 976 passed, 9 skipped*
+*Test results: 978 passed, 9 skipped*

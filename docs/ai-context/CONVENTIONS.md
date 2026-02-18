@@ -1,7 +1,7 @@
 # Trinity Conventions
 
 > Machine-readable rules for AI coding assistants. One rule per line, grep-friendly.
-> **Last Updated:** February 15, 2026
+> **Last Updated:** February 17, 2026
 
 ## State Management
 DO: Use Zustand setter methods — `State.setAuthenticated()`, `State.setChatHistory()`
@@ -17,10 +17,12 @@ DON'T: Panic on 20-30s first-request delay after deploy — model loading is nor
 DO: Use `@require_auth` decorator for protected endpoints
 DO: Register new blueprints in `routes/__init__.py` ALL_BLUEPRINTS list
 DO: Add new services to `services/__init__.py` exports
+DO: Pass `think=False` on all Ollama LLM calls (suppresses Qwen3 `<think>` blocks that cause empty responses)
 PATTERN: New API route → blueprint in `routes/` → register in `routes/__init__.py`
 PATTERN: New tool → define in `tools.py` TOOL_DEFINITIONS → dispatch in `code_executor.py`
 PATTERN: New middleware → add to `middleware/__init__.py` exports
 DON'T: Import from `database.py` — it's unused dead code (future feature)
+DON'T: Omit `think=False` from Ollama calls — Qwen3 `<think>` blocks consume tokens and cause timeouts
 
 ## Frontend Patterns (React 19 — `src-react/`)
 DO: Use hooks (`useAuth`, `useChat`, `useAutosave`, `useConnection`) not raw store access

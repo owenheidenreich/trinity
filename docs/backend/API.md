@@ -82,6 +82,7 @@ data: {"done": true, "response": {"complexity": "medium"}}
 | GET | `/user/memory` | Get stored facts |
 | POST | `/user/memory` | Replace all facts |
 | POST | `/user/memory/fact` | Add single fact |
+| PUT | `/user/memory/fact/<index>` | Edit fact (text, category, importance) |
 | DELETE | `/user/memory/fact/<index>` | Delete fact |
 
 ---
@@ -175,7 +176,7 @@ data: {"done": true, "response": {"complexity": "medium"}}
 | Category | Limit |
 |----------|-------|
 | `/generate/*` | 30 req/min per principal |
-| `/chat/*` | 10 req/min per principal |
+| `/chat/*` | 30 req/min per principal |
 | `/tools/*` | 30 req/min per principal |
 | `/mcp` (POST) | 30 req/min per principal |
 | `/api/passphrase/unlock` | Rate-limited |
@@ -200,5 +201,5 @@ Minor interface fixes documented in code and tests:
 - Autosave now uses latest chat state so full conversation history is persisted per chat.
 
 Validation snapshots:
-- Security patch set: `976 passed, 9 skipped` (`backend/tests/`, no coverage gate).
+- Security patch set: `978 passed, 9 skipped` (`backend/tests/`, no coverage gate).
 - UI/chat fixes: backend lifecycle tests + frontend `useChat` tests + TypeScript check pass.
