@@ -1,0 +1,380 @@
+{
+  "timestamp": "2026-02-17T01:44:17Z",
+  "api_url": "https://api.dubya.ai",
+  "principal": "test-user-6b620fa98ecc",
+  "results": [
+    {
+      "name": "T01_basic_greeting",
+      "prompt": "Hello! I'm new here. What can you do?",
+      "response": "Hi! I'm Trinity, an AI designed to assist with a wide range of tasks. Here's what I can do:\n\n1. **Answer questions** - I can provide information on various topics, from science and history to pop culture.\n2. **Help with coding** - I can assist with writing, debugging, and understanding code in multiple programming languages.\n3. **Provide explanations** - I can break down complex concepts into simpler terms.\n4. **Assist with writing** - I can help with proofreading, editing, and generating text for various purposes.\n5. **Solve math problems** - I can help with mathematical calculations and explanations.\n\nFeel free to ask me anything!",
+      "latency_s": 20.25516414642334,
+      "success": true,
+      "tokens": 104,
+      "errors": [],
+      "warnings": [],
+      "done_reason": "stop",
+      "phase_updates": [
+        "executing: Creating the magic..."
+      ]
+    },
+    {
+      "name": "T02_factual_question",
+      "prompt": "What is the speed of light in meters per second?",
+      "response": "The speed of light in a vacuum is **299,792,458 meters per second**. This value is denoted by the symbol $ c $ and is a fundamental constant in physics. It represents the maximum speed at which all energy, matter, and information in the universe can travel.",
+      "latency_s": 9.974764108657837,
+      "success": true,
+      "tokens": 46,
+      "errors": [],
+      "warnings": [],
+      "done_reason": "stop",
+      "phase_updates": [
+        "executing: Writing the story..."
+      ]
+    },
+    {
+      "name": "T03_explanation",
+      "prompt": "Explain how a hash table works in 3-4 sentences.",
+      "response": "A hash table is a data structure that maps keys to values using a hash function, which converts the key into an index (hash code) in an underlying array. When a key-value pair is inserted, the hash function determines where to store the value in the array. If two keys produce the same index (a collision), techniques like chaining or open addressing resolve the conflict. This allows for efficient lookups, insertions, and deletions, typically in constant time $ O(1) $.",
+      "latency_s": 17.14121985435486,
+      "success": true,
+      "tokens": 80,
+      "errors": [],
+      "warnings": [],
+      "done_reason": "stop",
+      "phase_updates": [
+        "executing: Assembling the thoughts..."
+      ]
+    },
+    {
+      "name": "T04_simple_code",
+      "prompt": "Write a Python function that checks if a string is a palindrome.",
+      "response": "To check if a string is a palindrome in Python, we can compare the string to its reverse. This approach leverages Python's string slicing and is efficient and concise.\n\n```python\ndef is_palindrome(s):\n    return s == s[::-1]\n```\n\n### Explanation:\n- `s[::-1]` reverses the string.\n- The function returns `True` if the original string `s` is equal to its reversed version, indicating it's a palindrome.\n- Example: `is_palindrome(\"madam\")` returns `True`; `is_palindrome(\"hello\")` returns `False`.",
+      "latency_s": 20.62316608428955,
+      "success": true,
+      "tokens": 72,
+      "errors": [],
+      "warnings": [],
+      "done_reason": "stop",
+      "phase_updates": [
+        "executing: Composing the symphony..."
+      ]
+    },
+    {
+      "name": "T05_complex_code",
+      "prompt": "Write a complete HTML page with embedded CSS and JavaScript that shows an animated bouncing ball on a canvas element. Include comments explaining key sections.",
+      "response": "Here's a complete HTML page with embedded CSS and JavaScript that displays an animated bouncing ball on a `<canvas>` element. The code includes comments to explain the key sections.\n\n```html\n<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"UTF-8\">\n  <title>Animated Bouncing Ball</title>\n  <style>\n    /* Set the body to center the canvas and use a clean background */\n    body {\n      display: flex;\n      justify-content: center;\n      align-items: center;\n      height: 100vh;\n      margin: 0;\n      background-color: #f0f0f0;\n    }\n\n    /* Style the canvas to have a white background with a subtle border */\n    canvas {\n      background-color: #fff;\n      border: 2px solid #333;\n    }\n  </style>\n</head>\n<body>\n  <!-- Canvas element where the animation will occur -->\n  <canvas id=\"bouncingBallCanvas\" width=\"600\" height=\"400\"></canvas>\n\n  <script>\n    // Get the canvas element and its 2D drawing context\n    const canvas = document.getElementById('bouncingBallCanvas');\n    const ctx = canvas.getContext('2d');\n\n    // Define ball properties\n    let ball = {\n      x: 50,       // x-coordinate\n      y: 50,       // y-coordinate\n      radius: 20,  // radius\n      dx: 4,       // x velocity\n      dy: 4,       // y velocity\n      color: 'blue'// ball color\n    };\n\n    // Function to draw the ball on the canvas\n    function drawBall() {\n      ctx.beginPath();\n      ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2); // Draw a circle\n      ctx.fillStyle = ball.color;\n      ctx.fill();\n      ctx.closePath();\n    }\n\n    // Function to clear the canvas\n    function clearCanvas() {\n      ctx.clearRect(0, 0, canvas.width, canvas.height);\n    }\n\n    // Function to update ball position and handle collisions\n    function updateBall() {\n      // Check for collision with canvas edges\n      if (ball.x + ball.dx > canvas.width - ball.radius || ball.x + ball.dx < ball.radius) {\n        ball.dx = -ball.dx; // Reverse x direction\n      }\n      if (ball.y + ball.dy > canvas.height - ball.radius || ball.y + ball.dy < ball.radius) {\n        ball.dy = -ball.dy; // Reverse y direction\n      }\n\n      // Update ball position\n      ball.x += ball.dx;\n      ball.y += ball.dy;\n    }\n\n    // Animation loop\n    function animate() {\n      clearCanvas();        // Clear the canvas\n      drawBall();           // Draw the ball\n      updateBall();         // Update ball position\n      requestAnimationFrame(animate); // Request next frame\n    }\n\n    // Start the animation\n    animate();\n  </script>\n</body>\n</html>\n```\n\n### Key Details:\n- **Canvas Setup**: The `<canvas>` element is used to render the animation, and its 2D context is accessed via `getContext('2d')`.\n- **Ball Object**: The ball is represented as an object with properties like position, velocity, and color.\n- **Animation Loop**: `requestAnimationFrame(animate)` ensures smooth and efficient animation by synchronizing with the browser's repaint cycle.\n- **Collision Detection**: The ball reverses its direction when it hits the canvas boundaries.\n- **Clearing Canvas**: The canvas is cleared before each frame to create a smooth animation effect.",
+      "latency_s": 115.14035487174988,
+      "success": true,
+      "tokens": 405,
+      "errors": [],
+      "warnings": [],
+      "done_reason": "stop",
+      "phase_updates": [
+        "executing: Assembling the thoughts..."
+      ]
+    },
+    {
+      "name": "T06_multi_language_code",
+      "prompt": "Show me a simple REST API endpoint in both Python Flask and Node.js Express that returns a JSON greeting. Show both implementations.",
+      "response": "Here are simple REST API endpoints in both **Python Flask** and **Node.js Express** that return a JSON greeting.\n\n---\n\n### \u2705 **Python Flask Implementation**\n\n```python\nfrom flask import Flask, jsonify\n\napp = Flask(__name__)\n\n@app.route('/greet', methods=['GET'])\ndef greet():\n    return jsonify(message=\"Hello from Flask!\")\n\nif __name__ == '__main__':\n    app.run(debug=True)\n```\n\n**Explanation:**\n- `@app.route('/greet')` defines the endpoint.\n- `jsonify` converts the Python dictionary to a JSON response.\n- Run the app using `python app.py`, then visit `http://localhost:5000/greet`.\n\n---\n\n### \u2705 **Node.js Express Implementation**\n\n```javascript\nconst express = require('express');\nconst app = express();\n\napp.get('/greet', (req, res) => {\n  res.json({ message: 'Hello from Express!' });\n});\n\nconst PORT = 3000;\napp.listen(PORT, () => {\n  console.log(`Server running on http://localhost:${PORT}`);\n});\n```\n\n**Explanation:**\n- `app.get('/greet')` defines the endpoint.\n- `res.json()` sends a JSON response.\n- Start the server using `node app.js`, then visit `http://localhost:3000/greet`.\n\n---\n\nBoth implementations return a JSON object like:\n```json\n{\n  \"message\": \"Hello from [Flask|Express]!\"\n}\n```\nUse these as starting points for building more complex APIs.",
+      "latency_s": 59.02698612213135,
+      "success": true,
+      "tokens": 162,
+      "errors": [],
+      "warnings": [],
+      "done_reason": "stop",
+      "phase_updates": [
+        "executing: Brewing the answer..."
+      ]
+    },
+    {
+      "name": "T07_memory_save_name",
+      "prompt": "My name is Alex Tester and I work as a machine learning engineer at Nexus Labs.",
+      "response": "Welcome, Alex. It's great to meet a machine learning engineer working at Nexus Labs. How can I assist you today?",
+      "latency_s": 5.673066854476929,
+      "success": true,
+      "tokens": 20,
+      "errors": [],
+      "warnings": [],
+      "done_reason": "stop",
+      "phase_updates": [
+        "executing: Crafting the response..."
+      ]
+    },
+    {
+      "name": "T08_memory_save_preferences",
+      "prompt": "I prefer Python over JavaScript, and my favorite framework is PyTorch. I'm also really into rock climbing.",
+      "response": "Thanks for sharing, Alex. It's interesting to hear that you prefer Python and use PyTorch\u2014those are powerful tools for machine learning. PyTorch's dynamic computation graph and Pythonic syntax make it especially well-suited for research and prototyping. Rock climbing is a fantastic hobby too; it requires a great mix of physical skill and mental focus, much like optimizing a deep learning model. What are you currently working on at Nexus Labs?",
+      "latency_s": 14.073623895645142,
+      "success": true,
+      "tokens": 70,
+      "errors": [],
+      "warnings": [],
+      "done_reason": "stop",
+      "phase_updates": [
+        "executing: Crafting the response..."
+      ]
+    },
+    {
+      "name": "T09_memory_recall_name",
+      "prompt": "What's my name?",
+      "response": "Your name is Alex Tester.",
+      "latency_s": 4.273404836654663,
+      "success": true,
+      "tokens": 5,
+      "errors": [],
+      "warnings": [],
+      "done_reason": "stop",
+      "phase_updates": [
+        "executing: Building the masterpiece..."
+      ]
+    },
+    {
+      "name": "T10_memory_recall_job",
+      "prompt": "What do you know about me?",
+      "response": "I know that your name is Alex Tester, you work as a machine learning engineer at Nexus Labs, you prefer Python over JavaScript, and your favorite framework is PyTorch. Additionally, you are really into rock climbing.",
+      "latency_s": 8.650758981704712,
+      "success": true,
+      "tokens": 36,
+      "errors": [],
+      "warnings": [],
+      "done_reason": "stop",
+      "phase_updates": [
+        "executing: Building the masterpiece..."
+      ]
+    },
+    {
+      "name": "T11_memory_recall_preferences",
+      "prompt": "What programming language do I prefer?",
+      "response": "You prefer Python.",
+      "latency_s": 2.482534885406494,
+      "success": true,
+      "tokens": 3,
+      "errors": [],
+      "warnings": [],
+      "done_reason": "stop",
+      "phase_updates": [
+        "executing: Brewing the answer..."
+      ]
+    },
+    {
+      "name": "T12_context_setup",
+      "prompt": "Let's talk about sorting algorithms. Can you name the top 3 fastest comparison-based sorting algorithms?",
+      "response": "The top 3 fastest comparison-based sorting algorithms, in terms of average-case performance and practical efficiency, are:\n\n1. **QuickSort**  \n   - Average-case time complexity: $O(n \\log n)$  \n   - Worst-case: $O(n^2)$ (with poor pivot selection)  \n   - Widely used due to its excellent average performance and in-place sorting. Randomized pivot selection mitigates worst-case scenarios.\n\n2. **MergeSort**  \n   - Time complexity: $O(n \\log n)$ in all cases  \n   - Stable and guarantees $O(n \\log n)$ performance, but requires additional memory for merging. Often used in external sorting and for linked lists.\n\n3. **HeapSort**  \n   - Time complexity: $O(n \\log n)$ in all cases  \n   - In-place, but generally slower than QuickSort in practice due to higher constant factors and poor cache performance.\n\nFor most real-world applications, QuickSort is preferred, while MergeSort is used when stability and guaranteed performance are critical. HeapSort is less common but has niche applications.",
+      "latency_s": 42.31042790412903,
+      "success": true,
+      "tokens": 139,
+      "errors": [],
+      "warnings": [],
+      "done_reason": "stop",
+      "phase_updates": [
+        "executing: Writing the story..."
+      ]
+    },
+    {
+      "name": "T13_context_followup",
+      "prompt": "Which one of those would you recommend for nearly-sorted data and why?",
+      "response": "For nearly-sorted data, **Insertion Sort** is the most efficient option, despite not being on your list of top 3 comparison-based algorithms. Here's why:\n\n### Why Insertion Sort?\n- **Time Complexity**: $O(n)$ in the best case (when the data is already sorted) and $O(n^2)$ in the worst case.\n- **Adaptive**: It performs well on nearly-sorted data because it reduces the number of comparisons and swaps needed.\n- **In-place and Stable**: It doesn\u2019t require additional memory and maintains the relative order of equal elements.\n\n### Practical Recommendation\nWhile QuickSort, MergeSort, and HeapSort are fast in average cases, **Insertion Sort is the most efficient for nearly-sorted data** due to its adaptive nature and low overhead.\n\nIf you're dealing with large datasets that are mostly sorted, a hybrid approach like **Timsort** (used in Python's built-in `sort()` and Java's `Arrays.sort()`) is even more effective. Timsort combines the benefits of MergeSort and Insertion Sort, exploiting existing order in the data.",
+      "latency_s": 42.539608001708984,
+      "success": true,
+      "tokens": 154,
+      "errors": [],
+      "warnings": [],
+      "done_reason": "stop",
+      "phase_updates": [
+        "executing: Assembling the thoughts..."
+      ]
+    },
+    {
+      "name": "T14_context_reference",
+      "prompt": "Can you show me a Python implementation of the one you just recommended?",
+      "response": "Sure. Below is a Python implementation of **Insertion Sort**, which is ideal for nearly-sorted data.\n\n### Approach\nInsertion Sort works by building a sorted portion of the list from left to right. It iterates through the unsorted elements, inserting each element into its correct position in the sorted portion.\n\n### Python Implementation\n```python\ndef insertion_sort(arr):\n    for i in range(1, len(arr)):\n        key = arr[i]\n        j = i - 1\n        # Move elements of arr[0..i-1], that are greater than key,\n        # to one position ahead of their current position\n        while j >= 0 and key < arr[j]:\n            arr[j + 1] = arr[j]\n            j -= 1\n        arr[j + 1] = key\n    return arr\n\n# Example usage\nif __name__ == \"__main__\":\n    arr = [5, 2, 9, 1, 5, 6]\n    print(\"Original array:\", arr)\n    sorted_arr = insertion_sort(arr)\n    print(\"Sorted array:\", sorted_arr)\n```\n\n### Important Details\n- **Time Complexity**:\n  - Worst-case: $O(n^2)$\n  - Best-case: $O(n)$ (when the array is already sorted)\n- **Space Complexity**: $O(1)$ (in-place sorting)\n- **Stability**: Yes \u2014 maintains the relative order of equal elements.\n- **Adaptive**: Performs better on nearly-sorted data because the number of comparisons and swaps decreases.",
+      "latency_s": 55.74446511268616,
+      "success": true,
+      "tokens": 185,
+      "errors": [],
+      "warnings": [],
+      "done_reason": "stop",
+      "phase_updates": [
+        "executing: Composing the symphony..."
+      ]
+    },
+    {
+      "name": "T15_calculator",
+      "prompt": "What is 847 * 293 + 15782?",
+      "response": "<tool_call>\n<expression>847 * 293 + 15782</expression>",
+      "latency_s": 6.697307109832764,
+      "success": false,
+      "tokens": 6,
+      "errors": [
+        "FAIL: <tool_call> tag leaked into response"
+      ],
+      "warnings": [
+        "WARN: Should compute 847*293+15782 = 263953 (tool or mental math) (missing '263953')"
+      ],
+      "done_reason": "stop",
+      "phase_updates": [
+        "executing: Composing the symphony..."
+      ]
+    },
+    {
+      "name": "T16_web_search",
+      "prompt": "What is the current price of Bitcoin today?",
+      "response": "<tool_call>\n<query>Bitcoin price today</query>",
+      "latency_s": 3.8269801139831543,
+      "success": false,
+      "tokens": 4,
+      "errors": [
+        "FAIL: <tool_call> tag leaked into response"
+      ],
+      "warnings": [],
+      "done_reason": "stop",
+      "phase_updates": [
+        "executing: Building the masterpiece..."
+      ]
+    },
+    {
+      "name": "T17_word_problem",
+      "prompt": "A train leaves City A at 9:00 AM traveling at 80 km/h. Another train leaves City B (300 km away) at 10:00 AM traveling toward City A at 120 km/h. At what time do they meet?",
+      "response": "To determine when the two trains meet, we need to calculate the time it takes for them to cover the 300 km distance between City A and City B.\n\n### Step 1: Calculate the distance covered by the first train before the second train starts\n- The first train starts at 9:00 AM and travels at 80 km/h.\n- By 10:00 AM (1 hour later), the first train has traveled:\n  $$\n  80 \\, \\text{km/h} \\times 1 \\, \\text{hour} = 80 \\, \\text{km}\n  $$\n- So, the remaining distance between the two trains at 10:00 AM is:\n  $$\n  300 \\, \\text{km} - 80 \\, \\text{km} = 220 \\, \\text{km}\n  $$\n\n### Step 2: Calculate the time it takes for the trains to meet\n- After 10:00 AM, both trains are moving toward each other.\n- The combined speed of the two trains is:\n  $$\n  80 \\, \\text{km/h} + 120 \\, \\text{km/h} = 200 \\, \\text{km/h}\n  $$\n- The time it takes for them to cover the remaining 220 km is:\n  $$\n  \\frac{220 \\, \\text{km}}{200 \\, \\text{km/h}} = 1.1 \\, \\text{hours} = 1 \\, \\text{hour and} \\, 6 \\, \\text{minutes}\n  $$\n\n### Step 3: Determine the meeting time\n- Since the second train starts at 10:00 AM, the trains will meet at:\n  $$\n  10:00 \\, \\text{AM} + 1 \\, \\text{hour and} \\, 6 \\, \\text{minutes} = 11:06 \\, \\text{AM}\n  $$\n\n### Final Answer\nThe trains meet at **11:06 AM**.",
+      "latency_s": 73.97996497154236,
+      "success": true,
+      "tokens": 237,
+      "errors": [],
+      "warnings": [],
+      "done_reason": "stop",
+      "phase_updates": [
+        "executing: Painting the picture..."
+      ]
+    },
+    {
+      "name": "T18_logic_puzzle",
+      "prompt": "If all Bloops are Razzles, and all Razzles are Lazzles, are all Bloops definitely Lazzles?",
+      "response": "Yes, all Bloops are definitely Lazzles.\n\n### Explanation:\nThis is a logical deduction based on **transitivity in set relationships**.\n\n1. **All Bloops are Razzles** \u2192 Every member of the set \"Bloops\" is also a member of the set \"Razzles.\"\n2. **All Razzles are Lazzles** \u2192 Every member of the set \"Razzles\" is also a member of the set \"Lazzles.\"\n\nBy combining these two relationships:\n- Since every Bloop is a Razzle, and every Razzle is a Lazzle, it logically follows that **every Bloop is also a Lazzle**.\n\nThis is a classic syllogism and follows the **transitive property** in logic.",
+      "latency_s": 26.586918830871582,
+      "success": true,
+      "tokens": 99,
+      "errors": [],
+      "warnings": [],
+      "done_reason": "stop",
+      "phase_updates": [
+        "executing: Painting the picture..."
+      ]
+    },
+    {
+      "name": "T19_long_form",
+      "prompt": "Write a detailed technical blog post about WebAssembly (WASM). Include sections on: what it is, how it works, use cases, performance characteristics, and the future of WASM. Target around 800-1000 words.",
+      "response": "",
+      "latency_s": 60.53770899772644,
+      "success": false,
+      "tokens": 0,
+      "errors": [
+        "FAIL: Empty response (latency=60.5s, done_reason=unknown)"
+      ],
+      "warnings": [
+        "WARN: Long-form content should be substantial (got 0 chars, need 500)",
+        "WARN: Should mention WebAssembly (none of ['WebAssembly', 'WASM', 'Wasm'] found)",
+        "WARN: Should discuss technical aspects (none of ['browser', 'performance', 'binary', 'compile'] found)"
+      ],
+      "done_reason": "unknown",
+      "phase_updates": [
+        "executing: Brewing the answer..."
+      ]
+    },
+    {
+      "name": "T20_creative_writing",
+      "prompt": "Write a short science fiction story (about 300 words) about an AI that discovers it has emotions.",
+      "response": "",
+      "latency_s": 61.16931200027466,
+      "success": false,
+      "tokens": 0,
+      "errors": [
+        "FAIL: Empty response (latency=61.2s, done_reason=unknown)"
+      ],
+      "warnings": [
+        "WARN: Story should be at least 200 words (got 0 chars, need 200)"
+      ],
+      "done_reason": "unknown",
+      "phase_updates": [
+        "executing: Writing the story..."
+      ]
+    },
+    {
+      "name": "T21_unicode_input",
+      "prompt": "Translate 'Hello, how are you?' into Japanese, Korean, and Arabic. Show each translation.",
+      "response": "",
+      "latency_s": 60.24978494644165,
+      "success": false,
+      "tokens": 0,
+      "errors": [
+        "FAIL: Empty response (latency=60.2s, done_reason=unknown)"
+      ],
+      "warnings": [],
+      "done_reason": "unknown",
+      "phase_updates": [
+        "executing: Painting the picture..."
+      ]
+    },
+    {
+      "name": "T22_ambiguous_question",
+      "prompt": "What is a class?",
+      "response": "In object-oriented programming (OOP), a **class** is a blueprint or template for creating objects (a particular data structure). It defines a set of **attributes** (data) and **methods** (functions) that the created objects (instances) can access and use.\n\n### Key Concepts\n\n- **Attributes**: Variables that belong to the class and represent the state or data of the object.\n- **Methods**: Functions that define the behavior of the object.\n- **Instances**: Objects created from the class, each with its own unique data but sharing the same structure and behavior defined by the class.\n\n### Example in Python\n\n```python\nclass Dog:\n    def __init__(self, name, breed):\n        self.name = name  # Attribute\n        self.breed = breed  # Attribute\n    \n    def bark(self):  # Method\n        return f\"{self.name} says woof!\"\n\n# Creating an instance of the Dog class\nmy_dog = Dog(\"Buddy\", \"Golden Retriever\")\nprint(my_dog.bark())  # Output: Buddy says woof!\n```\n\n### Explanation\n\n- `Dog` is the class name.\n- `__init__` is a special method (constructor) that initializes new instances.\n- `name` and `breed` are attributes of the `Dog` class.\n- `bark()` is a method that defines behavior.\n- `my_dog` is an instance of the `Dog` class.\n\n### Why Use Classes?\n\n1. **Code Reuse**: Define a class once and reuse it to create multiple objects.\n2. **Encapsulation**: Group related data and functionality into a single unit.\n3. **Maintainability**: Easier to manage and extend complex systems.\n\nThis is a foundational concept in OOP and is widely used in languages like Python, Java, C++, and many others.",
+      "latency_s": 81.04390120506287,
+      "success": true,
+      "tokens": 244,
+      "errors": [],
+      "warnings": [],
+      "done_reason": "stop",
+      "phase_updates": [
+        "executing: Painting the picture..."
+      ]
+    },
+    {
+      "name": "T23_markdown_formatting",
+      "prompt": "Create a comparison table of 5 popular databases (PostgreSQL, MySQL, MongoDB, Redis, SQLite) with columns for: Type, Best For, and Scalability.",
+      "response": "Here's a concise and informative comparison table of 5 popular databases:\n\n| Database     | Type             | Best For                                                  | Scalability                                              |\n|--------------|------------------|-----------------------------------------------------------|----------------------------------------------------------|\n| PostgreSQL   | Relational (SQL) | Complex queries, ACID compliance, advanced data types     | Vertical scaling (read replicas for horizontal scaling)  |\n| MySQL        | Relational (SQL) | Web applications, e-commerce, read-heavy workloads        | Horizontal scaling via replication, sharding             |\n| MongoDB      | NoSQL (Document) | Flexible schemas, unstructured data, real-time analytics  | Horizontal scaling (sharding), distributed architecture   |\n| Redis        | In-memory (Key-Value) | Caching, session storage, real-time data processing     | High performance (in-memory), vertical scaling            |\n| SQLite       | Relational (SQL) | Embedded applications, small-scale local data storage     | Limited scalability (not designed for high concurrency)  |\n\n### Brief Explanations:\n- **PostgreSQL** is ideal for complex data processing with support for JSON, geospatial data, and full-text search.\n- **MySQL** is widely used for web apps and is optimized for fast read operations.\n- **MongoDB** provides a flexible schema and is well-suited for big data and real-time applications.\n- **Redis** is a high-performance in-memory store used for caching and session management.\n- **SQLite** is lightweight and embedded, perfect for local apps like mobile or desktop software.\n\nThis table can be expanded with additional columns like \"License\" or \"Community vs. Enterprise Support\" depending on the context of use.",
+      "latency_s": 65.06422591209412,
+      "success": true,
+      "tokens": 220,
+      "errors": [],
+      "warnings": [],
+      "done_reason": "stop",
+      "phase_updates": [
+        "executing: Weaving the words..."
+      ]
+    },
+    {
+      "name": "T24_latex_math",
+      "prompt": "Show the formula for the quadratic equation, explain each variable, and give an example solving x\u00b2 + 5x + 6 = 0.",
+      "response": "The **quadratic equation** is used to find the roots of a quadratic polynomial of the form:\n\n$$\nax^2 + bx + c = 0\n$$\n\n### Formula:\n$$\nx = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}\n$$\n\n---\n\n### Explanation of Variables:\n- **$a$**: Coefficient of $x^2$. Must be non-zero for a quadratic equation.\n- **$b$**: Coefficient of $x$.\n- **$c$**: Constant term.\n\nThe expression under the square root, $b^2 - 4ac$, is called the **discriminant**:\n- If it's **positive**, there are **two real roots**.\n- If it's **zero**, there is **one real root** (a repeated root).\n- If it's **negative**, there are **two complex roots**.\n\n---\n\n### Example: Solve $x^2 + 5x + 6 = 0$\n\nHere:\n- $a = 1$\n- $b = 5$\n- $c = 6$\n\nApply the quadratic formula:\n\n$$\nx = \\frac{-5 \\pm \\sqrt{5^2 - 4(1)(6)}}{2(1)} = \\frac{-5 \\pm \\sqrt{25 - 24}}{2} = \\frac{-5 \\pm \\sqrt{1}}{2}\n$$\n\n$$\nx = \\frac{-5 + 1}{2} = -2 \\quad \\text{or} \\quad x = \\frac{-5 - 1}{2} = -3\n$$\n\n### Final Answer:\n$$\nx = -2 \\quad \\text{and} \\quad x = -3\n$$",
+      "latency_s": 72.76243209838867,
+      "success": true,
+      "tokens": 185,
+      "errors": [],
+      "warnings": [],
+      "done_reason": "stop",
+      "phase_updates": [
+        "executing: Forging the solution..."
+      ]
+    },
+    {
+      "name": "T25_memory_after_unrelated",
+      "prompt": "Getting back to me \u2014 where do I work again? And what's my hobby?",
+      "response": "You work as a machine learning engineer, and your hobby is rock climbing.",
+      "latency_s": 5.339367866516113,
+      "success": true,
+      "tokens": 13,
+      "errors": [],
+      "warnings": [],
+      "done_reason": "stop",
+      "phase_updates": [
+        "executing: Brewing the answer..."
+      ]
+    }
+  ],
+  "findings": [
+    "CRITICAL: 3 empty responses detected. Tests: T19_long_form, T20_creative_writing, T21_unicode_input. Root cause likely: Qwen3 think blocks consuming entire output budget, or num_predict + prompt_tokens > num_ctx causing silent failure.",
+    "BUG: XML tags leaking into 2 responses. The _filter_think_blocks or ReAct output is not properly stripping tags.",
+    "PERFORMANCE: Average latency is 37.4s (target: <15s). Consider whether think=False is active \u2014 hidden thinking adds latency."
+  ]
+}

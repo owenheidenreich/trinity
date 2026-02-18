@@ -18,7 +18,7 @@ version: "2.0"
 
 services:
   trinity:
-    image: gdubx/trinity-inference:v2-20260217-024936
+    image: gdubx/trinity-inference:v2-20260217-190654
     env:
       - PROVIDER_ID=trinity-production-qwen3-32b
       - MODEL_NAME=qwen3:32b
