@@ -34,6 +34,23 @@ def _get_storage():
     return load_user_memory, save_user_memory
 
 
+_DEFAULT_GET_STORAGE_FN = _get_storage
+
+
+def _use_state_store_fast_path() -> bool:
+    """
+    Runtime uses canonical state_store row-level updates.
+    Unit tests that monkeypatch _get_storage keep the legacy in-memory path.
+    """
+    return _get_storage is _DEFAULT_GET_STORAGE_FN
+
+
+def _get_state_store(principal_id: str):
+    from services.state_store import get_state_store
+
+    return get_state_store(principal_id)
+
+
 def _get_thresholds():
     """Get dedup thresholds from config."""
     try:
@@ -106,6 +123,317 @@ def _detect_contradiction(old_text: str, new_text: str) -> bool:
     return False
 
 
+def _list_active_store_facts(principal_id: str) -> List[Dict]:
+    store = _get_state_store(principal_id)
+    facts = store.list_facts(include_deleted=True, include_invalid=True, with_embeddings=True)
+    return [f for f in facts if not f.get("deleted", False) and not f.get("invalid_at")]
+
+
+def _tool_save_memory_state(params: Dict, principal_id: str) -> Tuple[bool, str]:
+    fact = params.get("fact", "").strip()
+    if not fact:
+        return False, "No fact provided to save"
+
+    category = params.get("category", "general").strip().lower()
+    try:
+        importance = max(1, min(5, int(params.get("importance", "3"))))
+    except (ValueError, TypeError):
+        importance = 3
+
+    try:
+        embed_text, cosine_similarity = _get_embeddings()
+        merge_threshold, skip_threshold = _get_thresholds()
+        store = _get_state_store(principal_id)
+        facts = _list_active_store_facts(principal_id)
+
+        fact_embedding = embed_text(fact)
+        source_message_id = params.get("source_message_id")
+        try:
+            source_message_id = int(source_message_id) if source_message_id is not None else None
+        except (TypeError, ValueError):
+            source_message_id = None
+
+        if fact_embedding is None:
+            normalized_new = fact.lower().strip()
+            for existing in facts:
+                existing_text = str(existing.get("text", "")).lower().strip()
+                if existing_text == normalized_new:
+                    return True, f"Already remembered something similar: \"{existing.get('text', fact)}\""
+
+            store.create_fact(
+                text=fact,
+                category=category,
+                importance=importance,
+                source_message_id=source_message_id,
+                embedding=None,
+            )
+            return True, f"Saved: \"{fact}\" (category: {category}, importance: {importance}/5)"
+
+        best_match = None
+        best_similarity = 0.0
+        for existing in facts:
+            existing_emb = existing.get("embedding")
+            if existing_emb is None:
+                continue
+            similarity = cosine_similarity(fact_embedding, np.array(existing_emb))
+            if similarity > best_similarity:
+                best_similarity = similarity
+                best_match = existing
+
+        now_ms = int(time.time() * 1000)
+
+        if best_similarity > skip_threshold and best_match is not None:
+            return True, f"Already remembered something similar: \"{best_match['text']}\""
+
+        if best_similarity > merge_threshold and best_match is not None:
+            best_fact_id = int(best_match.get("fact_id"))
+            old_text = best_match["text"]
+            is_contradiction = _detect_contradiction(old_text, fact)
+
+            if is_contradiction:
+                store.update_fact(best_fact_id, {"invalid_at": now_ms})
+                store.create_fact(
+                    text=fact,
+                    category=category if category != "general" else best_match.get("category", "general"),
+                    importance=max(int(best_match.get("importance", 3)), importance),
+                    source_message_id=source_message_id,
+                    embedding=fact_embedding.tolist(),
+                )
+                logger.info(f"🔄 Contradiction detected: \"{old_text}\" → \"{fact}\"")
+                return True, f"Updated memory: \"{old_text}\" → \"{fact}\" (old fact invalidated)"
+
+            updates = {
+                "text": fact,
+                "importance": max(int(best_match.get("importance", 3)), importance),
+                "embedding": fact_embedding.tolist(),
+            }
+            if category != "general":
+                updates["category"] = category
+            store.update_fact(best_fact_id, updates)
+            return True, f"Updated memory: \"{old_text}\" → \"{fact}\""
+
+        store.create_fact(
+            text=fact,
+            category=category,
+            importance=importance,
+            source_message_id=source_message_id,
+            embedding=fact_embedding.tolist(),
+        )
+        return True, f"Saved: \"{fact}\" (category: {category}, importance: {importance}/5)"
+
+    except Exception as e:
+        logger.error(f"save_memory error: {e}")
+        return False, f"Failed to save memory: {e}"
+
+
+def _tool_recall_memory_state(params: Dict, principal_id: str) -> Tuple[bool, str]:
+    query = params.get("query", "").strip()
+    if not query:
+        return False, "No query provided"
+
+    category_filter = params.get("category", "").strip().lower() or None
+    try:
+        limit = max(1, min(20, int(params.get("limit", "5"))))
+    except (ValueError, TypeError):
+        limit = 5
+
+    try:
+        embed_text, cosine_similarity = _get_embeddings()
+        active_facts = _list_active_store_facts(principal_id)
+        if not active_facts:
+            return True, "No memories saved yet."
+
+        query_embedding = embed_text(query)
+        if query_embedding is None:
+            return False, "Failed to generate query embedding"
+
+        scored = []
+        for fact in active_facts:
+            if category_filter and fact.get("category", "general") != category_filter:
+                continue
+            emb = fact.get("embedding")
+            if emb is None:
+                continue
+            similarity = cosine_similarity(query_embedding, np.array(emb))
+            importance = fact.get("importance", 3)
+            score = 0.7 * similarity + 0.3 * (importance / 5.0)
+            scored.append((score, similarity, fact))
+
+        if not scored:
+            msg = "No memories found"
+            if category_filter:
+                msg += f" in category '{category_filter}'"
+            return True, msg
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+        top = scored[:limit]
+        lines = [f"Recalled {len(top)} memories:"]
+        for i, (_score, sim, fact) in enumerate(top, 1):
+            lines.append(f"\n{i}. \"{fact['text']}\"")
+            lines.append(
+                f"   Category: {fact.get('category', 'general')} | Importance: {fact.get('importance', 3)}/5 | Relevance: {sim:.2f}"
+            )
+        return True, "\n".join(lines)
+    except Exception as e:
+        logger.error(f"recall_memory error: {e}")
+        return False, f"Failed to recall memory: {e}"
+
+
+def _tool_search_memory_state(params: Dict, principal_id: str) -> Tuple[bool, str]:
+    query = params.get("query", "").strip()
+    if not query:
+        return False, "No search query provided"
+
+    search_type = params.get("search_type", "semantic").strip().lower()
+    if search_type not in ("semantic", "exact", "hybrid"):
+        search_type = "semantic"
+
+    try:
+        limit = max(1, min(20, int(params.get("limit", "5"))))
+    except (ValueError, TypeError):
+        limit = 5
+
+    try:
+        embed_text, cosine_similarity = _get_embeddings()
+        active_facts = _list_active_store_facts(principal_id)
+        if not active_facts:
+            return True, "No memories saved yet."
+
+        results = []
+        if search_type in ("exact", "hybrid"):
+            query_lower = query.lower()
+            for fact in active_facts:
+                text = fact.get("text", "")
+                if query_lower in text.lower():
+                    results.append((1.0, fact, "exact"))
+
+        if search_type in ("semantic", "hybrid"):
+            query_embedding = embed_text(query)
+            if query_embedding is not None:
+                for fact in active_facts:
+                    emb = fact.get("embedding")
+                    if emb is None:
+                        continue
+                    similarity = cosine_similarity(query_embedding, np.array(emb))
+                    if search_type == "hybrid":
+                        already_found = any(f.get("text") == fact.get("text") for _, f, _ in results)
+                        if already_found:
+                            continue
+                    if similarity > 0.3:
+                        results.append((similarity, fact, "semantic"))
+
+        if not results:
+            return True, f"No memories match '{query}'"
+
+        results.sort(key=lambda x: x[0], reverse=True)
+        top = results[:limit]
+        lines = [f"Found {len(top)} memories ({search_type} search):"]
+        for i, (score, fact, match_type) in enumerate(top, 1):
+            lines.append(f"\n{i}. \"{fact['text']}\"")
+            lines.append(
+                f"   Match: {match_type} | Score: {score:.2f} | Category: {fact.get('category', 'general')}"
+            )
+        return True, "\n".join(lines)
+    except Exception as e:
+        logger.error(f"search_memory error: {e}")
+        return False, f"Failed to search memory: {e}"
+
+
+def _tool_update_memory_state(params: Dict, principal_id: str) -> Tuple[bool, str]:
+    query = params.get("query", "").strip()
+    new_value = params.get("new_value", "").strip()
+    if not query:
+        return False, "No query provided to find the memory to update"
+    if not new_value:
+        return False, "No new_value provided for the update"
+
+    try:
+        embed_text, cosine_similarity = _get_embeddings()
+        active_facts = _list_active_store_facts(principal_id)
+        if not active_facts:
+            return False, "No memories saved yet — nothing to update."
+
+        query_embedding = embed_text(query)
+        if query_embedding is None:
+            return False, "Failed to generate query embedding"
+
+        best_match = None
+        best_sim = 0.0
+        for fact in active_facts:
+            emb = fact.get("embedding")
+            if emb is None:
+                continue
+            sim = cosine_similarity(query_embedding, np.array(emb))
+            if sim > best_sim:
+                best_sim = sim
+                best_match = fact
+
+        if not best_match or best_sim < 0.3:
+            return False, f"No memory found matching: \"{query}\""
+
+        old_text = best_match["text"]
+        updates: Dict = {"text": new_value}
+
+        new_embedding = embed_text(new_value)
+        if new_embedding is not None:
+            updates["embedding"] = new_embedding.tolist()
+
+        new_cat = params.get("category", "").strip().lower()
+        if new_cat:
+            updates["category"] = new_cat
+
+        new_imp = params.get("importance")
+        if new_imp is not None:
+            try:
+                updates["importance"] = max(1, min(5, int(new_imp)))
+            except (ValueError, TypeError):
+                pass
+
+        store = _get_state_store(principal_id)
+        store.update_fact(int(best_match["fact_id"]), updates)
+        return True, f"Updated: \"{old_text}\" → \"{new_value}\" (match: {best_sim:.2f})"
+    except Exception as e:
+        logger.error(f"update_memory error: {e}")
+        return False, f"Failed to update memory: {e}"
+
+
+def _tool_forget_memory_state(params: Dict, principal_id: str) -> Tuple[bool, str]:
+    query = params.get("query", "").strip()
+    if not query:
+        return False, "No query provided — what should I forget?"
+
+    try:
+        embed_text, cosine_similarity = _get_embeddings()
+        active_facts = _list_active_store_facts(principal_id)
+        if not active_facts:
+            return True, "No memories saved yet — nothing to forget."
+
+        query_embedding = embed_text(query)
+        if query_embedding is None:
+            return False, "Failed to generate query embedding"
+
+        best_match = None
+        best_sim = 0.0
+        for fact in active_facts:
+            emb = fact.get("embedding")
+            if emb is None:
+                continue
+            sim = cosine_similarity(query_embedding, np.array(emb))
+            if sim > best_sim:
+                best_sim = sim
+                best_match = fact
+
+        if not best_match or best_sim < 0.3:
+            return False, f"No memory found matching: \"{query}\""
+
+        _get_state_store(principal_id).soft_delete_fact(int(best_match["fact_id"]))
+        forgotten_text = best_match["text"]
+        return True, f"Forgotten: \"{forgotten_text}\" (match: {best_sim:.2f})"
+    except Exception as e:
+        logger.error(f"forget_memory error: {e}")
+        return False, f"Failed to forget memory: {e}"
+
+
 def tool_save_memory(params: Dict, principal_id: str) -> Tuple[bool, str]:
     """
     Save a fact about the user to persistent memory.
@@ -117,6 +445,9 @@ def tool_save_memory(params: Dict, principal_id: str) -> Tuple[bool, str]:
         category: Category label (default: "general")
         importance: 1-5 importance rating (default: 3)
     """
+    if _use_state_store_fast_path():
+        return _tool_save_memory_state(params, principal_id)
+
     fact = params.get("fact", "").strip()
     if not fact:
         return False, "No fact provided to save"
@@ -134,12 +465,38 @@ def tool_save_memory(params: Dict, principal_id: str) -> Tuple[bool, str]:
 
         # Generate embedding for the new fact
         fact_embedding = embed_text(fact)
-        if fact_embedding is None:
-            return False, "Failed to generate embedding for fact"
 
         # Load existing memory
         memory = load_user_memory(principal_id)
         facts = memory.get("facts", [])
+
+        # Fallback mode: embeddings unavailable. Keep persistence functional.
+        if fact_embedding is None:
+            normalized_new = fact.lower().strip()
+            for existing in facts:
+                if existing.get("deleted", False):
+                    continue
+                existing_text = str(existing.get("text", "")).lower().strip()
+                if existing_text == normalized_new:
+                    return True, f"Already remembered something similar: \"{existing.get('text', fact)}\""
+
+            now_ms = int(time.time() * 1000)
+            new_fact = {
+                "text": fact,
+                "category": category,
+                "importance": importance,
+                "embedding": None,
+                "created_at": now_ms,
+                "deleted": False,
+                "source_chat_id": None,
+                "last_mentioned": now_ms,
+                "valid_at": now_ms,
+                "invalid_at": None,
+            }
+            facts.append(new_fact)
+            memory["facts"] = facts
+            save_user_memory(principal_id, memory)
+            return True, f"Saved: \"{fact}\" (category: {category}, importance: {importance}/5)"
 
         # Find best-matching existing fact (only among non-deleted)
         best_match = None
@@ -148,6 +505,8 @@ def tool_save_memory(params: Dict, principal_id: str) -> Tuple[bool, str]:
 
         for i, existing in enumerate(facts):
             if existing.get("deleted", False):
+                continue
+            if existing.get("invalid_at"):
                 continue
             existing_emb = existing.get("embedding")
             if existing_emb is not None:
@@ -245,6 +604,9 @@ def tool_recall_memory(params: Dict, principal_id: str) -> Tuple[bool, str]:
         category: Optional category filter
         limit: Max results (default: 5)
     """
+    if _use_state_store_fast_path():
+        return _tool_recall_memory_state(params, principal_id)
+
     query = params.get("query", "").strip()
     if not query:
         return False, "No query provided"
@@ -317,6 +679,9 @@ def tool_search_memory(params: Dict, principal_id: str) -> Tuple[bool, str]:
         search_type: "semantic" (default), "exact", or "hybrid"
         limit: Max results (default: 5)
     """
+    if _use_state_store_fast_path():
+        return _tool_search_memory_state(params, principal_id)
+
     query = params.get("query", "").strip()
     if not query:
         return False, "No search query provided"
@@ -403,6 +768,9 @@ def tool_update_memory(params: Dict, principal_id: str) -> Tuple[bool, str]:
         category: Optional new category
         importance: Optional new importance (1-5)
     """
+    if _use_state_store_fast_path():
+        return _tool_update_memory_state(params, principal_id)
+
     query = params.get("query", "").strip()
     new_value = params.get("new_value", "").strip()
     if not query:
@@ -481,6 +849,9 @@ def tool_forget_memory(params: Dict, principal_id: str) -> Tuple[bool, str]:
     Params:
         query: What fact to forget (required)
     """
+    if _use_state_store_fast_path():
+        return _tool_forget_memory_state(params, principal_id)
+
     query = params.get("query", "").strip()
     if not query:
         return False, "No query provided — what should I forget?"

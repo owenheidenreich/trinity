@@ -2,11 +2,10 @@
  * AppShell — top-level layout component.
  * Composes sidebar + main chat area + modals.
  */
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useStore } from '../../store';
 import { useAuth } from '../../hooks/useAuth';
 import { useChat } from '../../hooks/useChat';
-import { useAutosave } from '../../hooks/useAutosave';
 import { useConnection } from '../../hooks/useConnection';
 import { usePassphrase } from '../../hooks/usePassphrase';
 import { Sidebar } from '../sidebar/Sidebar';
@@ -19,10 +18,45 @@ import { KeyExportModal } from '../modals/KeyExportModal';
 import { InfoModal } from '../modals/InfoModal';
 import type { InfoVariant } from '../modals/InfoModal';
 import { toastManager } from '../notifications/ToastProvider';
-import { AutosaveIndicator } from '../notifications/AutosaveIndicator';
 import CONFIG from '../../config';
 import Logger from '../../utils/logger';
 import styles from '../../styles/components/AppShell.module.css';
+import type { ChatListItem } from '../../types';
+
+function normalizeChatItem(raw: Partial<ChatListItem> | null | undefined): ChatListItem | null {
+  if (!raw?.chatId) return null;
+  return {
+    chatId: String(raw.chatId),
+    title: String(raw.title ?? 'New Chat'),
+    messageCount: Number(raw.messageCount ?? 0),
+    createdAt: Number(raw.createdAt ?? 0),
+    lastUpdated: Number(raw.lastUpdated ?? raw.createdAt ?? 0),
+    pinned: Boolean(raw.pinned),
+    archived: Boolean(raw.archived),
+    isArchived: Boolean(raw.isArchived ?? raw.archived),
+    cid: raw.cid,
+  };
+}
+
+function normalizeChatList(raw: unknown): ChatListItem[] {
+  if (!Array.isArray(raw)) return [];
+  const deduped = new Map<string, ChatListItem>();
+  for (const item of raw) {
+    const normalized = normalizeChatItem(item as Partial<ChatListItem>);
+    if (!normalized) continue;
+    const existing = deduped.get(normalized.chatId);
+    if (!existing) {
+      deduped.set(normalized.chatId, normalized);
+      continue;
+    }
+    const existingUpdated = Number(existing.lastUpdated ?? 0);
+    const nextUpdated = Number(normalized.lastUpdated ?? 0);
+    if (nextUpdated >= existingUpdated) {
+      deduped.set(normalized.chatId, normalized);
+    }
+  }
+  return Array.from(deduped.values());
+}
 
 export function AppShell() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -30,6 +64,7 @@ export function AppShell() {
   const [showKeyExport, setShowKeyExport] = useState(false);
   const [infoVariant, setInfoVariant] = useState<InfoVariant | null>(null);
   const [isLoadingChats, setIsLoadingChats] = useState(false);
+  const chatListRequestSeq = useRef(0);
 
   // Store
   const chatHistory = useStore((s) => s.chatHistory);
@@ -47,8 +82,6 @@ export function AppShell() {
   const setContextMemory = useStore((s) => s.setContextMemory);
   const setUserMemory = useStore((s) => s.setUserMemory);
   const userMemory = useStore((s) => s.userMemory);
-  const updateMemoryFact = useStore((s) => s.updateMemoryFact);
-  const deleteMemoryFact = useStore((s) => s.deleteMemoryFact);
   const reset = useStore((s) => s.reset);
 
   // Hooks
@@ -58,6 +91,7 @@ export function AppShell() {
   const passphrase = usePassphrase();
 
   const loadChats = useCallback(async () => {
+    const requestSeq = ++chatListRequestSeq.current;
     try {
       setIsLoadingChats(true);
       const headers = await auth.buildAuthHeaders('/chat/list');
@@ -67,16 +101,41 @@ export function AppShell() {
       });
       if (response.ok) {
         const data = await response.json();
-        setAllChats(data.chats ?? []);
+        if (requestSeq !== chatListRequestSeq.current) {
+          return;
+        }
+        setAllChats(normalizeChatList(data.chats));
       }
     } catch (err) {
       Logger.error('Failed to load chats:', err);
     } finally {
-      setIsLoadingChats(false);
+      if (requestSeq === chatListRequestSeq.current) {
+        setIsLoadingChats(false);
+      }
     }
   }, [auth.buildAuthHeaders, setAllChats]);
 
-  const autosave = useAutosave(loadChats);
+  const ensureCanonicalChatId = useCallback(async (): Promise<string | null> => {
+    const existing = useStore.getState().currentChatId;
+    if (existing) return existing;
+
+    const headers = await auth.buildAuthHeaders('/chat/start');
+    if (!headers) return null;
+
+    const response = await fetch(`${CONFIG.API_URL}/chat/start`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({}),
+    });
+    if (!response.ok) return null;
+
+    const data = await response.json();
+    const chatId = data?.chat_id ? String(data.chat_id) : null;
+    if (chatId) {
+      setCurrentChatId(chatId);
+    }
+    return chatId;
+  }, [auth.buildAuthHeaders, setCurrentChatId]);
 
   // Auto-setup/unlock passphrase after authentication
   useEffect(() => {
@@ -94,88 +153,80 @@ export function AppShell() {
       void loadChats();
       void loadUserMemory();
     }
-  }, [auth.isAuthenticated, passphrase.status]);
+  }, [auth.isAuthenticated, passphrase.status, loadChats]);
 
   const loadUserMemory = useCallback(async () => {
     try {
       const headers = await auth.buildAuthHeaders('/user/memory');
-      if (!headers) return;
-      const response = await fetch(`${CONFIG.API_URL}/user/memory`, { headers });
+      if (!headers) return null;
+      const response = await fetch(`${CONFIG.API_URL}/user/memory?raw=1`, { headers });
       if (response.ok) {
         const data = await response.json();
         setUserMemory(data ?? null);
+        return data ?? null;
       }
     } catch (err) {
       Logger.error('Failed to load user memory:', err);
     }
+    return null;
   }, [auth.buildAuthHeaders, setUserMemory]);
 
-  // Edit a memory fact via backend PUT, then optimistic local update
-  const handleEditMemory = useCallback(
-    async (index: number, updates: { text?: string; category?: string; importance?: number }) => {
-      try {
-        const headers = await auth.buildAuthHeaders(`/user/memory/fact/${index}`);
-        if (!headers) return;
-        const response = await fetch(`${CONFIG.API_URL}/user/memory/fact/${index}`, {
-          method: 'PUT',
-          headers,
-          body: JSON.stringify(updates),
-        });
-        if (response.ok) {
-          updateMemoryFact(index, updates);
-        } else {
-          toastManager.error('Failed to update memory');
-        }
-      } catch (err) {
-        Logger.error('Failed to edit memory fact:', err);
-        toastManager.error('Failed to update memory');
-      }
-    },
-    [auth.buildAuthHeaders, updateMemoryFact]
-  );
+  const refreshMemoryAfterIngestion = useCallback(() => {
+    let attempts = 0;
+    const maxAttempts = 15;
+    const minAttemptsBeforeStop = 3;
+    let timer: ReturnType<typeof setInterval> | null = null;
 
-  // Delete a memory fact via backend DELETE, then optimistic local update
-  const handleDeleteMemory = useCallback(
-    async (index: number) => {
-      try {
-        const headers = await auth.buildAuthHeaders(`/user/memory/fact/${index}`);
-        if (!headers) return;
-        const response = await fetch(`${CONFIG.API_URL}/user/memory/fact/${index}`, {
-          method: 'DELETE',
-          headers,
-        });
-        if (response.ok) {
-          deleteMemoryFact(index);
-        } else {
-          toastManager.error('Failed to delete memory');
-        }
-      } catch (err) {
-        Logger.error('Failed to delete memory fact:', err);
-        toastManager.error('Failed to delete memory');
-      }
-    },
-    [auth.buildAuthHeaders, deleteMemoryFact]
-  );
+    const pollOnce = async () => {
+      attempts += 1;
+      const data = await loadUserMemory();
+      const jobs = Array.isArray(data?.ingestion_jobs_recent) ? data.ingestion_jobs_recent : [];
+      const hasPending = jobs.some((job: { status?: string }) => {
+        const status = (job?.status ?? '').toLowerCase();
+        return status === 'queued' || status === 'retry' || status === 'processing';
+      });
 
-  // Download memory as JSON
-  const handleDownloadMemory = useCallback(() => {
-    const mem = useStore.getState().userMemory;
-    if (!mem) return;
-    const activeFacts = mem.facts.filter(
-      (f) => !f.deleted && !f.invalid_at
-    );
-    const blob = new Blob(
-      [JSON.stringify({ facts: activeFacts, preferences: mem.preferences }, null, 2)],
-      { type: 'application/json' }
-    );
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'trinity-memories.json';
-    a.click();
-    URL.revokeObjectURL(url);
-    toastManager.success('Memories downloaded');
-  }, []);
+      if ((attempts >= minAttemptsBeforeStop && !hasPending) || attempts >= maxAttempts) {
+        if (timer) {
+          clearInterval(timer);
+          timer = null;
+        }
+      }
+    };
+
+    void pollOnce();
+    timer = setInterval(() => {
+      void pollOnce();
+    }, 2000);
+  }, [loadUserMemory]);
+
+  const normalizeMessages = useCallback(
+    (
+      chatId: string,
+      messages: Array<{
+        id?: number;
+        message_id?: number;
+        role: 'user' | 'assistant';
+        content: string;
+        createdAt?: number;
+        timestamp?: number;
+      }>
+    ) =>
+      messages.map((m, idx) => {
+        const createdAt = m.createdAt ?? m.timestamp ?? Date.now();
+        const id = Number(m.id ?? m.message_id ?? -(createdAt + idx));
+        return {
+          id,
+          chatId,
+          role: m.role,
+          content: m.content,
+          createdAt,
+          status: 'persisted' as const,
+          timestamp: createdAt,
+        };
+      }),
+    []
+  );
 
   // Register handler
   const handleRegister = useCallback(
@@ -206,14 +257,17 @@ export function AppShell() {
         }
       }
 
-      addMessage('user', prompt);
-
-      const { currentChatId: latestChatId, generateChatId } = useStore.getState();
-      let activeChatId = latestChatId;
-      if (!activeChatId) {
-        activeChatId = generateChatId();
-        setCurrentChatId(activeChatId);
+      const canonicalChatId = await ensureCanonicalChatId();
+      if (!canonicalChatId) {
+        toastManager.error('Failed to create chat session');
+        return;
       }
+
+      const pendingUserMessage = addMessage('user', prompt);
+      const sendChatId = canonicalChatId || pendingUserMessage.chatId;
+      // Start polling memory immediately so queued/processing ingestion jobs
+      // become visible quickly in the raw memory panel.
+      refreshMemoryAfterIngestion();
 
       const result = await chat.send(prompt, auth.buildAuthHeaders);
 
@@ -222,44 +276,80 @@ export function AppShell() {
           toastManager.error(result.error);
         }
         const partialTokens = chat.getTokens();
-        if (partialTokens) {
+        if (partialTokens && useStore.getState().currentChatId === sendChatId) {
           addMessage('assistant', partialTokens);
-          autosave.scheduleAutosave(auth.buildAuthHeaders);
         }
         return;
       }
 
-      const finalTokens = chat.getTokens();
-      if (finalTokens) {
-        addMessage('assistant', finalTokens);
+      const persistedChatId = result.chatId ?? sendChatId;
+      if (persistedChatId) {
+        try {
+          const headers = await auth.buildAuthHeaders(`/chat/${persistedChatId}`);
+          if (headers) {
+            const response = await fetch(`${CONFIG.API_URL}/chat/${persistedChatId}?limit=80`, {
+              headers,
+            });
+            if (response.ok) {
+              const data = await response.json();
+              const normalizedMessages = normalizeMessages(persistedChatId, data.messages ?? []);
+              if (useStore.getState().currentChatId === persistedChatId) {
+                setChatHistory(normalizedMessages);
+                setContextMemory(normalizedMessages.slice(-useStore.getState().CONTEXT_WINDOW_SIZE));
+                setChatStarted(normalizedMessages.length > 0);
+              }
+            }
+          }
+        } catch (err) {
+          Logger.error('Failed to refresh persisted chat after send:', err);
+        }
       } else {
-        addMessage('assistant', '*The model processed your request but returned an empty response. Please try again — sometimes rephrasing helps.*');
+        const finalTokens = chat.getTokens();
+        if (finalTokens) {
+          addMessage('assistant', finalTokens);
+        } else {
+          addMessage('assistant', '*The model processed your request but returned an empty response. Please try again.*');
+        }
       }
 
-      autosave.scheduleAutosave(auth.buildAuthHeaders);
-      // Refresh memory panel after backend background extraction completes (~2-3s)
-      setTimeout(() => void loadUserMemory(), 3000);
+      void loadChats();
     },
-    [addMessage, setCurrentChatId, chat, auth.buildAuthHeaders, autosave, loadUserMemory]
+    [
+      addMessage,
+      chat,
+      auth.buildAuthHeaders,
+      normalizeMessages,
+      setChatHistory,
+      setContextMemory,
+      setChatStarted,
+      loadChats,
+      refreshMemoryAfterIngestion,
+      ensureCanonicalChatId,
+    ]
   );
 
   // Load a specific chat
   const handleLoadChat = useCallback(
     async (chatId: string) => {
+      if (chat.isStreaming || isGenerating) {
+        toastManager.error('Please wait for the current response to finish');
+        return;
+      }
       try {
         setLoadingChat(true);
         const headers = await auth.buildAuthHeaders(`/chat/${chatId}`);
         if (!headers) return;
-        const response = await fetch(`${CONFIG.API_URL}/chat/${chatId}`, {
+        const response = await fetch(`${CONFIG.API_URL}/chat/${chatId}?limit=200`, {
           headers,
         });
         if (response.ok) {
           const data = await response.json();
-          setChatHistory(data.messages ?? []);
+          const normalizedMessages = normalizeMessages(chatId, data.messages ?? []);
+          setChatHistory(normalizedMessages);
           setCurrentChatId(chatId);
-          setChatStarted(true);
+          setChatStarted(normalizedMessages.length > 0);
           setContextMemory(
-            (data.messages ?? []).slice(-useStore.getState().CONTEXT_WINDOW_SIZE)
+            normalizedMessages.slice(-useStore.getState().CONTEXT_WINDOW_SIZE)
           );
         }
       } catch (err) {
@@ -268,7 +358,17 @@ export function AppShell() {
         setLoadingChat(false);
       }
     },
-    [auth.buildAuthHeaders, setChatHistory, setCurrentChatId, setChatStarted, setContextMemory, setLoadingChat]
+    [
+      chat.isStreaming,
+      isGenerating,
+      auth.buildAuthHeaders,
+      normalizeMessages,
+      setChatHistory,
+      setCurrentChatId,
+      setChatStarted,
+      setContextMemory,
+      setLoadingChat,
+    ]
   );
 
   // Delete chat
@@ -295,8 +395,41 @@ export function AppShell() {
 
   // New chat
   const handleNewChat = useCallback(() => {
-    reset();
-  }, [reset]);
+    if (chat.isStreaming || isGenerating) {
+      toastManager.error('Please wait for the current response to finish');
+      return;
+    }
+    void (async () => {
+      try {
+        const headers = await auth.buildAuthHeaders('/chat/start');
+        if (!headers) return;
+        const response = await fetch(`${CONFIG.API_URL}/chat/start`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({}),
+        });
+        const data = response.ok ? await response.json() : null;
+        setChatHistory([]);
+        setContextMemory([]);
+        setChatStarted(false);
+        setCurrentChatId(data?.chat_id ?? null);
+        void loadChats();
+      } catch (err) {
+        Logger.error('Failed to start new chat:', err);
+        reset();
+      }
+    })();
+  }, [
+    chat.isStreaming,
+    isGenerating,
+    auth.buildAuthHeaders,
+    setChatHistory,
+    setContextMemory,
+    setChatStarted,
+    setCurrentChatId,
+    loadChats,
+    reset,
+  ]);
 
   // Pin/unpin chat
   const handlePinChat = useCallback(
@@ -370,7 +503,13 @@ export function AppShell() {
         truncated.slice(-useStore.getState().CONTEXT_WINDOW_SIZE)
       );
 
+      const editChatId = await ensureCanonicalChatId();
+      if (!editChatId) {
+        toastManager.error('Failed to resolve chat for edit');
+        return;
+      }
       addMessage('user', content);
+      refreshMemoryAfterIngestion();
       const editResult = await chat.send(content, auth.buildAuthHeaders);
 
       if (!editResult.success) {
@@ -380,31 +519,70 @@ export function AppShell() {
         return;
       }
 
-      const finalTokens = chat.getTokens();
-      if (finalTokens) {
-        addMessage('assistant', finalTokens);
+      const persistedChatId = editChatId;
+      if (persistedChatId) {
+        try {
+          const headers = await auth.buildAuthHeaders(`/chat/${persistedChatId}`);
+          if (headers) {
+            const response = await fetch(`${CONFIG.API_URL}/chat/${persistedChatId}?limit=80`, {
+              headers,
+            });
+            if (response.ok) {
+              const data = await response.json();
+              const normalizedMessages = normalizeMessages(persistedChatId, data.messages ?? []);
+              if (useStore.getState().currentChatId === persistedChatId) {
+                setChatHistory(normalizedMessages);
+                setContextMemory(normalizedMessages.slice(-useStore.getState().CONTEXT_WINDOW_SIZE));
+                setChatStarted(normalizedMessages.length > 0);
+              }
+            }
+          }
+        } catch (err) {
+          Logger.error('Failed to refresh chat after edit:', err);
+        }
       }
-
-      autosave.scheduleAutosave(auth.buildAuthHeaders);
     },
-    [chatHistory, setChatHistory, setContextMemory, addMessage, chat, auth.buildAuthHeaders, autosave]
+    [
+      chatHistory,
+      setChatHistory,
+      setContextMemory,
+      setChatStarted,
+      addMessage,
+      chat,
+      auth.buildAuthHeaders,
+      normalizeMessages,
+      refreshMemoryAfterIngestion,
+      ensureCanonicalChatId,
+    ]
   );
 
   // Continue generation
   const handleContinue = useCallback(async () => {
+    const continueChatId = useStore.getState().currentChatId;
     await chat.continueGeneration(auth.buildAuthHeaders);
-    const finalTokens = chat.getTokens();
-    if (finalTokens) {
-      const currentHistory = useStore.getState().chatHistory;
-      const lastIdx = currentHistory.length - 1;
-      if (lastIdx >= 0 && currentHistory[lastIdx]?.role === 'assistant') {
-        const updated = [...currentHistory];
-        updated[lastIdx] = { ...updated[lastIdx]!, content: finalTokens };
-        setChatHistory(updated);
+    const persistedChatId = continueChatId;
+    if (persistedChatId) {
+      try {
+        const headers = await auth.buildAuthHeaders(`/chat/${persistedChatId}`);
+        if (headers) {
+          const response = await fetch(`${CONFIG.API_URL}/chat/${persistedChatId}?limit=80`, {
+            headers,
+          });
+          if (response.ok) {
+            const data = await response.json();
+            const normalizedMessages = normalizeMessages(persistedChatId, data.messages ?? []);
+            if (useStore.getState().currentChatId === persistedChatId) {
+              setChatHistory(normalizedMessages);
+              setContextMemory(normalizedMessages.slice(-useStore.getState().CONTEXT_WINDOW_SIZE));
+              setChatStarted(normalizedMessages.length > 0);
+            }
+          }
+        }
+      } catch (err) {
+        Logger.error('Failed to refresh chat after continue:', err);
       }
     }
-    autosave.scheduleAutosave(auth.buildAuthHeaders);
-  }, [chat, auth.buildAuthHeaders, setChatHistory, autosave]);
+  }, [chat, auth.buildAuthHeaders, normalizeMessages, setChatHistory, setContextMemory, setChatStarted]);
 
   // Show welcome modal if not authenticated or passphrase not unlocked
   const needsAuth =
@@ -433,7 +611,8 @@ export function AppShell() {
             currentChatId={currentChatId}
             connectionStatus={connectionStatus}
             isLoadingChats={isLoadingChats}
-            memoryFacts={userMemory?.facts ?? []}
+            isBusy={chat.isStreaming || isLoadingChat || isGenerating}
+            memoryData={userMemory}
             onNewChat={handleNewChat}
             onLoadChat={handleLoadChat}
             onDeleteChat={(chatId) => setDeleteTarget(chatId)}
@@ -442,9 +621,6 @@ export function AppShell() {
             onExportKey={handleExportKey}
             onLogout={auth.logout}
             onShowInfo={setInfoVariant}
-            onEditMemory={handleEditMemory}
-            onDeleteMemory={handleDeleteMemory}
-            onDownloadMemory={handleDownloadMemory}
           />
         </div>
       )}
@@ -541,9 +717,6 @@ export function AppShell() {
           onClose={() => setInfoVariant(null)}
         />
       )}
-
-      {/* Autosave indicator */}
-      <AutosaveIndicator />
     </div>
   );
 }

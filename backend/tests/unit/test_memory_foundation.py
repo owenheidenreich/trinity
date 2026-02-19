@@ -419,19 +419,25 @@ class TestContradictionDetection:
 # =============================================================================
 
 class TestAssistantExtraction:
-    """Test profile fact extraction from assistant messages."""
+    """Test profile fact extraction via LLM-backed extractor."""
 
     def test_extract_from_assistant_you_are(self):
-        """Extracts 'you are' facts from assistant messages."""
+        """Assistant message extraction uses normalized LLM output."""
         from services.profile_extractor import extract_profile_facts
 
-        facts = extract_profile_facts(
-            "Since you're a software engineer based in NYC, here are some meetup suggestions.",
-            source="assistant"
-        )
+        with patch("services.profile_extractor._call_extraction_model") as mock_call:
+            mock_call.return_value = {
+                "facts": [
+                    {"fact": "User is a software engineer in NYC", "category": "work", "importance": 4}
+                ],
+                "triples": [],
+            }
+            facts = extract_profile_facts(
+                "Since you're a software engineer based in NYC, here are some meetup suggestions.",
+                source="assistant",
+            )
 
         assert len(facts) >= 1
-        # Should extract something about being a software engineer
         fact_texts = [f["fact"] for f in facts]
         assert any("engineer" in f.lower() or "software" in f.lower() for f in fact_texts)
 
@@ -439,34 +445,45 @@ class TestAssistantExtraction:
         """Extracts employer from assistant echoing back info."""
         from services.profile_extractor import extract_profile_facts
 
-        facts = extract_profile_facts(
-            "I see you work at Google. Let me tailor my response.",
-            source="assistant"
-        )
+        with patch("services.profile_extractor._call_extraction_model") as mock_call:
+            mock_call.return_value = {
+                "facts": [{"fact": "User works at Google", "category": "work", "importance": 4}],
+                "triples": [{"subject": "user", "predicate": "works_at", "object": "Google"}],
+            }
+            facts = extract_profile_facts(
+                "I see you work at Google. Let me tailor my response.",
+                source="assistant",
+            )
 
         assert len(facts) >= 1
         fact_texts = [f["fact"] for f in facts]
         assert any("google" in f.lower() for f in fact_texts)
 
-    def test_no_extraction_from_conditional(self):
-        """Does not extract from conditional statements like 'if you are'."""
+    def test_extraction_timeout_returns_empty(self):
+        """Timeouts return empty extraction payloads."""
         from services.profile_extractor import extract_profile_facts
 
-        facts = extract_profile_facts(
-            "If you are using Python 3.11, you should upgrade to 3.12.",
-            source="assistant"
-        )
+        with patch("services.profile_extractor._call_extraction_model", side_effect=TimeoutError):
+            facts = extract_profile_facts(
+                "If you are using Python 3.11, you should upgrade to 3.12.",
+                source="assistant",
+            )
 
         assert len(facts) == 0
 
-    def test_no_extraction_from_generic_you_are(self):
-        """Does not extract from generic 'you are right/welcome'."""
+    def test_extraction_invalid_json_returns_empty(self):
+        """Invalid model JSON payloads are handled safely."""
         from services.profile_extractor import extract_profile_facts
 
-        facts = extract_profile_facts(
-            "You're welcome! Let me know if you need anything else.",
-            source="assistant"
-        )
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"message": {"content": "{not valid json"}}
+
+        with patch("services.profile_extractor.http_session.post", return_value=mock_response):
+            facts = extract_profile_facts(
+                "You're welcome! Let me know if you need anything else.",
+                source="assistant",
+            )
 
         assert len(facts) == 0
 
@@ -474,26 +491,76 @@ class TestAssistantExtraction:
         """User source extraction still works with the new source param."""
         from services.profile_extractor import extract_profile_facts
 
-        facts = extract_profile_facts(
-            "My name is Trinity and I live in San Francisco",
-            source="user"
-        )
+        with patch("services.profile_extractor._call_extraction_model") as mock_call:
+            mock_call.return_value = {
+                "facts": [{"fact": "User lives in San Francisco", "category": "identity", "importance": 4}],
+                "triples": [{"subject": "user", "predicate": "lives_in", "object": "San Francisco"}],
+            }
+            facts = extract_profile_facts(
+                "My name is Trinity and I live in San Francisco",
+                source="user",
+            )
 
         assert len(facts) >= 1
+
+    def test_empty_model_results(self):
+        """Explicit empty extraction is passed through."""
+        from services.profile_extractor import extract_profile_facts
+
+        with patch("services.profile_extractor._call_extraction_model", return_value={"facts": [], "triples": []}):
+            facts = extract_profile_facts("hello", source="user")
+
+        assert facts == []
 
     def test_auto_extract_with_source(self):
         """auto_extract_and_save accepts source parameter."""
         from services.profile_extractor import auto_extract_and_save
 
-        with patch("services.memory_tools.tool_save_memory") as mock_save:
+        with patch("services.profile_extractor._call_extraction_model") as mock_call, \
+             patch("services.memory_tools.tool_save_memory") as mock_save:
+            mock_call.return_value = {
+                "facts": [{"fact": "User is a data scientist", "category": "work", "importance": 4}],
+                "triples": [],
+            }
             mock_save.return_value = (True, "Saved: test fact")
             count = auto_extract_and_save(
                 "I'm a data scientist working on NLP",
                 "test-principal-123",
                 source="user"
             )
-            # Should have called save at least once
-            assert mock_save.called or count == 0  # depends on pattern match
+            assert count >= 1
+            assert mock_save.called
+
+    def test_extraction_model_falls_back_when_primary_missing(self):
+        """If qwen3:32b is unavailable, extractor should try configured fallback models."""
+        from services.profile_extractor import _call_extraction_model
+
+        with patch(
+            "services.profile_extractor._candidate_targets",
+            return_value=[("http://ingest", "qwen3:32b"), ("http://chat", "qwen2.5:14b")],
+        ), \
+             patch("services.profile_extractor._call_model_once") as mock_once:
+            mock_once.side_effect = [
+                ValueError("Ollama status 404: model 'qwen3:32b' not found, try pulling it first"),
+                {"facts": [{"fact": "User likes Rust", "category": "interests", "importance": 4}], "triples": []},
+            ]
+            result = _call_extraction_model("I like Rust", "user")
+
+        assert len(result["facts"]) == 1
+        assert mock_once.call_count == 2
+
+    def test_extraction_model_retries_other_targets_then_raises(self):
+        """If all targets fail, extractor raises the last error after retries."""
+        from services.profile_extractor import _call_extraction_model
+
+        with patch(
+            "services.profile_extractor._candidate_targets",
+            return_value=[("http://ingest", "qwen3:32b"), ("http://chat", "qwen2.5:14b")],
+        ), \
+             patch("services.profile_extractor._call_model_once", side_effect=RuntimeError("connection refused")) as mock_once:
+            with pytest.raises(RuntimeError):
+                _call_extraction_model("I like Rust", "user")
+        assert mock_once.call_count == 2
 
 
 # =============================================================================
@@ -514,12 +581,19 @@ class TestMemoryBudgets:
         assert SEMANTIC_MEMORY_SIZE >= 8
 
     def test_profile_token_budget_raised(self):
-        """PROFILE_TOKEN_BUDGET default increased to 2500."""
+        """PROFILE_TOKEN_BUDGET default increased to 3500."""
         import os
         # Only test default — env var override is fine
         if "PROFILE_TOKEN_BUDGET" not in os.environ:
             from config import PROFILE_TOKEN_BUDGET
-            assert PROFILE_TOKEN_BUDGET >= 2500
+            assert PROFILE_TOKEN_BUDGET >= 3500
+
+    def test_profile_max_facts_raised(self):
+        """PROFILE_MAX_FACTS default increased to 25."""
+        import os
+        if "PROFILE_MAX_FACTS" not in os.environ:
+            from config import PROFILE_MAX_FACTS
+            assert PROFILE_MAX_FACTS >= 25
 
     def test_budgets_are_env_configurable(self):
         """Memory budgets can be overridden via environment variables."""

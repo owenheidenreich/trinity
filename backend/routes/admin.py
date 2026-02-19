@@ -4,8 +4,11 @@ Routes: /admin/*
 All require @require_admin decorator.
 """
 
+from pathlib import Path
+
 from flask import Blueprint, jsonify
 
+from config import CHATS_DIR
 from icp_auth import require_admin
 
 admin_bp = Blueprint("admin", __name__)
@@ -69,38 +72,59 @@ def get_quota_usage():
 @admin_bp.route("/admin/storage/status")
 @require_admin
 def get_storage_status():
-    """Get IPFS sync status across all users — pending syncs, last sync times, errors."""
+    """Get canonical checkpoint status across principals."""
     try:
-        from services.user_data_store import get_all_sync_status, get_pending_sync_count
+        from services.state_store import get_state_store
 
-        sync_status = get_all_sync_status()
-        pending_count = get_pending_sync_count()
+        root = Path(CHATS_DIR)
+        statuses = []
+        pending = 0
+        if root.exists():
+            for child in root.iterdir():
+                if not child.is_dir():
+                    continue
+                principal_id = child.name
+                try:
+                    store = get_state_store(principal_id)
+                    checkpoint = store.get_sync_checkpoint()
+                    pending_jobs = store.count_pending_jobs()
+                    pending += int(pending_jobs)
+                    statuses.append(
+                        {
+                            "principalId": principal_id,
+                            "lastIpfsCid": checkpoint.get("last_ipfs_cid"),
+                            "lastSyncAt": checkpoint.get("last_sync_at"),
+                            "lastSyncedMessageId": checkpoint.get("last_synced_message_id"),
+                            "pendingJobs": int(pending_jobs),
+                        }
+                    )
+                except Exception:
+                    continue
 
-        return jsonify({
-            "pendingSyncs": pending_count,
-            "userSyncStatus": sync_status,
-            "userCount": len(sync_status),
-        })
+        return jsonify(
+            {
+                "pendingSyncs": pending,
+                "userSyncStatus": statuses,
+                "userCount": len(statuses),
+            }
+        )
     except ImportError:
-        return jsonify({"error": "User data store module not available"}), 503
+        return jsonify({"error": "State store module not available"}), 503
 
 
 @admin_bp.route("/admin/storage/rollback/<principal_id>", methods=["POST"])
 @require_admin
 def rollback_storage_manifest(principal_id):
-    """Rollback a principal's manifest to the previous (or requested) version."""
+    """Restore principal canonical state from latest valid IPFS checkpoint."""
     try:
-        from flask import request
-        from services.user_data_store import rollback_manifest
+        from services.state_checkpoint import restore_state_checkpoint_from_ipfs
 
-        payload = request.get_json(silent=True) or {}
-        target_version = payload.get("targetVersion")
-        ok = rollback_manifest(principal_id, target_version=target_version)
+        ok = restore_state_checkpoint_from_ipfs(principal_id)
         if not ok:
-            return jsonify({"success": False, "error": "Rollback target not found or restore failed"}), 404
-        return jsonify({"success": True, "principal": principal_id, "targetVersion": target_version})
+            return jsonify({"success": False, "error": "No valid checkpoint available for restore"}), 404
+        return jsonify({"success": True, "principal": principal_id})
     except ImportError:
-        return jsonify({"error": "User data store module not available"}), 503
+        return jsonify({"error": "Checkpoint restore module not available"}), 503
 
 
 @admin_bp.route("/admin/slo/status")

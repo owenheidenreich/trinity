@@ -172,54 +172,17 @@ class TestAsyncBrowse:
 # =============================================================================
 
 class TestRealTokenCounting:
-    """Test that token counting uses Ollama's eval_count."""
+    """Legacy /generate route is removed after hard cutover."""
 
     def test_generate_uses_eval_count(self, client):
-        """Generate endpoint should use Ollama's eval_count when available."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "response": "Test response text here",
-            "done": True,
-            "eval_count": 42,
-            "prompt_eval_count": 15,
-        }
-
-        with patch("routes.generate.http_session") as mock_session:
-            mock_session.post.return_value = mock_response
-            response = client.post("/generate", json={
-                "prompt": "Hello",
-                "max_length": 100,
-            })
-
-        if response.status_code == 200:
-            data = response.get_json()
-            # Should use eval_count (42), not word count
-            if "tokens_generated" in data:
-                assert data["tokens_generated"] == 42
-                assert data.get("prompt_tokens") == 15
+        """Removed /generate route returns 404."""
+        response = client.post("/generate", json={"prompt": "Hello", "max_length": 100})
+        assert response.status_code == 404
 
     def test_generate_falls_back_to_word_count(self, client):
-        """Falls back to word count when eval_count is missing."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "response": "one two three four five",
-            "done": True,
-            # No eval_count field
-        }
-
-        with patch("routes.generate.http_session") as mock_session:
-            mock_session.post.return_value = mock_response
-            response = client.post("/generate", json={
-                "prompt": "Hello",
-                "max_length": 100,
-            })
-
-        if response.status_code == 200:
-            data = response.get_json()
-            if "tokens_generated" in data:
-                assert data["tokens_generated"] == 5  # word count fallback
+        """Removed /generate route returns 404."""
+        response = client.post("/generate", json={"prompt": "Hello", "max_length": 100})
+        assert response.status_code == 404
 
 
 # =============================================================================
@@ -237,16 +200,10 @@ class TestOriginValidation:
 
     def test_post_without_origin_allowed(self, client):
         """POST without Origin header is allowed (server-to-server)."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"response": "test", "done": True, "eval_count": 5}
-
-        with patch("routes.generate.http_session") as mock_session:
-            mock_session.post.return_value = mock_response
-            response = client.post(
-                "/generate",
-                json={"prompt": "Hello"},
-            )
+        response = client.post(
+            "/generate",
+            json={"prompt": "Hello"},
+        )
         # Should not be blocked (no Origin header is okay)
         assert response.status_code != 403
 
@@ -263,17 +220,11 @@ class TestOriginValidation:
 
     def test_post_with_allowed_origin_passes(self, client):
         """POST from allowed Origin passes validation."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"response": "ok", "done": True, "eval_count": 1}
-
-        with patch("routes.generate.http_session") as mock_session:
-            mock_session.post.return_value = mock_response
-            response = client.post(
-                "/generate",
-                json={"prompt": "Hello"},
-                headers={"Origin": "http://localhost:3000"},
-            )
+        response = client.post(
+            "/generate",
+            json={"prompt": "Hello"},
+            headers={"Origin": "http://localhost:3000"},
+        )
         assert response.status_code != 403
 
     def test_health_exempt_from_origin_check(self, client):
@@ -307,18 +258,16 @@ class TestChatPinFeature:
         )
         assert response.status_code in (401, 403)
 
-    @patch("routes.chat.upload_to_ipfs")
-    @patch("routes.chat.load_metadata")
-    @patch("routes.chat.save_metadata")
-    def test_pin_toggles_state(self, mock_save, mock_load, mock_ipfs, client, keypair):
-        """Pinning a chat toggles its pinned state."""
+    def test_pin_toggles_state(self, client, keypair):
+        """Pinning an existing chat toggles its pinned state."""
         chat_id = str(uuid.uuid4())
-        mock_load.return_value = {
-            "chats": [{"chatId": chat_id, "title": "Test Chat", "pinned": False}],
-            "principalId": keypair["principal"],
-            "version": "1.0",
-        }
-        mock_ipfs.return_value = "QmTestCID123"
+        start_headers = make_auth_headers(keypair, "/chat/start")
+        start_resp = client.post(
+            "/chat/start",
+            headers=start_headers,
+            json={"chat_id": chat_id, "title": "Test Chat"},
+        )
+        assert start_resp.status_code == 200
 
         headers = make_auth_headers(keypair, f"/chat/{chat_id}/pin")
         response = client.post(f"/chat/{chat_id}/pin", headers=headers, json={})
@@ -328,21 +277,24 @@ class TestChatPinFeature:
         assert data["pinned"] is True
         assert data["chatId"] == chat_id
 
-    @patch("routes.chat.upload_to_ipfs")
-    @patch("routes.chat.load_metadata")
-    @patch("routes.chat.save_metadata")
-    def test_pin_unpin_toggles(self, mock_save, mock_load, mock_ipfs, client, keypair):
+    def test_pin_unpin_toggles(self, client, keypair):
         """Unpinning a pinned chat returns pinned=False."""
         chat_id = str(uuid.uuid4())
-        mock_load.return_value = {
-            "chats": [{"chatId": chat_id, "title": "Test Chat", "pinned": True}],
-            "principalId": keypair["principal"],
-            "version": "1.0",
-        }
-        mock_ipfs.return_value = "QmTestCID123"
+        start_headers = make_auth_headers(keypair, "/chat/start")
+        start_resp = client.post(
+            "/chat/start",
+            headers=start_headers,
+            json={"chat_id": chat_id, "title": "Test Chat"},
+        )
+        assert start_resp.status_code == 200
 
-        headers = make_auth_headers(keypair, f"/chat/{chat_id}/pin")
-        response = client.post(f"/chat/{chat_id}/pin", headers=headers, json={})
+        headers_first = make_auth_headers(keypair, f"/chat/{chat_id}/pin")
+        first = client.post(f"/chat/{chat_id}/pin", headers=headers_first, json={})
+        assert first.status_code == 200
+        assert first.get_json()["pinned"] is True
+
+        headers_second = make_auth_headers(keypair, f"/chat/{chat_id}/pin")
+        response = client.post(f"/chat/{chat_id}/pin", headers=headers_second, json={})
 
         assert response.status_code == 200
         data = response.get_json()
@@ -352,29 +304,29 @@ class TestChatPinFeature:
         """Pinning a non-existent chat returns 404."""
         chat_id = str(uuid.uuid4())
         headers = make_auth_headers(keypair, f"/chat/{chat_id}/pin")
-
-        with patch("routes.chat.load_metadata") as mock_load:
-            mock_load.return_value = {"chats": [], "principalId": keypair["principal"]}
-            response = client.post(f"/chat/{chat_id}/pin", headers=headers, json={})
+        response = client.post(f"/chat/{chat_id}/pin", headers=headers, json={})
 
         assert response.status_code == 404
 
-    def test_delete_pinned_chat_blocked(self, client, keypair):
-        """Cannot delete a pinned chat — must unpin first."""
+    def test_delete_pinned_chat_allowed(self, client, keypair):
+        """Pinned chats can be deleted in canonical store mode."""
         chat_id = str(uuid.uuid4())
+        start_headers = make_auth_headers(keypair, "/chat/start")
+        start_resp = client.post(
+            "/chat/start",
+            headers=start_headers,
+            json={"chat_id": chat_id, "title": "Test"},
+        )
+        assert start_resp.status_code == 200
+
+        pin_headers = make_auth_headers(keypair, f"/chat/{chat_id}/pin")
+        pin_resp = client.post(f"/chat/{chat_id}/pin", headers=pin_headers, json={})
+        assert pin_resp.status_code == 200
+        assert pin_resp.get_json()["pinned"] is True
+
         headers = make_auth_headers(keypair, f"/chat/{chat_id}")
-        metadata = {
-            "chats": [{"chatId": chat_id, "title": "Test", "pinned": True}],
-            "principalId": keypair["principal"],
-        }
-
-        with patch("routes.chat.load_manifest", return_value={"chats": []}), \
-             patch("routes.chat.load_metadata", return_value=metadata):
-            response = client.delete(f"/chat/{chat_id}", headers=headers)
-
-        assert response.status_code == 400
-        data = response.get_json()
-        assert "unpin" in data["error"]["message"].lower()
+        response = client.delete(f"/chat/{chat_id}", headers=headers)
+        assert response.status_code == 200
 
 
 # =============================================================================
@@ -389,17 +341,21 @@ class TestUserStatusDashboard:
         response = client.get("/user/status")
         assert response.status_code in (401, 403)
 
-    @patch("routes.chat.load_metadata")
-    def test_status_returns_structure(self, mock_load, client, keypair):
-        """Status endpoint returns storage, rate_limits, and tokens."""
-        mock_load.return_value = {
-            "chats": [
-                {"chatId": "c1", "pinned": True, "isArchived": False},
-                {"chatId": "c2", "pinned": False, "isArchived": True},
-                {"chatId": "c3", "pinned": False, "isArchived": False},
-            ],
-            "principalId": keypair["principal"],
-        }
+    def test_status_returns_structure(self, client, keypair):
+        """Status endpoint returns canonical storage and tokens sections."""
+        for chat_id in ("c1", "c2", "c3"):
+            headers = make_auth_headers(keypair, "/chat/start")
+            resp = client.post(
+                "/chat/start",
+                headers=headers,
+                json={"chat_id": chat_id, "title": chat_id},
+            )
+            assert resp.status_code == 200
+
+        patch_headers_1 = make_auth_headers(keypair, "/chat/c1")
+        patch_headers_2 = make_auth_headers(keypair, "/chat/c2")
+        client.patch("/chat/c1", headers=patch_headers_1, json={"pinned": True})
+        client.patch("/chat/c2", headers=patch_headers_2, json={"archived": True})
 
         headers = make_auth_headers(keypair, "/user/status")
         response = client.get("/user/status", headers=headers)
@@ -410,14 +366,8 @@ class TestUserStatusDashboard:
         # Storage section
         assert "storage" in data
         assert data["storage"]["chats_used"] == 3
-        assert data["storage"]["chats_limit"] == 20
         assert data["storage"]["pinned_count"] == 1
         assert data["storage"]["archived_count"] == 1
-
-        # Rate limits section
-        assert "rate_limits" in data
-        assert "requests_remaining" in data["rate_limits"]
-        assert "requests_limit" in data["rate_limits"]
 
         # Tokens section
         assert "tokens" in data
@@ -518,27 +468,16 @@ class TestBetterErrorMessages:
         assert data["error"]["retry_after_seconds"] == 30
 
     def test_prompt_too_long_structured_error(self, client):
-        """Prompt too long returns structured error with details."""
+        """Removed /generate route returns 404."""
         long_prompt = "x" * 200000  # Exceeds MAX_PROMPT_LENGTH (100000)
         response = client.post(
             "/generate",
             json={"prompt": long_prompt},
         )
-        assert response.status_code == 400
-        data = response.get_json()
-        assert "error" in data
-        error = data["error"]
-        assert error["code"] == 400
-        assert "too long" in error["message"].lower()
-        assert "max_length" in error.get("details", {})
-        assert "your_length" in error.get("details", {})
+        assert response.status_code == 404
 
-    def test_archive_limit_is_20(self, client):
-        """Archive limit should be 20 (upgraded from 10), now via named constant."""
-        # Verify the constant is used instead of magic number
+    def test_chat_route_has_no_legacy_archive_magic_limits(self, client):
+        """Canonical chat routes no longer enforce manifest-era archive magic numbers."""
         with open(Path(__file__).parent.parent.parent / "routes" / "chat.py") as f:
             content = f.read()
-        # Should use the named constant
-        assert "MAX_ARCHIVED_CHATS" in content
-        # Should NOT still have the old limits as magic numbers
         assert "archived_count >= 10" not in content

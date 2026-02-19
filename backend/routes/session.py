@@ -24,7 +24,7 @@ from config import (
     MODEL_NAME,
     logger,
 )
-from services import (
+from services.akash import (
     DEPLOYMENT_TIER,
     DEPLOYMENT_TIER_NAME,
     SESSION_ID,

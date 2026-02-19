@@ -8,6 +8,7 @@ import { CopyAllButton } from './CopyAllButton';
 import { DownloadCards } from './DownloadCards';
 import type { DownloadFile } from './DownloadCards';
 import { extractCodeBlocks } from '../../utils/codeParser';
+import { preprocessToolCalls } from '../../utils/markdown';
 import styles from '../../styles/components/Message.module.css';
 
 interface MessageProps {
@@ -17,18 +18,21 @@ interface MessageProps {
 }
 
 /** Minimum lines for a code block to be offered as a download */
-const MIN_DOWNLOAD_LINES = 3;
+const MIN_DOWNLOAD_LINES = 1;
 
 /**  Map extracted code blocks → DownloadFile[] */
 function codeBlocksToFiles(content: string): DownloadFile[] {
-  // Fast exit: no triple-backtick fences means no code blocks to scan
-  if (!content.includes('```')) return [];
+  // Parse both markdown fences and tool_call XML transformed into fences.
+  if (!content.includes('```') && !content.includes('<tool_call')) return [];
 
-  const blocks = extractCodeBlocks(content);
+  const normalized = preprocessToolCalls(content);
+  if (!normalized.includes('```')) return [];
+
+  const blocks = extractCodeBlocks(normalized);
   return blocks
     .filter((b) => {
       const trimmed = b.code.trim();
-      // Skip empty blocks and tiny snippets (inline examples)
+      // Skip empty blocks.
       return trimmed.length > 0 && trimmed.split('\n').length >= MIN_DOWNLOAD_LINES;
     })
     .map((b) => ({

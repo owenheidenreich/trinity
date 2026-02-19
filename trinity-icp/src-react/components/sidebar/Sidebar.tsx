@@ -2,7 +2,7 @@
  * Sidebar — collapsible sidebar with chat list, status, and identity management.
  */
 import { useCallback, useMemo } from 'react';
-import type { ChatListItem, MemoryFact } from '../../types';
+import type { ChatListItem } from '../../types';
 import type { ConnectionStatus } from '../../hooks/useConnection';
 import type { InfoVariant } from '../modals/InfoModal';
 import { MemoryPanel } from './MemoryPanel';
@@ -13,7 +13,8 @@ interface SidebarProps {
   currentChatId: string | null;
   connectionStatus: ConnectionStatus;
   isLoadingChats?: boolean;
-  memoryFacts: MemoryFact[];
+  isBusy?: boolean;
+  memoryData: unknown;
   onNewChat: () => void;
   onLoadChat: (chatId: string) => void;
   onDeleteChat: (chatId: string) => void;
@@ -22,9 +23,6 @@ interface SidebarProps {
   onExportKey?: () => void;
   onLogout: () => void;
   onShowInfo?: (variant: InfoVariant) => void;
-  onEditMemory: (index: number, updates: { text?: string; category?: string; importance?: number }) => void;
-  onDeleteMemory: (index: number) => void;
-  onDownloadMemory: () => void;
 }
 
 const MAX_CHATS = 20;
@@ -34,7 +32,8 @@ export function Sidebar({
   currentChatId,
   connectionStatus,
   isLoadingChats,
-  memoryFacts,
+  isBusy,
+  memoryData,
   onNewChat,
   onLoadChat,
   onDeleteChat,
@@ -43,16 +42,19 @@ export function Sidebar({
   onExportKey,
   onLogout,
   onShowInfo,
-  onEditMemory,
-  onDeleteMemory,
-  onDownloadMemory,
 }: SidebarProps) {
   // Sort: pinned first, then by lastUpdated descending
   const sortedChats = useMemo(() => {
     return [...chats].sort((a, b) => {
       if (a.pinned && !b.pinned) return -1;
       if (!a.pinned && b.pinned) return 1;
-      return (b.lastUpdated || 0) - (a.lastUpdated || 0);
+      const aUpdated = Number(a.lastUpdated ?? a.createdAt ?? 0);
+      const bUpdated = Number(b.lastUpdated ?? b.createdAt ?? 0);
+      if (bUpdated !== aUpdated) return bUpdated - aUpdated;
+      const aCreated = Number(a.createdAt ?? 0);
+      const bCreated = Number(b.createdAt ?? 0);
+      if (bCreated !== aCreated) return bCreated - aCreated;
+      return String(b.chatId).localeCompare(String(a.chatId));
     });
   }, [chats]);
 
@@ -71,7 +73,7 @@ export function Sidebar({
               About
             </button>
           )}
-          <button className={styles.newChatBtn} onClick={onNewChat}>
+          <button className={styles.newChatBtn} onClick={onNewChat} disabled={isBusy}>
             New Chat
           </button>
         </div>
@@ -88,6 +90,7 @@ export function Sidebar({
             key={chat.chatId}
             chat={chat}
             isActive={chat.chatId === currentChatId}
+            disabled={!!isBusy}
             onLoad={onLoadChat}
             onDelete={onDeleteChat}
             onPin={onPinChat}
@@ -102,10 +105,7 @@ export function Sidebar({
       </div>
 
       <MemoryPanel
-        facts={memoryFacts}
-        onEdit={onEditMemory}
-        onDelete={onDeleteMemory}
-        onDownload={onDownloadMemory}
+        memoryData={memoryData}
       />
 
       <div className={styles.statusPanel}>
@@ -193,6 +193,7 @@ function formatDate(timestamp: number): string {
 function ChatItem({
   chat,
   isActive,
+  disabled,
   onLoad,
   onDelete,
   onPin,
@@ -200,38 +201,46 @@ function ChatItem({
 }: {
   chat: ChatListItem;
   isActive: boolean;
+  disabled: boolean;
   onLoad: (chatId: string) => void;
   onDelete: (chatId: string) => void;
   onPin?: (chatId: string) => void;
   onExport?: (chatId: string) => void;
 }) {
-  const handleLoad = useCallback(() => onLoad(chat.chatId), [chat.chatId, onLoad]);
+  const handleLoad = useCallback(() => {
+    if (disabled) return;
+    onLoad(chat.chatId);
+  }, [disabled, chat.chatId, onLoad]);
   const handleDelete = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
+      if (disabled) return;
       onDelete(chat.chatId);
     },
-    [chat.chatId, onDelete]
+    [disabled, chat.chatId, onDelete]
   );
   const handlePin = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
+      if (disabled) return;
       onPin?.(chat.chatId);
     },
-    [chat.chatId, onPin]
+    [disabled, chat.chatId, onPin]
   );
   const handleExport = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
+      if (disabled) return;
       onExport?.(chat.chatId);
     },
-    [chat.chatId, onExport]
+    [disabled, chat.chatId, onExport]
   );
 
   return (
     <div
       className={`${styles.chatItem} ${isActive ? styles.chatItemActive : ''} ${chat.pinned ? styles.chatItemPinned : ''}`}
       onClick={handleLoad}
+      style={disabled ? { opacity: 0.7, cursor: 'not-allowed' } : undefined}
     >
       <div className={styles.chatMeta}>
         <span className={styles.chatTitle}>

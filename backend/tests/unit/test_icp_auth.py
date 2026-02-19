@@ -433,7 +433,7 @@ class TestRequireAuthDecorator:
         P0: Requests without auth headers MUST return 401.
         """
         # Access a protected endpoint without headers
-        response = client.post("/chat/autosave", json={"data": "test"})
+        response = client.get("/chat/list")
 
         assert response.status_code == 401, f"Expected 401, got {response.status_code}"
 

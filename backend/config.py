@@ -61,6 +61,14 @@ CODER_MODEL_NAME = os.getenv("CODER_MODEL_NAME", MODEL_NAME)
 MODEL_BACKEND = os.getenv("MODEL_BACKEND", "ollama")
 GPU_TYPE = os.getenv("GPU_TYPE", "CPU")
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+# Split model capacity between chat (user-facing) and ingestion (background).
+OLLAMA_CHAT_HOST = os.getenv("OLLAMA_CHAT_HOST", OLLAMA_HOST)
+OLLAMA_CHAT_MODEL = os.getenv("OLLAMA_CHAT_MODEL", CONVERSATION_MODEL_NAME or MODEL_NAME)
+OLLAMA_INGEST_HOST = os.getenv("OLLAMA_INGEST_HOST", OLLAMA_HOST)
+# Default ingest model to chat model unless explicitly overridden.
+# This prevents background extraction from failing on deployments that only
+# pull/configure MODEL_NAME (for example, qwen3:8b test environments).
+OLLAMA_INGEST_MODEL = os.getenv("OLLAMA_INGEST_MODEL", OLLAMA_CHAT_MODEL or MODEL_NAME)
 MAX_QUEUE_SIZE = int(os.getenv("MAX_QUEUE_SIZE", "10"))
 CHATS_DIR = os.getenv("CHATS_DIR", "/var/lib/trinity/chats")
 # Canonical architecture paths
@@ -156,11 +164,11 @@ SEMANTIC_MEMORY_SIZE = int(os.getenv("SEMANTIC_MEMORY_SIZE", "8"))
 # Recency weight for retrieval scoring (0-1)
 RECENCY_WEIGHT = 0.3
 # User profile token budget — max tokens for profile section in prompt
-PROFILE_TOKEN_BUDGET = int(os.getenv("PROFILE_TOKEN_BUDGET", "2500"))
+PROFILE_TOKEN_BUDGET = int(os.getenv("PROFILE_TOKEN_BUDGET", "3500"))
 # Minimum score needed for non-preference facts on non-personal queries
 PROFILE_RELEVANCE_FLOOR = float(os.getenv("PROFILE_RELEVANCE_FLOOR", "0.52"))
 # Hard cap for total facts packed into prompt memory section
-PROFILE_MAX_FACTS = int(os.getenv("PROFILE_MAX_FACTS", "12"))
+PROFILE_MAX_FACTS = int(os.getenv("PROFILE_MAX_FACTS", "25"))
 # Profile categories for structured user data
 PROFILE_CATEGORIES = ["identity", "work", "interests", "preferences", "relationships"]
 # Dedup merge threshold — update existing fact instead of skipping
@@ -172,6 +180,8 @@ AUTO_EXTRACT_ASSISTANT_MEMORY = os.getenv("AUTO_EXTRACT_ASSISTANT_MEMORY", "fals
 # Async ingestion worker for memory/profile/graph updates
 MEMORY_INGESTION_ENABLED = os.getenv("MEMORY_INGESTION_ENABLED", "true").lower() == "true"
 MEMORY_INGESTION_QUEUE_MAXSIZE = int(os.getenv("MEMORY_INGESTION_QUEUE_MAXSIZE", "2000"))
+# Enforce strict model-capacity isolation: extraction/summarization may only use ingest endpoint.
+MEMORY_INGEST_STRICT_ISOLATION = os.getenv("MEMORY_INGEST_STRICT_ISOLATION", "true").lower() == "true"
 # Graph memory (Kuzu-backed where available)
 GRAPH_MEMORY_ENABLED = os.getenv("GRAPH_MEMORY_ENABLED", "true").lower() == "true"
 GRAPH_MEMORY_TOP_K = int(os.getenv("GRAPH_MEMORY_TOP_K", "6"))

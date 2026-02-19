@@ -5,6 +5,14 @@
 
 /** SSE event emitted during streaming (post-intelligence-overhaul contract) */
 export interface SSEEvent {
+  /** Session bootstrap event */
+  type?: 'session';
+  /** Canonical chat identifier */
+  chat_id?: string;
+  /** Persisted user message id (session event) */
+  user_message_id?: number;
+  /** Persisted assistant message id (done event) */
+  assistant_message_id?: number | null;
   /** Streaming token (individual chunk) */
   token?: string;
   /** Stream complete flag */
@@ -23,10 +31,14 @@ export interface SSEEvent {
 
 /** A single chat message */
 export interface ChatMessage {
-  id: string;
+  id: number;
+  chatId: string;
   role: 'user' | 'assistant';
   content: string;
-  timestamp: number;
+  createdAt: number;
+  status: 'pending' | 'persisted';
+  /** Legacy compatibility alias. */
+  timestamp?: number;
 }
 
 /** Agent metadata returned on stream completion (single-pass pipeline) */

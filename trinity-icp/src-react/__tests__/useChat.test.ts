@@ -165,21 +165,15 @@ describe('useChat', () => {
     const callBody = JSON.parse((fetchSpy.mock.calls[0]?.[1] as { body: string })?.body ?? '{}');
     expect(callBody).toMatchObject({
       prompt: 'Test prompt',
-      principal: 'test-principal',
       chat_id: 'chat-123',
-      message_index: 2,
-      context_messages: [
-        { role: 'user', content: 'Hello' },
-        { role: 'assistant', content: 'Hi there' },
-      ],
     });
   });
 
   it('generates a chat id when none exists', async () => {
     mockState.currentChatId = null;
-    (mockState.generateChatId as ReturnType<typeof vi.fn>).mockReturnValue('chat-new');
 
     const sseResponse = createSSEResponse([
+      'data: {"type": "session", "chat_id": "chat-new"}',
       'data: {"done": true, "done_reason": "stop"}',
     ]);
     fetchSpy.mockResolvedValue(sseResponse);
@@ -187,13 +181,15 @@ describe('useChat', () => {
     const { result } = renderHook(() => useChat());
     const buildAuth = makeBuildAuthHeaders();
 
+    let sendResult: Awaited<ReturnType<typeof result.current.send>> | null = null;
     await act(async () => {
-      await result.current.send('Test prompt', buildAuth);
+      sendResult = await result.current.send('Test prompt', buildAuth);
     });
 
     const callBody = JSON.parse((fetchSpy.mock.calls[0]?.[1] as { body: string })?.body ?? '{}');
-    expect(callBody.chat_id).toBe('chat-new');
+    expect(callBody.chat_id).toBeUndefined();
     expect(mockState.currentChatId).toBe('chat-new');
+    expect(sendResult?.chatId).toBe('chat-new');
   });
 
   it('handles phase events', async () => {

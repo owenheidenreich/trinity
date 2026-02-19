@@ -159,8 +159,7 @@ class TestNamedConstants:
 
     def test_generate_route_uses_constants(self):
         content = _read(ROUTES_DIR / "generate.py")
-        assert "DEFAULT_MAX_TOKENS" in content
-        assert "OLLAMA_TIMEOUT" in content
+        assert "MAX_QUEUE_SIZE" in content
 
     def test_tools_route_uses_constants(self):
         content = _read(ROUTES_DIR / "tools.py")
@@ -168,18 +167,13 @@ class TestNamedConstants:
 
     def test_chat_route_uses_constants(self):
         content = _read(ROUTES_DIR / "chat.py")
-        assert "MAX_ARCHIVED_CHATS" in content
-        assert "PRINCIPAL_DISPLAY_LENGTH" in content
+        assert "get_state_store" in content
+        assert "/chat/start" in content
 
     def test_session_route_uses_constants(self):
         content = _read(ROUTES_DIR / "session.py")
         assert "MIN_SESSION_HOURS" in content
         assert "MAX_SESSION_HOURS" in content
-
-    def test_v4_route_uses_principal_constant(self):
-        content = _read(ROUTES_DIR / "v4.py")
-        assert "PRINCIPAL_DISPLAY_LENGTH" in content
-
 
 # =============================================================================
 # 4.3 FIX IMPORT PATTERNS
@@ -193,7 +187,6 @@ class TestImportPatterns:
         "generate.py": {"services", "middleware", "threading"},   # service layer, avoid circular imports, background extraction
         "chat.py": {"middleware", "services", "io", "zipfile", "flask", "storage"},    # mutable globals + export endpoint + user data
         "tools.py": {"bs4"},                        # optional heavy dependency
-        "v4.py": {"config", "lighthouse", "services"},  # conditional RAG/lighthouse/service usage
     }
 
     def _get_function_level_imports(self, filepath: Path) -> list:
@@ -248,14 +241,6 @@ class TestImportPatterns:
             assert module in allowed or any(
                 module.startswith(a) for a in allowed
             ), f"Unexpected function-level import at tools.py:{lineno}: {module}"
-
-    def test_v4_only_allowed_lazy_imports(self):
-        violations = self._get_function_level_imports(ROUTES_DIR / "v4.py")
-        allowed = self.ALLOWED_LAZY_IMPORTS.get("v4.py", set())
-        for lineno, module in violations:
-            assert module in allowed or any(
-                module.startswith(a) for a in allowed
-            ), f"Unexpected function-level import at v4.py:{lineno}: {module}"
 
     def test_current_app_at_module_level(self):
         """current_app should be imported at module level, not inside functions."""

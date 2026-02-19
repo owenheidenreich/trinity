@@ -4,15 +4,26 @@ import json
 class TestGraphExtractor:
     def test_extracts_user_triples(self):
         from services.graph_extractor import extract_graph_triples
+        from unittest.mock import patch
 
-        triples = extract_graph_triples("I work at Acme and I live in Austin", source="user")
+        with patch("services.profile_extractor.extract_memory_candidates") as mock_extract:
+            mock_extract.return_value = {
+                "facts": [],
+                "triples": [
+                    {"subject": "user", "predicate": "works_at", "object": "Acme"},
+                    {"subject": "user", "predicate": "lives_in", "object": "Austin"},
+                ],
+            }
+            triples = extract_graph_triples("I work at Acme and I live in Austin", source="user")
         assert any(t["predicate"] == "works_at" and "Acme" in t["object"] for t in triples)
         assert any(t["predicate"] == "lives_in" and "Austin" in t["object"] for t in triples)
 
     def test_ignores_assistant_source(self):
         from services.graph_extractor import extract_graph_triples
+        from unittest.mock import patch
 
-        triples = extract_graph_triples("You work at Acme", source="assistant")
+        with patch("services.profile_extractor.extract_memory_candidates", return_value={"facts": [], "triples": []}):
+            triples = extract_graph_triples("You work at Acme", source="assistant")
         assert triples == []
 
 

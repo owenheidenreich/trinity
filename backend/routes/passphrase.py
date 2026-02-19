@@ -5,6 +5,7 @@ Routes: /api/passphrase/setup, /api/passphrase/unlock, /api/passphrase/change, /
 
 import json
 import logging
+import threading
 from typing import Dict, Optional
 
 from flask import Blueprint, jsonify, request
@@ -128,6 +129,22 @@ def unlock_passphrase():
 
     # Store in session
     set_session_passphrase(principal, passphrase)
+
+    # Kick off canonical state checkpoint restore in background.
+    # Runtime source of truth remains local state.db; IPFS is checkpoint/archive.
+    def _restore_checkpoint_async():
+        try:
+            from services.state_checkpoint import restore_state_checkpoint_from_ipfs
+
+            restore_state_checkpoint_from_ipfs(principal)
+        except Exception as e:
+            logger.debug("Checkpoint restore skipped for %s: %s", principal[:20], e)
+
+    threading.Thread(
+        target=_restore_checkpoint_async,
+        daemon=True,
+        name=f"state-restore-{principal[:12]}",
+    ).start()
 
     logger.info(f"Passphrase unlocked for {principal[:20]}")
     return jsonify({"success": True})

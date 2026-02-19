@@ -5,13 +5,15 @@ Routes: /health, /health/icp, /metrics, /stats
 
 from datetime import datetime
 
-from flask import Blueprint, Response, current_app, jsonify
+from flask import Blueprint, Response, jsonify
 
 from config import (
     BRAVE_SEARCH_API_KEY,
     BUILD_TIMESTAMP,
+    GRAPH_MEMORY_ENABLED,
     GPU_TYPE,
     MAX_QUEUE_SIZE,
+    MEMORY_INGESTION_ENABLED,
     MODEL_BACKEND,
     MODEL_NAME,
     PROVIDER_ID,
@@ -38,11 +40,6 @@ def health():
     stats = get_prometheus_summary()
     active_reqs = get_active_requests()
 
-    # Import feature flags from app config
-    v4 = current_app.config.get("V4_FEATURES_AVAILABLE", False)
-    v4_features = current_app.config.get("V4_FEATURES", {})
-    v4_memory = v4_features.get("semantic_memory", False)
-
     is_healthy = (
         provider_healthy
         and active_reqs < MAX_QUEUE_SIZE
@@ -63,8 +60,13 @@ def health():
         "queue_size": active_reqs,
         "max_queue_size": MAX_QUEUE_SIZE,
         "features": {
-            "v4_intelligence": v4,
-            "semantic_memory": v4_memory,
+            "canonical_state_db": True,
+            "semantic_memory": True,
+            "graph_memory": GRAPH_MEMORY_ENABLED,
+            "ingestion_worker": MEMORY_INGESTION_ENABLED,
+            "ipfs_checkpoints": True,
+            # Legacy key kept for compatibility.
+            "v4_intelligence": True,
             "web_search": bool(BRAVE_SEARCH_API_KEY),
         },
     }), (200 if is_healthy else 503)

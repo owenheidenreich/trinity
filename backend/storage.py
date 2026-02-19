@@ -160,6 +160,8 @@ def _migrate_to_structured_profile(memory: Dict) -> Dict:
                 if nf:
                     normalized.append(nf)
             memory["facts"] = normalized
+        if not isinstance(memory.get("conversation_summaries"), dict):
+            memory["conversation_summaries"] = {}
         return memory
 
     # Build structured profile from existing flat facts
@@ -183,6 +185,8 @@ def _migrate_to_structured_profile(memory: Dict) -> Dict:
 
     memory["facts"] = normalized_facts
     memory["profile"] = profile
+    if not isinstance(memory.get("conversation_summaries"), dict):
+        memory["conversation_summaries"] = {}
     memory["version"] = "2.0"
 
     # Carry forward preferences dict (was dead code, now part of profile)
@@ -194,40 +198,50 @@ def _migrate_to_structured_profile(memory: Dict) -> Dict:
 
 
 def load_user_memory(principal_id: str) -> Dict:
-    """Load user's persistent memory (encrypted on disk).
+    """Load user memory from canonical state store (fallback: legacy file)."""
+    from services.state_store import get_state_store
 
-    Returns a v2.0 structured profile. Automatically migrates v1.0 flat
-    fact lists on first load. The profile is saved back encrypted if
-    migration occurred.
-    """
+    store = get_state_store(principal_id)
+    facts = store.list_facts(include_deleted=True, include_invalid=True, with_embeddings=True)
+    summaries = store.list_conversation_summaries()
+
+    if facts or summaries:
+        return {
+            **_default_user_memory(principal_id),
+            "facts": facts,
+            "conversation_summaries": summaries,
+            "lastUpdated": int(time.time() * 1000),
+        }
+
+    # Fresh store but legacy file exists: migrate once.
     path = get_user_memory_path(principal_id)
-    if path.exists():
+    if not path.exists():
+        return _default_user_memory(principal_id)
+
+    try:
         with open(path, "r") as f:
             raw = f.read()
+        encrypted_data = json.loads(raw)
+        if isinstance(encrypted_data, dict) and "encryption" in encrypted_data:
+            passphrase = get_session_passphrase(principal_id)
+            memory = EncryptionUtils.decrypt_auto(
+                encrypted_data,
+                passphrase=passphrase,
+                principal_id=principal_id,
+            )
+        else:
+            memory = encrypted_data
+    except (json.JSONDecodeError, ValueError, KeyError):
+        logger.error(f"❌ Failed to load legacy user memory for {principal_id[:20]}...")
+        return _default_user_memory(principal_id)
 
-        try:
-            encrypted_data = json.loads(raw)
-            if isinstance(encrypted_data, dict) and "encryption" in encrypted_data:
-                passphrase = get_session_passphrase(principal_id)
-                memory = EncryptionUtils.decrypt_auto(
-                    encrypted_data, passphrase=passphrase, principal_id=principal_id
-                )
-            else:
-                logger.warning(f"⚠️ Legacy unencrypted user memory for {principal_id[:20]}...")
-                memory = encrypted_data
-        except (json.JSONDecodeError, ValueError, KeyError):
-            logger.error(f"❌ Failed to load user memory for {principal_id[:20]}...")
-            return _default_user_memory(principal_id)
-
-        # Migrate to structured profile if needed
-        was_v1 = memory.get("version", "1.0") != "2.0"
-        memory = _migrate_to_structured_profile(memory)
-        if was_v1:
-            # Re-save so migration is persisted
-            save_user_memory(principal_id, memory)
-        return memory
-
-    return _default_user_memory(principal_id)
+    migrated = _migrate_to_structured_profile(memory)
+    save_user_memory(principal_id, migrated)
+    return {
+        **_default_user_memory(principal_id),
+        "facts": store.list_facts(include_deleted=True, include_invalid=True, with_embeddings=True),
+        "conversation_summaries": store.list_conversation_summaries(),
+    }
 
 
 def _default_user_memory(principal_id: str) -> Dict:
@@ -243,6 +257,7 @@ def _default_user_memory(principal_id: str) -> Dict:
             "preferences": {},
             "relationships": {},
         },
+        "conversation_summaries": {},
         "createdAt": int(time.time() * 1000),
         "lastUpdated": int(time.time() * 1000),
     }
@@ -259,23 +274,27 @@ def get_active_facts(memory: Dict) -> list:
 
 
 def save_user_memory(principal_id: str, memory: Dict):
-    """Save user's persistent memory (encrypted with AES-256-GCM).
-    Also triggers IPFS sync so profile survives container restarts."""
-    memory["lastUpdated"] = int(time.time() * 1000)
-    passphrase = get_session_passphrase(principal_id)
-    if passphrase:
-        encrypted = EncryptionUtils.encrypt_with_passphrase(memory, passphrase)
-    else:
-        encrypted = EncryptionUtils.encrypt_chat(memory, principal_id)
-    with open(get_user_memory_path(principal_id), "w") as f:
-        json.dump(encrypted, f)
+    """Persist memory payload into canonical state store."""
+    from services.state_store import get_state_store
 
-    # Sync profile to IPFS (background thread — non-blocking)
-    try:
-        from services.user_data_store import notify_profile_changed
-        notify_profile_changed(principal_id, memory)
-    except Exception as e:
-        logger.warning(f"⚠️ Profile IPFS sync trigger failed: {e}")
+    memory["lastUpdated"] = int(time.time() * 1000)
+    store = get_state_store(principal_id)
+    store.replace_facts_from_memory_payload(memory.get("facts", []))
+
+    summaries = memory.get("conversation_summaries", {})
+    if isinstance(summaries, dict):
+        for chat_id, entry in summaries.items():
+            if not isinstance(entry, dict):
+                continue
+            summary = str(entry.get("summary", "")).strip()
+            if not summary:
+                continue
+            last_idx = entry.get("last_message_id", entry.get("last_summarized_index", 0))
+            try:
+                last_message_id = int(last_idx)
+            except (TypeError, ValueError):
+                last_message_id = 0
+            store.upsert_conversation_summary(chat_id, summary, last_message_id)
 
 
 def _default_metadata(principal_id: str) -> Dict:

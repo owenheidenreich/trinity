@@ -89,32 +89,8 @@ def _clean_storage(tmp_path, monkeypatch):
 
 @pytest.fixture
 def mock_ipfs():
-    """Mock Lighthouse IPFS upload/list with in-memory storage."""
-    store: Dict[str, Dict] = {}  # filename → {cid, data, createdAt}
-
-    def fake_upload(data_bytes, filename, **kwargs):
-        cid = f"bafk_{filename}_{int(time.time())}"
-        store[filename] = {
-            "cid": cid,
-            "data": data_bytes,
-            "fileName": filename,
-            "createdAt": int(time.time() * 1000),
-        }
-        return cid
-
-    def fake_list(principal):
-        prefix = principal[:16]
-        return [
-            {"cid": v["cid"], "fileName": v["fileName"], "createdAt": v["createdAt"]}
-            for v in store.values()
-            if prefix in v["fileName"]
-        ]
-
-    with patch("routes.chat.upload_to_ipfs", side_effect=fake_upload) as mock_up, \
-         patch("routes.chat.get_lighthouse_uploads", side_effect=fake_list) as mock_list, \
-         patch("routes.chat.encrypt_for_user", side_effect=lambda d, p: {"data": d, "encryption": "mock"}), \
-         patch("routes.chat.decrypt_for_user", side_effect=lambda d, p: d.get("data", d)):
-        yield {"upload": mock_up, "list": mock_list, "store": store}
+    """Legacy fixture retained only for skipped tests in this module."""
+    yield {"upload": None, "list": None, "store": {}}
 
 
 @pytest.fixture
@@ -246,6 +222,33 @@ class TestToolDetection:
         tools = detect_tools_needed("tell me about me")
         assert "recall_memory" in tools
 
+    def test_write_code_file_request_without_path_no_filesystem_tools(self):
+        """Code-writing prompts should stay inline unless path/workspace intent is explicit."""
+        from services.tools import detect_tools_needed
+
+        tools = detect_tools_needed(
+            'can you write a javascript file that outputs the word "yo" 10000 times?'
+        )
+        assert "read_file" not in tools
+        assert "code_display" not in tools
+        assert "document_search" not in tools
+
+    def test_write_file_with_explicit_path_triggers_filesystem_tools(self):
+        """Explicit file path intent should still enable filesystem routing."""
+        from services.tools import detect_tools_needed
+
+        tools = detect_tools_needed("create file scripts/yo.js and write code there")
+        assert "read_file" in tools
+
+    def test_debug_code_request_triggers_code_display(self):
+        """Debug/fix requests should still use code tool mode when enabled."""
+        from services.tools import detect_tools_needed
+        from unittest.mock import patch
+
+        with patch("services.tools.CODE_EXECUTION_ENABLED", True):
+            tools = detect_tools_needed("debug this javascript code and run it")
+            assert "code_display" in tools
+
 
 # ============================================================================
 # 2. TOOL CALL PARSING — Bug #3 (raw tool XML in responses)
@@ -315,50 +318,80 @@ class TestToolCallParsing:
 
 
 class TestProfileExtraction:
-    """Verify the regex-based profile extractor catches personal statements."""
+    """Verify LLM-backed profile extractor integration."""
 
     def test_extract_name(self):
         from services.profile_extractor import extract_profile_facts
-        facts = extract_profile_facts("my name is Owen")
+        with patch("services.profile_extractor._call_extraction_model") as mock_call:
+            mock_call.return_value = {
+                "facts": [{"fact": "User's name is Owen", "category": "identity", "importance": 5}],
+                "triples": [],
+            }
+            facts = extract_profile_facts("my name is Owen")
         assert len(facts) >= 1
         assert any("Owen" in f["fact"] for f in facts)
 
     def test_extract_location(self):
         from services.profile_extractor import extract_profile_facts
-        facts = extract_profile_facts("I live in Portland")
+        with patch("services.profile_extractor._call_extraction_model") as mock_call:
+            mock_call.return_value = {
+                "facts": [{"fact": "User lives in Portland", "category": "identity", "importance": 4}],
+                "triples": [],
+            }
+            facts = extract_profile_facts("I live in Portland")
         assert len(facts) >= 1
         assert any("Portland" in f["fact"] for f in facts)
 
     def test_extract_work(self):
         from services.profile_extractor import extract_profile_facts
-        facts = extract_profile_facts("I work at Google")
+        with patch("services.profile_extractor._call_extraction_model") as mock_call:
+            mock_call.return_value = {
+                "facts": [{"fact": "User works at Google", "category": "work", "importance": 4}],
+                "triples": [],
+            }
+            facts = extract_profile_facts("I work at Google")
         assert len(facts) >= 1
         assert any("Google" in f["fact"] for f in facts)
 
     def test_no_extraction_from_question(self):
         from services.profile_extractor import extract_profile_facts
-        facts = extract_profile_facts("what is my name?")
+        with patch("services.profile_extractor._call_extraction_model", return_value={"facts": [], "triples": []}):
+            facts = extract_profile_facts("what is my name?")
         assert facts == []
 
     def test_negative_pattern_not_sure(self):
         from services.profile_extractor import extract_profile_facts
-        facts = extract_profile_facts("I'm not sure about that")
+        with patch("services.profile_extractor._call_extraction_model", return_value={"facts": [], "triples": []}):
+            facts = extract_profile_facts("I'm not sure about that")
         assert facts == []
 
     def test_negative_pattern_happy_to_help(self):
         from services.profile_extractor import extract_profile_facts
-        facts = extract_profile_facts("I'm happy to help you")
+        with patch("services.profile_extractor._call_extraction_model", return_value={"facts": [], "triples": []}):
+            facts = extract_profile_facts("I'm happy to help you")
         assert facts == []
 
     def test_assistant_pattern_your_name(self):
         from services.profile_extractor import extract_profile_facts
-        facts = extract_profile_facts("your name is Owen", source="assistant")
+        with patch("services.profile_extractor._call_extraction_model") as mock_call:
+            mock_call.return_value = {
+                "facts": [{"fact": "User's name is Owen", "category": "identity", "importance": 5}],
+                "triples": [],
+            }
+            facts = extract_profile_facts("your name is Owen", source="assistant")
         assert len(facts) >= 1
         assert any("Owen" in f["fact"] for f in facts)
 
     def test_extract_interest(self):
         from services.profile_extractor import extract_profile_facts
-        facts = extract_profile_facts("I'm interested in machine learning")
+        with patch("services.profile_extractor._call_extraction_model") as mock_call:
+            mock_call.return_value = {
+                "facts": [
+                    {"fact": "User is interested in machine learning", "category": "interests", "importance": 3}
+                ],
+                "triples": [],
+            }
+            facts = extract_profile_facts("I'm interested in machine learning")
         assert len(facts) >= 1
         assert any("machine learning" in f["fact"].lower() for f in facts)
 
@@ -464,6 +497,7 @@ class TestCrossAccountIsolation:
 # ============================================================================
 
 
+@pytest.mark.skip(reason="Legacy autosave lifecycle retired in canonical-db mode")
 class TestChatAutosaveLifecycle:
     """Test the autosave → list → load round-trip."""
 
@@ -587,18 +621,15 @@ class TestChatAutosaveLifecycle:
 class TestChatListIsolation:
     """Verify IPFS filtering by principal prefix."""
 
-    def test_user_b_cannot_see_user_a_chats(self, client, mock_ipfs, mock_auth):
-        """After user A saves a chat, user B's list should still be empty."""
-        # User A saves a chat
+    def test_user_b_cannot_see_user_a_chats(self, client, mock_auth):
+        """After user A creates a chat, user B's list should still be empty."""
         headers_a = _auth_headers(PRINCIPAL_A)
-        with patch("routes.chat.save_metadata"), \
-             patch("routes.chat.load_metadata", return_value={"chats": [], "principalId": PRINCIPAL_A}):
-            client.post("/chat/autosave", json={
-                "chatId": "chat-a1",
-                "title": "A's Chat",
-                "messages": [{"role": "user", "content": "hi"}],
-                "metadata": {"title": "A's Chat"},
-            }, headers=headers_a)
+        start_resp = client.post(
+            "/chat/start",
+            json={"chat_id": "chat-a1", "title": "A's Chat"},
+            headers=headers_a,
+        )
+        assert start_resp.status_code == 200
 
         # User B lists chats — should see 0
         headers_b = _auth_headers(PRINCIPAL_B)
@@ -619,7 +650,12 @@ class TestSendToMemoryPipeline:
         """Simulate what auto_extract_and_save does after a user message."""
         from services.profile_extractor import auto_extract_and_save
 
-        saved_count = auto_extract_and_save("my name is Owen", PRINCIPAL_A, source="user")
+        with patch("services.profile_extractor._call_extraction_model") as mock_call:
+            mock_call.return_value = {
+                "facts": [{"fact": "User's name is Owen", "category": "identity", "importance": 5}],
+                "triples": [],
+            }
+            saved_count = auto_extract_and_save("my name is Owen", PRINCIPAL_A, source="user")
         assert saved_count >= 1
 
         # Verify we can recall it
@@ -632,14 +668,20 @@ class TestSendToMemoryPipeline:
         """Assistant saying 'your name is Owen' should also be captured."""
         from services.profile_extractor import auto_extract_and_save
 
-        saved = auto_extract_and_save("your name is Owen", PRINCIPAL_A, source="assistant")
+        with patch("services.profile_extractor._call_extraction_model") as mock_call:
+            mock_call.return_value = {
+                "facts": [{"fact": "User's name is Owen", "category": "identity", "importance": 5}],
+                "triples": [],
+            }
+            saved = auto_extract_and_save("your name is Owen", PRINCIPAL_A, source="assistant")
         assert saved >= 1
 
     def test_no_extraction_from_code_help(self, mock_embeddings, mock_storage_no_encrypt):
         """Questions or code help should NOT trigger extraction."""
         from services.profile_extractor import auto_extract_and_save
 
-        saved = auto_extract_and_save("Can you help me fix this Python bug?", PRINCIPAL_A)
+        with patch("services.profile_extractor._call_extraction_model", return_value={"facts": [], "triples": []}):
+            saved = auto_extract_and_save("Can you help me fix this Python bug?", PRINCIPAL_A)
         assert saved == 0
 
 
@@ -648,6 +690,7 @@ class TestSendToMemoryPipeline:
 # ============================================================================
 
 
+@pytest.mark.skip(reason="Manifest listing tests target retired manifest-first flow")
 class TestManifestChatListing:
     """Chat list should come from manifest, not upload fallback scans."""
 
@@ -728,3 +771,55 @@ class TestGenerateEndpoint:
         """Sanity check: /health should return 200 (or 503 if Ollama not running)."""
         resp = client.get("/health")
         assert resp.status_code in (200, 503)
+
+    def test_new_chat_turn_still_queries_semantic_memory(self, client, app, mock_auth):
+        """First turn of a new chat should still query semantic memory across chats."""
+        app.config["V4_FEATURES_AVAILABLE"] = True
+
+        process_events = iter([
+            {"token": "ok"},
+            {"done": True, "response": {"answer": "ok"}, "done_reason": "stop"},
+        ])
+
+        headers = _auth_headers(PRINCIPAL_A)
+        with patch("routes.generate.get_provider", return_value=MagicMock()), \
+             patch("services.agent.AgentPipeline.process_streaming", return_value=process_events), \
+             patch("services.memory.build_enhanced_context", return_value=([], [])) as mock_build_context, \
+             patch("storage.load_user_memory", return_value={"facts": []}):
+            resp = client.post(
+                "/generate/agent",
+                json={
+                    "prompt": "What were we discussing about my startup?",
+                    "chat_id": "chat-new-turn",
+                },
+                headers=headers,
+            )
+            assert resp.status_code == 200
+            _ = resp.get_data(as_text=True)
+
+        mock_build_context.assert_called_once()
+
+@pytest.mark.skip(reason="Legacy message index resolver removed in canonical message-id flow")
+class TestMessageIndexResolution:
+    """Ensure semantic index fallback never overwrites index 0 repeatedly."""
+
+    def test_uses_provided_index(self):
+        from routes.generate import _resolve_message_index
+
+        assert _resolve_message_index("principal", "chat-1", 12) == 12
+        assert _resolve_message_index("principal", "chat-1", "7") == 7
+
+    def test_falls_back_to_vector_store_when_missing(self):
+        from routes.generate import _resolve_message_index
+
+        mock_store = MagicMock()
+        mock_store.get_next_message_index.return_value = 21
+
+        with patch("services.vector_store.get_vector_store", return_value=mock_store):
+            assert _resolve_message_index("principal", "chat-1", None) == 21
+
+    def test_fallback_errors_return_zero(self):
+        from routes.generate import _resolve_message_index
+
+        with patch("services.vector_store.get_vector_store", side_effect=Exception("db unavailable")):
+            assert _resolve_message_index("principal", "chat-1", None) == 0

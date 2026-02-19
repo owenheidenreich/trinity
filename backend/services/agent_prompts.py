@@ -78,6 +78,9 @@ You have access to these tools. Call them when you need external information or 
 3. Do NOT guess answers you can look up. Use web_search for current events, prices, news.
 4. Do NOT include tool_call tags in your final answer.
 5. For file operations: paths are relative to /workspace. Path traversal (../) is blocked.
+6. Do NOT call write_file for generic "write code" requests without an explicit path/workspace target.
+7. For code-generation requests, default to inline output: return the full implementation in fenced Markdown code blocks.
+8. Never claim a file was created/written/saved unless you actually executed a write tool with an explicit path.
 
 ## Memory — Your Most Important Responsibility
 You build and maintain a persistent profile of each user. This profile survives across
@@ -144,7 +147,11 @@ Previous conversation:
 {tools_section}
 Question: {question}
 
-Use profile memory only when it's relevant. Be direct — no filler. Use Markdown."""
+Use profile memory only when it's relevant. Be direct — no filler. Use Markdown.
+For code requests:
+- Always include actual runnable code in fenced code blocks.
+- Inline code is the default (do not claim filesystem writes).
+- Never say a file was created unless a real write action with explicit path occurred."""
 
 # ============================================================================
 # CHAT SYSTEM MESSAGE (for /api/chat — structured messages, not flat prompt)
@@ -155,7 +162,9 @@ CHAT_SYSTEM_MESSAGE = """You are Trinity, a sharp AI assistant.
 {user_memory}
 {search_context}
 {tools_section}
-Use profile memory only when it's relevant. Be direct — no filler. Use Markdown."""
+Use profile memory only when it's relevant. Be direct — no filler. Use Markdown.
+When asked to create code, include the actual code in fenced code blocks.
+Inline code is the default contract. Do not claim a file was created unless you have an explicit file path/workspace target and performed a write action."""
 
 
 # ============================================================================
@@ -289,6 +298,10 @@ def build_chat_messages(
     user_memory=None,
     search_context: str = "",
     include_tools: bool = False,
+    chat_id: Optional[str] = None,
+    conversation_summary: str = "",
+    last_summarized_index: int = -1,
+    current_message_index: int = -1,
 ) -> List[Dict]:
     """Build a structured messages array for /api/chat.
 
@@ -304,6 +317,10 @@ def build_chat_messages(
         user_memory: Pre-formatted memory string or dict with 'facts'.
         search_context: Formatted web search results (if any).
         include_tools: Whether to inject tool definitions.
+        chat_id: Current chat ID for summary lookup.
+        conversation_summary: Optional precomputed summary text.
+        last_summarized_index: Optional index boundary for summary.
+        current_message_index: Optional absolute message index for fallback slicing.
 
     Returns:
         List of message dicts: [{"role": "system"|"user"|"assistant", "content": ...}]
@@ -322,12 +339,76 @@ def build_chat_messages(
     )
     messages.append({"role": "system", "content": system_content})
 
+    summary = (conversation_summary or "").strip()
+    summary_boundary = last_summarized_index
+    try:
+        current_index = int(current_message_index)
+    except (TypeError, ValueError):
+        current_index = -1
+    if not summary and isinstance(user_memory, dict) and chat_id:
+        summaries = user_memory.get("conversation_summaries", {})
+        if isinstance(summaries, dict):
+            summary_record = summaries.get(chat_id, {})
+            if isinstance(summary_record, dict):
+                summary = str(summary_record.get("summary", "")).strip()
+                try:
+                    summary_boundary = int(
+                        summary_record.get(
+                            "last_message_id",
+                            summary_record.get("last_summarized_index", -1),
+                        )
+                    )
+                except (TypeError, ValueError):
+                    summary_boundary = -1
+
+    if summary:
+        messages.append(
+            {
+                "role": "system",
+                "content": (
+                    "Conversation summary (older messages):\n"
+                    f"{summary}"
+                ),
+            }
+        )
+
     # --- Conversation history as structured messages ---
-    # Cap at 20 messages × 4000 chars (matching build_system_prompt).
-    # Each turn is a separate message with its original role, preserving
-    # turn-taking structure that /api/generate loses.
+    # With summary present: include only unsummarized tail (max 15).
+    # Without summary: keep last 20 (legacy behavior).
     if context_messages:
-        for msg in context_messages[-20:]:
+        history = list(context_messages)
+        if summary and summary_boundary >= 0:
+            indexed = [
+                m for m in history if isinstance(m, dict) and ("message_id" in m or "message_index" in m)
+            ]
+            if indexed:
+                filtered = []
+                for m in history:
+                    try:
+                        message_marker = m.get("message_id", m.get("message_index", -1))
+                        if int(message_marker) > summary_boundary:
+                            filtered.append(m)
+                    except (TypeError, ValueError):
+                        continue
+                history = filtered
+                history = history[-15:]
+            else:
+                # Frontend context messages often exclude absolute message_index.
+                # In that case, estimate unsummarized tail size from current_message_index.
+                if current_index >= 0:
+                    unsummarized_count = current_index - (summary_boundary + 1)
+                    if unsummarized_count > 0:
+                        history = history[-max(1, min(15, unsummarized_count)):]
+                    else:
+                        # Never drop all local recency context just because the summary boundary
+                        # is ahead of this 20-message window.
+                        history = history[-15:]
+                else:
+                    history = history[-15:]
+        else:
+            history = history[-20:]
+
+        for msg in history:
             role = msg.get("role", "user")
             content = (msg.get("content") or "")[:4000]
             if role in ("user", "assistant") and content:

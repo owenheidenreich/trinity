@@ -30,11 +30,6 @@ export const useStore = create<StoreState>((set, get) => ({
   contextMemory: [],
   CONTEXT_WINDOW_SIZE: 50,
 
-  // ===== Autosave Tracking =====
-  autosaveStatus: 'idle',
-  unsavedChanges: false,
-  lastActivityTime: null,
-
   // ===== UI State =====
   isGenerating: false,
   isLoadingChat: false,
@@ -46,8 +41,7 @@ export const useStore = create<StoreState>((set, get) => ({
       chatStarted: false,
       chatHistory: [],
       contextMemory: [],
-      currentChatId: get().generateChatId(),
-      unsavedChanges: false,
+      currentChatId: null,
     })),
 
   generateChatId: () => generateId('chat'),
@@ -68,14 +62,18 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   addMessage: (role, content) => {
+    const state = get();
+    const chatId = state.currentChatId ?? state.generateChatId();
     const message: ChatMessage = {
-      id: generateId('msg'),
+      id: -(Date.now() + Math.floor(Math.random() * 1000)),
+      chatId,
       role,
       content,
+      createdAt: Date.now(),
+      status: 'pending',
       timestamp: Date.now(),
     };
 
-    const state = get();
     const newChatHistory = [...state.chatHistory, message];
     const newContextMemory = [...state.contextMemory, message];
 
@@ -87,9 +85,8 @@ export const useStore = create<StoreState>((set, get) => ({
     set({
       chatHistory: newChatHistory,
       contextMemory: newContextMemory,
-      unsavedChanges: true,
-      lastActivityTime: Date.now(),
       chatStarted: true,
+      currentChatId: chatId,
     });
 
     return message;
@@ -136,8 +133,6 @@ export const useStore = create<StoreState>((set, get) => ({
       currentChatId: null,
       chatStarted: false,
       userMemory: null,
-      autosaveStatus: 'idle' as const,
-      unsavedChanges: false,
     }),
 
   setUserMemory: (memory) => set({ userMemory: memory }),
@@ -146,8 +141,6 @@ export const useStore = create<StoreState>((set, get) => ({
   setContextMemory: (messages) => set({ contextMemory: messages }),
   setGenerating: (isGenerating) => set({ isGenerating }),
   setLoadingChat: (isLoadingChat) => set({ isLoadingChat }),
-  setAutosaveStatus: (status) => set({ autosaveStatus: status }),
-  setUnsavedChanges: (unsaved) => set({ unsavedChanges: unsaved }),
   setCurrentChatId: (chatId) => set({ currentChatId: chatId }),
   setChatStarted: (started) => set({ chatStarted: started }),
 
@@ -164,7 +157,6 @@ export const useStore = create<StoreState>((set, get) => ({
     set({
       chatHistory: newChatHistory,
       contextMemory: newContextMemory,
-      unsavedChanges: true,
     });
 
     return removedMessage;
@@ -181,23 +173,27 @@ export const useStore = create<StoreState>((set, get) => ({
 
   // ===== Memory Actions =====
 
-  updateMemoryFact: (index, updates) => {
+  updateMemoryFact: (factId, updates) => {
     const state = get();
     if (!state.userMemory) return;
     const facts = [...state.userMemory.facts];
-    const existing = facts[index];
+    const idx = facts.findIndex((f) => Number(f.fact_id) === Number(factId));
+    if (idx < 0) return;
+    const existing = facts[idx];
     if (!existing) return;
-    facts[index] = { ...existing, ...updates };
+    facts[idx] = { ...existing, ...updates };
     set({ userMemory: { ...state.userMemory, facts } });
   },
 
-  deleteMemoryFact: (index) => {
+  deleteMemoryFact: (factId) => {
     const state = get();
     if (!state.userMemory) return;
     const facts = [...state.userMemory.facts];
-    const existing = facts[index];
+    const idx = facts.findIndex((f) => Number(f.fact_id) === Number(factId));
+    if (idx < 0) return;
+    const existing = facts[idx];
     if (!existing) return;
-    facts[index] = { ...existing, deleted: true, deleted_at: Date.now() };
+    facts[idx] = { ...existing, deleted: true, deleted_at: Date.now() };
     set({ userMemory: { ...state.userMemory, facts } });
   },
 }));

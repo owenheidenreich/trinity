@@ -79,12 +79,12 @@
 - **Temporal metadata**: Facts have `valid_at`/`invalid_at` fields. Contradicted facts get `invalid_at` set and are excluded from retrieval.
 - **Status**: Production
 
-### User Profile System (v2.0)
-- **Where**: `backend/storage.py`, `backend/services/profile_extractor.py`, `backend/services/agent.py`
-- **How**: Structured profile (identity/work/interests/preferences/relationships), token-budget injection (2500 tokens), auto-extraction from user AND assistant messages via 39 compiled regex patterns with conjunction-stopping capture groups, schema migration v1→v2
-- **Extraction categories**: identity, location, work, education, interests, preferences, relationships, possession, vehicle, pet, age
-- **Budgets**: WORKING_MEMORY_SIZE=5, SEMANTIC_MEMORY_SIZE=8, PROFILE_TOKEN_BUDGET=2500 (all env-configurable)
-- **Endpoints**: `GET /user/export` (ZIP), `GET /user/stats`, `GET /user/memory`, `PUT /user/memory/fact/<index>`
+### User Profile System (v3 Canonical)
+- **Where**: `backend/services/state_store.py`, `backend/services/profile_extractor.py`, `backend/services/agent.py`, `backend/services/memory_ingestion.py`
+- **How**: Canonical encrypted SQLite + stable `fact_id` records, single-call LLM extraction (facts + triples), rolling summaries, token-budget profile injection (3500 tokens)
+- **Extraction categories**: identity, work, interests, preferences, relationships, general
+- **Budgets**: WORKING_MEMORY_SIZE=5, SEMANTIC_MEMORY_SIZE=8, PROFILE_TOKEN_BUDGET=3500, PROFILE_MAX_FACTS=25
+- **Endpoints**: `GET /user/memory`, `POST /user/memory/fact`, `PATCH /user/memory/fact/{fact_id}`, `DELETE /user/memory/fact/{fact_id}`
 - **Status**: Production
 
 ### MCP (Model Context Protocol)
@@ -95,7 +95,7 @@
 ### Memory Panel (Frontend)
 - **Where**: `trinity-icp/src-react/components/sidebar/MemoryPanel.tsx`, `trinity-icp/src-react/styles/components/MemoryPanel.module.css`
 - **How**: Collapsible sidebar section showing all stored user facts. Click-to-edit inline form with textarea, category dropdown, and importance dots. Delete and download (JSON blob) buttons. Refreshes via 3s delayed poll after each assistant response.
-- **Store actions**: `updateMemoryFact(index, updates)`, `deleteMemoryFact(index)`
+- **Store actions**: `updateMemoryFact(factId, updates)`, `deleteMemoryFact(factId)`
 - **Status**: Production
 
 ---

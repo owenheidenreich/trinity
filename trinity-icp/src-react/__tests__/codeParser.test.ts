@@ -103,6 +103,12 @@ describe('getExtension', () => {
     expect(getExtension('JAVASCRIPT')).toBe('js');
   });
 
+  it('supports common short aliases', () => {
+    expect(getExtension('py')).toBe('py');
+    expect(getExtension('js')).toBe('js');
+    expect(getExtension('ts')).toBe('ts');
+  });
+
   it('defaults to txt for unknown languages', () => {
     expect(getExtension('brainfuck')).toBe('txt');
     expect(getExtension('')).toBe('txt');

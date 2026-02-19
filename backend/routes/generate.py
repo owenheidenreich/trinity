@@ -1,57 +1,31 @@
 """
 Generate endpoints — AI inference via LLM provider.
-Routes: /generate, /generate/agent
+Route: /generate/agent
 """
 
-import hashlib
 import json
 import threading
 import time
-from datetime import datetime
 
-import requests as requests_lib
-from flask import Blueprint, Response, current_app, jsonify, request, stream_with_context
+from flask import Blueprint, Response, jsonify, request, stream_with_context
 
+from icp_auth import require_auth
 from config import (
     AUTO_EXTRACT_ASSISTANT_MEMORY,
-    CANONICAL_GENERATE_ROUTE,
-    DEFAULT_MAX_TOKENS,
-    DEFAULT_TEMPERATURE,
     GRAPH_MEMORY_ENABLED,
     GRAPH_MEMORY_TOP_K,
-    GPU_TYPE,
-    MAX_DOCUMENT_CONTEXT_CHARS,
-    MAX_PROMPT_LENGTH,
     MAX_QUEUE_SIZE,
-    MODEL_NAME,
-    OLLAMA_HOST,
-    OLLAMA_TIMEOUT,
-    PROVIDER_ID,
-    REASONING_MIN_TOKENS,
-    http_session,
     logger,
 )
-from services import DEPLOYMENT_TIER
 from services.provider_factory import get_provider
 from middleware import (
     end_request,
     get_active_requests,
-    icp_idempotent,
     rate_limit,
     record_request,
     start_request,
-    track_error,
-    track_inference,
 )
 from middleware.rate_limit import get_user_id, record_token_usage, token_quota
-from routes.shared import error_response
-from services import (
-    build_prompt_with_context,
-    build_reasoning_prompt,
-    is_small_model,
-    parse_reasoning_response,
-)
-from storage import load_user_memory
 
 generate_bp = Blueprint("generate", __name__)
 
@@ -70,224 +44,107 @@ def _enqueue_async_ingestion(principal: str, user_text: str, assistant_text: str
         logger.debug(f"Memory ingestion enqueue skipped: {e}")
 
 
-@generate_bp.route("/generate", methods=["POST"])
-@rate_limit
-@token_quota(estimated_tokens=1200)
-@icp_idempotent
-def generate():
+def _index_semantic_async(
+    principal: str,
+    chat_id: str,
+    message_id: int,
+    role: str,
+    content: str,
+):
+    """Best-effort semantic indexing without blocking user-visible streaming."""
+    if not principal or not chat_id or not content:
+        return
+
+    def _worker():
+        try:
+            from services.memory import get_semantic_memory
+
+            get_semantic_memory(principal).index_message(
+                chat_id=chat_id,
+                message_id=message_id,
+                role=role,
+                content=content,
+            )
+        except Exception as idx_error:
+            logger.debug(f"V4.0 async {role} indexing skipped: {idx_error}")
+
+    threading.Thread(
+        target=_worker,
+        daemon=True,
+        name=f"semantic-index-{role}",
+    ).start()
+
+
+def _is_lightweight_non_memory_prompt(prompt: str) -> bool:
     """
-    Generate text using the AI model.
-
-    Request JSON:
-        - prompt: text to generate from (required)
-        - max_length: maximum tokens to generate (default: 4000)
-        - temperature: randomness 0.1-2.0 (default: 0.7)
-        - contextMemory: array of recent messages for conversation context
-
-    Response JSON:
-        - response / generated_text: AI-generated text
-        - model, provider_id, gpu_type, tokens_generated, latency_ms
+    Fast guard for short prompts that do not need heavy memory retrieval layers.
+    Keeps chat responsive for lightweight turns while preserving intelligence on
+    memory-sensitive, search-like, and technical requests.
     """
-    active_reqs = get_active_requests()
-    if active_reqs >= MAX_QUEUE_SIZE:
-        logger.warning(f"Server at capacity: {active_reqs}/{MAX_QUEUE_SIZE}")
-        track_error("CapacityError", "/generate")
-        return jsonify({
-            "error": "Server at capacity",
-            "queue_size": active_reqs,
-            "max_queue_size": MAX_QUEUE_SIZE,
-            "provider_id": PROVIDER_ID,
-        }), 503
+    text = str(prompt or "").strip().lower()
+    if not text:
+        return False
 
-    start_request()
-    start_time = time.time()
-    tier = str(DEPLOYMENT_TIER) if DEPLOYMENT_TIER else "unknown"
+    words = text.split()
+    if len(words) > 6:
+        return False
 
-    try:
-        data = request.json
-        if not data:
-            raise ValueError("No JSON data provided")
+    memory_signals = (
+        "remember",
+        "recall",
+        "about me",
+        "my name",
+        "i'm ",
+        "i am ",
+        "my project",
+        "my startup",
+        "my company",
+        "i moved",
+        "i live",
+        "i work",
+        "actually",
+    )
+    retrieval_signals = (
+        "latest",
+        "today",
+        "news",
+        "price",
+        "weather",
+        "search",
+        "look up",
+        "find out",
+        "code",
+        "function",
+        "script",
+        "file",
+        "debug",
+        "fix",
+    )
+    if any(signal in text for signal in memory_signals):
+        return False
+    if any(signal in text for signal in retrieval_signals):
+        return False
+    if "?" in text:
+        return False
+    return True
 
-        user_prompt = data.get("prompt", "")
-        max_length = data.get("max_length", DEFAULT_MAX_TOKENS)
-        context_memory = data.get("context_messages", data.get("contextMemory", []))
-        principal = data.get("principal")
-        document_context = data.get("documentContext")
-        reasoning_mode = data.get("reasoning_mode", False)
 
-        options = data.get("options", {})
-        temperature = options.get("temperature", data.get("temperature", DEFAULT_TEMPERATURE))
-        seed = options.get("seed")
-
-        is_icp_request = request.headers.get("X-Request-ID") is not None
-
-        if not user_prompt:
-            raise ValueError("Prompt cannot be empty")
-
-        if len(user_prompt) > MAX_PROMPT_LENGTH:
-            logger.warning(f"⚠️ Prompt too long: {len(user_prompt)} chars (max: {MAX_PROMPT_LENGTH})")
-            return error_response(
-                400,
-                f"Message too long ({len(user_prompt):,} chars). Maximum is {MAX_PROMPT_LENGTH:,}.",
-                details={"max_length": MAX_PROMPT_LENGTH, "your_length": len(user_prompt)},
-            )
-
-        user_memory = None
-        if principal:
-            try:
-                from services.user_data_store import hydrate_user_data_async
-                hydrate_user_data_async(principal)
-            except Exception:
-                pass
-            try:
-                user_memory = load_user_memory(principal)
-                if user_memory.get("facts"):
-                    logger.info(f"📚 Including {len(user_memory['facts'])} user memory facts")
-            except Exception as e:
-                logger.warning(f"Could not load user memory: {e}")
-
-        if document_context:
-            doc_prefix = f"[Attached Document]\n{document_context[:MAX_DOCUMENT_CONTEXT_CHARS]}\n[End Document]\n\nBased on the above document, "
-            user_prompt = doc_prefix + user_prompt
-            logger.info(f"📄 Document attached: {len(document_context)} chars")
-
-        if reasoning_mode and not is_small_model():
-            full_prompt = build_reasoning_prompt(user_prompt, context_memory, user_memory)
-            max_length = max(max_length, REASONING_MIN_TOKENS)
-            logger.info("🧠 Using DEEP REASONING mode with extended output")
-        else:
-            full_prompt = build_prompt_with_context(user_prompt, context_memory, user_memory)
-
-        prompt_hash = hashlib.sha256(user_prompt.encode()).hexdigest()[:8]
-        word_count = len(user_prompt.split())
-        context_count = len(context_memory)
-        logger.info(
-            f"🤖 Request: {word_count} words (#{prompt_hash}), {context_count} ctx, seed={seed}, reasoning={reasoning_mode}"
-        )
-
-        if seed is not None:
-            logger.info(f"🎲 Using deterministic seed: {seed}")
-
-        with track_inference(MODEL_NAME, tier=tier) as inference_tracker:
-            provider = get_provider(prompt=user_prompt)
-            generated_text = provider.generate(
-                prompt=full_prompt,
-                max_tokens=max_length,
-                temperature=temperature,
-                timeout=OLLAMA_TIMEOUT,
-            )
-
-            if not generated_text:
-                inference_tracker.set_status("error")
-                raise Exception("LLM provider returned empty response")
-
-            tokens_generated = len(generated_text.split())
-            prompt_tokens = 0
-            inference_tracker.set_tokens(tokens_generated)
-            try:
-                inference_tracker.set_model(getattr(provider, "model", MODEL_NAME))
-            except Exception:
-                pass
-
-        reasoning_result = None
-        final_response = generated_text
-        if reasoning_mode and not is_small_model():
-            reasoning_result = parse_reasoning_response(generated_text)
-            if reasoning_result.get("answer"):
-                final_response = reasoning_result["answer"]
-            logger.info(
-                f"🧠 Reasoning parsed: thinking={bool(reasoning_result.get('thinking'))}, plan={bool(reasoning_result.get('plan'))}"
-            )
-
-        latency_ms = (time.time() - start_time) * 1000
-        record_token_usage(get_user_id(), tokens_generated)
-        record_request(True, tokens_generated, latency_ms)
-        logger.info(f"[{PROVIDER_ID}] Generated {tokens_generated} tokens in {latency_ms:.0f}ms")
-
-        response_data = {
-            "response": final_response,
-            "model": getattr(provider, "model", MODEL_NAME),
-            "provider_id": PROVIDER_ID,
-            "done": True,
-            "canonical_route": CANONICAL_GENERATE_ROUTE,
-        }
-
-        if reasoning_result:
-            response_data["reasoning"] = {
-                "thinking": reasoning_result.get("thinking"),
-                "plan": reasoning_result.get("plan"),
-                "raw": reasoning_result.get("raw"),
-            }
-
-        if not is_icp_request:
-            response_data["prompt"] = user_prompt
-            response_data["generated_text"] = final_response
-            response_data["gpu_type"] = GPU_TYPE
-            response_data["tokens_generated"] = tokens_generated
-            response_data["prompt_tokens"] = prompt_tokens
-            response_data["latency_ms"] = latency_ms
-            response_data["timestamp"] = datetime.utcnow().isoformat()
-
-        # Auto-extract profile facts and index into semantic memory (non-blocking)
-        if principal:
-            chat_id = data.get("chat_id")
-            message_index = data.get("message_index")
-            _enqueue_async_ingestion(principal, user_prompt, final_response, chat_id=chat_id)
-
-            V4_FEATURES_AVAILABLE = current_app.config.get("V4_FEATURES_AVAILABLE", False)
-            if V4_FEATURES_AVAILABLE and chat_id:
-                try:
-                    from services.memory import get_semantic_memory
-                    sem_memory = get_semantic_memory(principal)
-                    idx = message_index if message_index is not None else 0
-                    sem_memory.index_message(chat_id, idx, "user", user_prompt)
-                    if final_response:
-                        sem_memory.index_message(chat_id, idx + 1, "assistant", final_response)
-                except Exception as idx_error:
-                    logger.debug(f"V4.0 indexing skipped in /generate: {idx_error}")
-
-            try:
-                from services.slo_metrics import record_unsolicited_personal_reference
-
-                record_unsolicited_personal_reference(user_prompt, final_response)
-            except Exception:
-                pass
-
-        return jsonify(response_data)
-
-    except ValueError as e:
-        record_request(False, 0, 0)
-        track_error("ValidationError", "/generate")
-        logger.warning(f"Validation error: {e}")
-        return jsonify({"error": str(e), "provider_id": PROVIDER_ID}), 400
-
-    except requests_lib.Timeout:
-        record_request(False, 0, 0)
-        track_error("TimeoutError", "/generate")
-        logger.error("Ollama request timed out")
-        return error_response(504, "Server is busy processing your request. Please try again in a moment.")
-
-    except Exception as e:
-        record_request(False, 0, 0)
-        track_error("InferenceError", "/generate")
-        logger.error(f"Generation error: {e}", exc_info=True)
-        return error_response(500, "Generation failed. The AI server may be restarting — please try again in 30 seconds.")
-
-    finally:
-        end_request()
+def _load_prompt_memory_from_store(store):
+    return {
+        "facts": store.list_facts(include_deleted=True, include_invalid=True, with_embeddings=True),
+        "conversation_summaries": store.list_conversation_summaries(),
+    }
 
 
 @generate_bp.route("/generate/agent", methods=["POST"])
+@require_auth
 @rate_limit
 @token_quota(estimated_tokens=1500)
 def generate_agent():
-    """
-    Single-pass agentic generation with SSE streaming.
-    Detects tools needed → ReAct loop or direct generation.
-    """
+    """Canonical streaming route: server persists user+assistant turns transactionally."""
     from services.agent import AgentPipeline, is_personal_disclosure, is_trivial_smalltalk
-
-    V4_FEATURES_AVAILABLE = current_app.config.get("V4_FEATURES_AVAILABLE", False)
+    from services.memory_ingestion import enqueue_ingestion
+    from services.state_store import get_state_store
 
     if get_active_requests() >= MAX_QUEUE_SIZE:
         return jsonify({"error": "Server at capacity"}), 503
@@ -296,100 +153,136 @@ def generate_agent():
     start_time = time.time()
 
     try:
-        data = request.json
-        if not data:
-            raise ValueError("No JSON data provided")
-
-        user_prompt = data.get("prompt", "")
-        context_memory = data.get("context_messages", data.get("contextMemory", []))
-        principal = data.get("principal")
-        chat_id = data.get("chat_id")
-        message_index = data.get("message_index")
-        fast_path = is_trivial_smalltalk(user_prompt, context_memory)
-        disclosure_path = is_personal_disclosure(user_prompt)
-
+        data = request.json or {}
+        user_prompt = str(data.get("prompt", "")).strip()
         if not user_prompt:
             return jsonify({"error": "No prompt provided"}), 400
 
+        principal = request.principal
+        chat_id = data.get("chat_id")
+        store = get_state_store(principal)
+        chat_id = store.ensure_chat(chat_id) if chat_id else store.create_chat()
+
+        # Detect trivial greetings before any expensive retrieval/index work.
+        fast_path = is_trivial_smalltalk(user_prompt, None)
+        lightweight_prompt = (not fast_path) and _is_lightweight_non_memory_prompt(user_prompt)
+
+        # Canonical context is loaded from state_store, not request body.
+        # Skip this for smalltalk and lightweight paths to minimize first-token latency.
+        context_messages = []
+        if not fast_path and not lightweight_prompt:
+            persisted_context = store.get_messages(chat_id=chat_id, limit=25)
+            context_messages = [
+                {
+                    "role": m["role"],
+                    "content": m["content"],
+                    "message_id": m["message_id"],
+                }
+                for m in persisted_context
+            ]
+
+        # Re-evaluate with context if needed (function is currently context-agnostic,
+        # but this keeps behavior future-proof).
+        if not fast_path:
+            fast_path = is_trivial_smalltalk(user_prompt, context_messages)
+
+        disclosure_path = is_personal_disclosure(user_prompt)
+
         user_memory = None
         graph_context = None
-        if principal and not fast_path:
+        if principal and not fast_path and not lightweight_prompt:
             try:
-                # Hydrate in background; never block first token on IPFS restore.
-                from services.user_data_store import hydrate_user_data_async
-
-                hydrate_user_data_async(principal)
+                user_memory = _load_prompt_memory_from_store(store)
             except Exception:
-                pass
-        if principal and not fast_path and not disclosure_path:
-            try:
-                user_memory = load_user_memory(principal)
-            except Exception:
-                pass
-            try:
-                if GRAPH_MEMORY_ENABLED:
-                    from services.graph_memory import get_graph_memory
+                user_memory = None
+            if GRAPH_MEMORY_ENABLED:
+                try:
+                    graph_context = store.search_graph_triples(user_prompt, limit=GRAPH_MEMORY_TOP_K)
+                except Exception as graph_error:
+                    logger.debug(f"Graph retrieval skipped: {graph_error}")
 
-                    graph_context = get_graph_memory(principal).retrieve_relevant(
-                        user_prompt,
-                        limit=GRAPH_MEMORY_TOP_K,
-                    )
-            except Exception as graph_error:
-                logger.debug(f"Graph retrieval skipped: {graph_error}")
-
-        enhanced_context = context_memory
         semantic_context = None
-        should_query_semantic = len(context_memory) >= 2
-        if (
-            V4_FEATURES_AVAILABLE
-            and principal
-            and not fast_path
-            and not disclosure_path
-            and should_query_semantic
-        ):
+        enhanced_context = context_messages
+        if principal and not fast_path and not lightweight_prompt:
             try:
                 from services.memory import build_enhanced_context
+
                 enhanced_context, semantic_context = build_enhanced_context(
-                    principal_id=principal, query=user_prompt,
-                    context_messages=context_memory, chat_id=chat_id,
+                    principal_id=principal,
+                    query=user_prompt,
+                    context_messages=context_messages,
+                    chat_id=chat_id,
                 )
-                if semantic_context:
-                    logger.info(f"🧠 V4.0 semantic context: {len(semantic_context)} relevant items retrieved")
             except Exception as e:
                 logger.warning(f"⚠️ Semantic memory fallback: {e}")
-                enhanced_context = context_memory
-        elif V4_FEATURES_AVAILABLE and principal and not fast_path and not disclosure_path:
-            logger.debug("🧠 Skipping semantic retrieval on first-turn/new-chat request")
+                enhanced_context = context_messages
+
+        # Persist user turn before generation.
+        user_message_id = store.append_message(
+            chat_id=chat_id,
+            role="user",
+            content=user_prompt,
+            token_count=len(user_prompt.split()),
+        )
+        if not fast_path:
+            enqueue_ingestion(
+                principal_id=principal,
+                source="user",
+                chat_id=chat_id,
+                message_id=user_message_id,
+            )
+
+        if not fast_path:
+            _index_semantic_async(
+                principal=principal,
+                chat_id=chat_id,
+                message_id=user_message_id,
+                role="user",
+                content=user_prompt,
+            )
 
         pipeline = AgentPipeline(provider=get_provider(prompt=user_prompt))
 
         v4_options = {
             "graph_context": graph_context,
             "principal_id": principal,
+            "semantic_context": semantic_context,
+            "chat_id": chat_id,
+            "message_index": user_message_id,
         }
-        if V4_FEATURES_AVAILABLE:
-            v4_options["semantic_context"] = semantic_context
 
         logger.info(
-            "🧠 Agent request: %s words, v4=%s, fast_path=%s, disclosure=%s",
+            "🧠 Agent request: %s words, fast_path=%s, lightweight=%s, disclosure=%s",
             len(user_prompt.split()),
-            V4_FEATURES_AVAILABLE,
             fast_path,
+            lightweight_prompt,
             disclosure_path,
         )
 
         def generate_sse():
+            assistant_message_id = None
+            full_response = ""
+            done_reason = "stop"
+            response_mode = "normal"
+            first_token_recorded = False
+
             try:
-                full_response = ""
-                first_token_recorded = False
+                # Canonical IDs first so frontend can bind stream to persisted rows.
+                yield f"data: {json.dumps({'type': 'session', 'chat_id': chat_id, 'user_message_id': user_message_id})}\n\n"
 
                 for event in pipeline.process_streaming(
-                    question=user_prompt, context_messages=enhanced_context,
+                    question=user_prompt,
+                    context_messages=enhanced_context,
                     user_memory=user_memory,
                     fast_path=fast_path,
                     disclosure_path=disclosure_path,
                     **v4_options,
                 ):
+                    if isinstance(event, dict) and event.get("done"):
+                        done_reason = event.get("done_reason", "stop")
+                        response_mode = event.get("response_mode", "normal")
+                        continue
+
                     if isinstance(event, dict) and "token" in event:
                         full_response += event["token"]
                         if not first_token_recorded:
@@ -400,43 +293,40 @@ def generate_agent():
                             except Exception:
                                 pass
                             first_token_recorded = True
+
                     yield f"data: {json.dumps(event)}\n\n"
 
                 if full_response:
+                    assistant_message_id = store.append_message(
+                        chat_id=chat_id,
+                        role="assistant",
+                        content=full_response,
+                        token_count=len(full_response.split()),
+                    )
+                    if not fast_path:
+                        _index_semantic_async(
+                            principal=principal,
+                            chat_id=chat_id,
+                            message_id=assistant_message_id,
+                            role="assistant",
+                            content=full_response,
+                        )
+
+                    if AUTO_EXTRACT_ASSISTANT_MEMORY and not fast_path:
+                        enqueue_ingestion(
+                            principal_id=principal,
+                            source="assistant",
+                            chat_id=chat_id,
+                            message_id=assistant_message_id,
+                        )
+
                     record_token_usage(get_user_id(), len(full_response.split()))
+
                 record_request(True, 0, 0)
-
-                # Post-streaming work (embedding, memory ingestion) runs in a
-                # background thread so the HTTP stream closes immediately and
-                # the frontend can re-enable the input without waiting.
-                _post_response = full_response
-                _post_principal = principal
-                _post_prompt = user_prompt
-                _post_chat_id = chat_id
-                _post_msg_idx = message_index
-                _post_v4 = V4_FEATURES_AVAILABLE
-
-                def _post_stream_work():
-                    if _post_v4 and _post_principal and _post_chat_id:
-                        try:
-                            from services.memory import get_semantic_memory
-                            sem_memory = get_semantic_memory(_post_principal)
-                            idx = _post_msg_idx if _post_msg_idx is not None else 0
-                            sem_memory.index_message(_post_chat_id, idx, "user", _post_prompt)
-                            if _post_response:
-                                sem_memory.index_message(_post_chat_id, idx + 1, "assistant", _post_response)
-                        except Exception as idx_error:
-                            logger.debug(f"V4.0 indexing skipped: {idx_error}")
-
-                    if _post_principal:
-                        _enqueue_async_ingestion(_post_principal, _post_prompt, _post_response, chat_id=_post_chat_id)
-                        try:
-                            from services.slo_metrics import record_unsolicited_personal_reference
-                            record_unsolicited_personal_reference(_post_prompt, _post_response)
-                        except Exception:
-                            pass
-
-                threading.Thread(target=_post_stream_work, daemon=True).start()
+                yield (
+                    "data: "
+                    f"{json.dumps({'done': True, 'assistant_message_id': assistant_message_id, 'done_reason': done_reason, 'response_mode': response_mode})}\n\n"
+                )
 
             except Exception as e:
                 logger.error(f"Agent streaming error: {e}")
@@ -447,7 +337,11 @@ def generate_agent():
         return Response(
             stream_with_context(generate_sse()),
             mimetype="text/event-stream",
-            headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
         )
 
     except Exception as e:

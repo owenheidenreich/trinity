@@ -3,9 +3,6 @@
  */
 import type { ChatMessage, UserMemory, ChatListItem } from '../types';
 
-/** Autosave status states */
-export type AutosaveStatus = 'idle' | 'saving' | 'saved' | 'error';
-
 /** Full store state shape */
 export interface StoreState {
   // ===== Chat State =====
@@ -27,11 +24,6 @@ export interface StoreState {
   // ===== Context Memory =====
   contextMemory: ChatMessage[];
   CONTEXT_WINDOW_SIZE: number;
-
-  // ===== Autosave Tracking =====
-  autosaveStatus: AutosaveStatus;
-  unsavedChanges: boolean;
-  lastActivityTime: number | null;
 
   // ===== UI State =====
   isGenerating: boolean;
@@ -58,14 +50,12 @@ export interface StoreState {
   setContextMemory: (messages: ChatMessage[]) => void;
   setGenerating: (isGenerating: boolean) => void;
   setLoadingChat: (isLoadingChat: boolean) => void;
-  setAutosaveStatus: (status: AutosaveStatus) => void;
-  setUnsavedChanges: (unsaved: boolean) => void;
   setCurrentChatId: (chatId: string | null) => void;
   setChatStarted: (started: boolean) => void;
   removeLastMessage: () => ChatMessage | null;
   getLastUserMessage: () => ChatMessage | null;
 
   // ===== Memory Actions =====
-  updateMemoryFact: (index: number, updates: { text?: string; category?: string; importance?: number }) => void;
-  deleteMemoryFact: (index: number) => void;
+  updateMemoryFact: (factId: number, updates: { text?: string; category?: string; importance?: number }) => void;
+  deleteMemoryFact: (factId: number) => void;
 }

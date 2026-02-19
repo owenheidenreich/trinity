@@ -116,9 +116,8 @@ describe('MessageInput', () => {
 
   it('does not send on Enter while generating', async () => {
     renderInput({ isGenerating: true });
-    const textarea = screen.getByPlaceholderText('Ask anything...');
-
-    await userEvent.type(textarea, 'Hello');
+    const textarea = screen.getByPlaceholderText('Waiting for response...');
+    expect(textarea).toBeDisabled();
     fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
 
     expect(onSend).not.toHaveBeenCalled();

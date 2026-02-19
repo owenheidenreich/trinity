@@ -18,10 +18,14 @@ version: "2.0"
 
 services:
   trinity:
-    image: gdubx/trinity-inference:v2-20260217-190654
+    image: gdubx/trinity-inference:v2-20260218-205603
     env:
       - PROVIDER_ID=trinity-production-qwen3-32b
       - MODEL_NAME=qwen3:32b
+      - OLLAMA_CHAT_HOST=http://localhost:11434
+      - OLLAMA_CHAT_MODEL=qwen3:32b
+      - OLLAMA_INGEST_HOST=http://localhost:11434
+      - OLLAMA_INGEST_MODEL=qwen3:8b
       - MODEL_BACKEND=ollama
       - GPU_TYPE=A100
       - MAX_QUEUE_SIZE=5

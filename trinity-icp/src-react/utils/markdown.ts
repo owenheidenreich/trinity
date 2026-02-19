@@ -152,6 +152,7 @@ export function restoreMath(
 /**
  * Convert <tool_call> XML blocks to renderable markdown.
  * - code_display → fenced code block with correct language
+ * - write_file → fenced code block with inferred language + filename
  * - all others (calculator, web_search, etc.) → stripped entirely
  * Ported from ui/editMessage.js with full streaming support.
  */
@@ -159,6 +160,40 @@ export function preprocessToolCalls(content: string): string {
   if (!content || !content.includes('<tool_call')) return content;
 
   let text = content;
+
+  const inferLanguageFromPath = (path: string): string => {
+    const trimmed = (path || '').trim();
+    if (!trimmed) return 'text';
+    const filename = trimmed.split(/[\\/]/).pop() ?? '';
+    const ext = filename.includes('.') ? filename.split('.').pop()?.toLowerCase() ?? '' : '';
+    const extToLang: Record<string, string> = {
+      py: 'python',
+      js: 'javascript',
+      ts: 'typescript',
+      tsx: 'tsx',
+      jsx: 'jsx',
+      html: 'html',
+      css: 'css',
+      scss: 'scss',
+      less: 'less',
+      json: 'json',
+      md: 'markdown',
+      sh: 'bash',
+      zsh: 'zsh',
+      yml: 'yaml',
+      yaml: 'yaml',
+      sql: 'sql',
+      rs: 'rust',
+      go: 'go',
+      java: 'java',
+      c: 'c',
+      cpp: 'cpp',
+      h: 'c',
+      hpp: 'cpp',
+      txt: 'text',
+    };
+    return extToLang[ext] ?? 'text';
+  };
 
   // code_display (complete) → fenced code block
   // Handles proper </tool_call>, malformed <tool_call> closing, AND missing closing tag
@@ -185,12 +220,31 @@ export function preprocessToolCalls(content: string): string {
     }
   );
 
+  // write_file (complete) → fenced code block with filename metadata
+  text = text.replace(
+    /<tool_call\s+name="write_file"[^>]*>([\s\S]*?)<\/tool_call>/gi,
+    (_match: string, body: string) => {
+      const pathMatch = body.match(/<path>([\s\S]*?)<\/path>/i);
+      const contentMatch = body.match(/<content>([\s\S]*?)<\/content>/i);
+      const code = (contentMatch?.[1] ?? '').trim();
+      if (!code) return '';
+
+      const rawPath = (pathMatch?.[1] ?? '').trim();
+      const filename = rawPath ? rawPath.split(/[\\/]/).pop() ?? '' : '';
+      const language = inferLanguageFromPath(rawPath);
+      const safeFilename = filename.replace(/[^A-Za-z0-9._-]/g, '_');
+      const header = safeFilename ? `${language}:${safeFilename}` : language;
+
+      return '\n```' + header + '\n' + code + '\n```\n';
+    }
+  );
+
   // Strip other complete tool_call blocks (calculator, web_search, etc.)
   text = text.replace(/<tool_call[^>]*>[\s\S]*?<\/tool_call>/gi, '');
 
   // Strip orphaned non-code tool_call tags and their immediate XML children
   text = text.replace(
-    /<tool_call\s+name="(?!code_display)[^"]*"[^>]*>(?:\s*<[a-z_]+>[^<]*<\/[a-z_]+>)*\s*/gi,
+    /<tool_call\s+name="(?!code_display|write_file)[^"]*"[^>]*>(?:\s*<[a-z_]+>[^<]*<\/[a-z_]+>)*\s*/gi,
     ''
   );
 

@@ -6,10 +6,7 @@ import type { ChatMessage } from './message';
 /** Request body for /generate/agent (post-intelligence-overhaul) */
 export interface GenerateRequest {
   prompt: string;
-  principal: string;
-  context_messages: Pick<ChatMessage, 'role' | 'content'>[];
-  chat_id: string;
-  message_index: number;
+  chat_id?: string;
 }
 
 /** Response from /health endpoint */
@@ -25,19 +22,6 @@ export interface HealthCheckResponse {
   build_timestamp?: string;
 }
 
-/** Request body for /chat/autosave */
-export interface AutosaveRequest {
-  chatId: string;
-  title: string;
-  messages: Pick<ChatMessage, 'role' | 'content' | 'timestamp'>[];
-  metadata: {
-    createdAt: number;
-    updatedAt: number;
-    messageCount: number;
-    appVersion: string;
-  };
-}
-
 /** Response from /chat/list — matches backend camelCase format */
 export interface ChatListItem {
   chatId: string;
@@ -47,6 +31,7 @@ export interface ChatListItem {
   lastUpdated: number;
   pinned?: boolean;
   isArchived?: boolean;
+  archived?: boolean;
   cid?: string;
 }
 
@@ -61,10 +46,15 @@ export interface ChatLoadResponse {
 /** Response from /user/memory */
 export interface UserMemory {
   facts: MemoryFact[];
-  preferences: Record<string, unknown>;
+  conversation_summaries?: Record<string, unknown>;
+  graph_triples?: Array<Record<string, unknown>>;
+  ingestion_jobs_recent?: Array<Record<string, unknown>>;
+  sync_checkpoint?: Record<string, unknown>;
+  [key: string]: unknown;
 }
 
 export interface MemoryFact {
+  fact_id?: number;
   text?: string;
   fact?: string;
   category: string;

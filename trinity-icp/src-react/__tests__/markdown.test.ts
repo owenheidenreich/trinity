@@ -109,6 +109,15 @@ describe('preprocessToolCalls', () => {
     expect(result).not.toContain('<tool_call');
   });
 
+  it('converts write_file tool call to fenced code block with filename', () => {
+    const input = '<tool_call name="write_file"><path>scripts/output.py</path><content>for i in range(3):\\n    print(i)</content></tool_call>';
+    const result = preprocessToolCalls(input);
+    expect(result).toContain('```python:output.py');
+    expect(result).toContain('for i in range(3):');
+    expect(result).toContain('```');
+    expect(result).not.toContain('<tool_call');
+  });
+
   it('strips non-display tool calls', () => {
     const input = 'Before <tool_call name="calculator"><expression>2+2</expression></tool_call> after';
     const result = preprocessToolCalls(input);

@@ -8,7 +8,7 @@ from typing import Dict, List
 
 from config import RECENCY_WEIGHT, SEMANTIC_MEMORY_SIZE, WORKING_MEMORY_SIZE
 from services.embeddings import embed_batch, embed_text
-from services.vector_store import get_vector_store
+from services.state_store import get_state_store
 
 logger = logging.getLogger(__name__)
 
@@ -56,9 +56,9 @@ class SemanticMemory:
             principal_id: User's principal ID
         """
         self.principal_id = principal_id
-        self.vector_store = get_vector_store(principal_id)
+        self.store = get_state_store(principal_id)
 
-    def index_message(self, chat_id: str, message_index: int, role: str, content: str) -> bool:
+    def index_message(self, chat_id: str, message_id: int, role: str, content: str) -> bool:
         """
         Index a message for future retrieval.
 
@@ -66,7 +66,7 @@ class SemanticMemory:
 
         Args:
             chat_id: Chat identifier
-            message_index: Position in chat (0-indexed)
+            message_id: Canonical persisted message ID
             role: 'user' or 'assistant'
             content: Message text
 
@@ -78,26 +78,10 @@ class SemanticMemory:
 
         embedding = embed_text(content_for_embedding)
         if embedding is None:
-            logger.warning(f"Failed to embed message {message_index} in chat {chat_id}")
+            logger.warning(f"Failed to embed message {message_id} in chat {chat_id}")
             return False
 
-        success = self.vector_store.add_message_embedding(
-            chat_id=chat_id,
-            message_index=message_index,
-            role=role,
-            content=content,
-            embedding=embedding,
-        )
-
-        # Notify data store for debounced IPFS sync
-        if success:
-            try:
-                from services.user_data_store import notify_message_indexed
-                notify_message_indexed(self.principal_id)
-            except Exception as e:
-                logger.debug(f"Vector sync notify failed: {e}")
-
-        return success
+        return self.store.set_message_embedding(message_id=message_id, embedding=embedding)
 
     def index_chat_history(self, chat_id: str, messages: List[Dict]) -> int:
         """
@@ -124,19 +108,19 @@ class SemanticMemory:
         if len(embeddings) != len(messages):
             logger.warning("Embedding batch size mismatch, falling back to individual")
             for i, msg in enumerate(messages):
-                if self.index_message(chat_id, i, msg.get("role", "user"), msg.get("content", "")):
+                message_id = msg.get("message_id", msg.get("id"))
+                if not message_id:
+                    message_id = i + 1
+                if self.index_message(chat_id, int(message_id), msg.get("role", "user"), msg.get("content", "")):
                     indexed += 1
             return indexed
 
         # Store all embeddings
         for i, (msg, embedding) in enumerate(zip(messages, embeddings)):
-            if self.vector_store.add_message_embedding(
-                chat_id=chat_id,
-                message_index=i,
-                role=msg.get("role", "user"),
-                content=msg.get("content", ""),
-                embedding=embedding,
-            ):
+            message_id = msg.get("message_id", msg.get("id"))
+            if not message_id:
+                message_id = i + 1
+            if self.store.set_message_embedding(message_id=int(message_id), embedding=embedding):
                 indexed += 1
 
         logger.info(f"📝 Indexed {indexed}/{len(messages)} messages for chat {chat_id}")
@@ -169,15 +153,13 @@ class SemanticMemory:
 
         # Get working memory (most recent messages from this chat)
         if chat_id:
-            result["working_memory"] = self.vector_store.get_recent_messages(
-                chat_id, limit=working_memory_size
-            )
+            result["working_memory"] = self.store.get_messages(chat_id=chat_id, limit=working_memory_size)
 
         # Get semantic memory (similar messages across all chats)
         query_embedding = embed_text(query)
         if query_embedding is not None:
             # Retrieve more than needed to filter duplicates with working memory
-            semantic_results = self.vector_store.search_messages(
+            semantic_results = self.store.search_message_embeddings(
                 query_embedding=query_embedding,
                 chat_id=None,  # Search all chats
                 k=semantic_memory_size * 2,  # Get extras for deduplication
@@ -231,7 +213,7 @@ class SemanticMemory:
 
     def get_stats(self) -> Dict:
         """Get memory statistics."""
-        return self.vector_store.get_stats()
+        return self.store.get_embedding_stats()
 
 
 # Cache of semantic memory instances by principal

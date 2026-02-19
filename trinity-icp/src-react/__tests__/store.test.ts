@@ -18,9 +18,6 @@ describe('Trinity Store', () => {
       authenticatedSince: null,
       userMemory: null,
       contextMemory: [],
-      autosaveStatus: 'idle',
-      unsavedChanges: false,
-      lastActivityTime: null,
       isGenerating: false,
       isLoadingChat: false,
     });
@@ -32,7 +29,7 @@ describe('Trinity Store', () => {
       const msg = state.addMessage('user', 'Hello');
       expect(msg.role).toBe('user');
       expect(msg.content).toBe('Hello');
-      expect(msg.id).toMatch(/^msg-/);
+      expect(msg.id).toBeLessThan(0);
       expect(msg.timestamp).toBeGreaterThan(0);
 
       const updated = useStore.getState();
@@ -46,20 +43,14 @@ describe('Trinity Store', () => {
       expect(useStore.getState().chatStarted).toBe(true);
     });
 
-    it('marks unsavedChanges', () => {
-      const state = useStore.getState();
-      state.addMessage('user', 'content');
-      expect(useStore.getState().unsavedChanges).toBe(true);
-    });
-
     it('maintains context window size', () => {
       const state = useStore.getState();
-      // Add more messages than CONTEXT_WINDOW_SIZE (20) to test truncation
-      for (let i = 0; i < 25; i++) {
+      // Add more messages than CONTEXT_WINDOW_SIZE to test truncation.
+      for (let i = 0; i < 75; i++) {
         state.addMessage('user', `message ${i}`);
       }
       const updated = useStore.getState();
-      expect(updated.chatHistory).toHaveLength(25);
+      expect(updated.chatHistory).toHaveLength(75);
       expect(updated.contextMemory).toHaveLength(updated.CONTEXT_WINDOW_SIZE);
     });
   });
@@ -74,7 +65,7 @@ describe('Trinity Store', () => {
       expect(updated.chatStarted).toBe(false);
       expect(updated.chatHistory).toHaveLength(0);
       expect(updated.contextMemory).toHaveLength(0);
-      expect(updated.unsavedChanges).toBe(false);
+      expect(updated.currentChatId).toBeNull();
     });
 
     it('generates a new chat id', () => {
@@ -82,8 +73,7 @@ describe('Trinity Store', () => {
       state.setCurrentChatId('old-id');
       state.reset();
       const updated = useStore.getState();
-      expect(updated.currentChatId).not.toBe('old-id');
-      expect(updated.currentChatId).toMatch(/^chat-/);
+      expect(updated.currentChatId).toBeNull();
     });
   });
 
@@ -170,11 +160,6 @@ describe('Trinity Store', () => {
       expect(useStore.getState().isLoadingChat).toBe(true);
     });
 
-    it('setAutosaveStatus', () => {
-      useStore.getState().setAutosaveStatus('saving');
-      expect(useStore.getState().autosaveStatus).toBe('saving');
-    });
-
     it('setAllChats', () => {
       const chats = [{ chatId: '1', title: 'Test', messageCount: 1, createdAt: 0, lastUpdated: 0 }];
       useStore.getState().setAllChats(chats);
@@ -182,7 +167,7 @@ describe('Trinity Store', () => {
     });
 
     it('setChatHistory', () => {
-      const msgs = [{ id: '1', role: 'user' as const, content: 'test', timestamp: 0 }];
+      const msgs = [{ id: 1, chatId: 'chat-1', role: 'user' as const, content: 'test', createdAt: 0, status: 'persisted' as const, timestamp: 0 }];
       useStore.getState().setChatHistory(msgs);
       expect(useStore.getState().chatHistory).toEqual(msgs);
     });

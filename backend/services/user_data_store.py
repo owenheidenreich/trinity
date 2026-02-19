@@ -1,21 +1,10 @@
 """
-Trinity Backend - Unified User Data Store
-==========================================
-Single IPFS persistence pipeline for ALL user data artifacts.
+Trinity Backend - Checkpoint / Archive Data Store
+=================================================
 
-IPFS is the SOURCE OF TRUTH — local disk is cache.
-
-Every user artifact goes through the same path:
-    mutate → encrypt → upload to IPFS → update manifest → sync manifest
-
-Every restore:
-    login → find manifest on Lighthouse → download → decrypt → restore local cache
-
-Artifacts managed:
-    1. User profile (facts, preferences) — encrypted JSON on IPFS
-    2. Memory index (vector embeddings DB) — encrypted SQLite on IPFS
-    3. Chat blobs — encrypted JSON on IPFS
-    4. User manifest — root document, single CID to find everything
+Runtime source of truth is canonical per-principal `state.db`.
+This module provides checkpoint/archive services to IPFS, plus
+legacy compatibility helpers while old artifacts are phased out.
 """
 
 import json

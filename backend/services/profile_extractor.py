@@ -1,220 +1,375 @@
 """
-Trinity Profile Extractor — Automatic Fact Extraction from Conversations
+LLM-based profile and graph extraction.
 
-Runs lightweight heuristic extraction on user messages to detect
-profile-worthy information ("My name is X", "I'm a developer", etc.)
-without burning an LLM tool call.
-
-Also extracts facts from assistant messages when the assistant echoes
-back confirmed user information ("Since you're a developer in NYC...").
-
-The extraction result is a list of candidate facts that can be fed
-into tool_save_memory for dedup + storage. This supplements (but does
-not replace) the LLM's own ability to call save_memory explicitly.
+This module replaces regex extraction with a single local Ollama call per
+message and returns both profile facts and graph triples.
 """
 
+import json
 import logging
 import re
-from typing import Dict, List, Optional
+import threading
+import time
+from typing import Dict, List
+
+from config import (
+    MEMORY_INGEST_STRICT_ISOLATION,
+    OLLAMA_INGEST_HOST,
+    OLLAMA_INGEST_MODEL,
+    http_session,
+)
 
 logger = logging.getLogger(__name__)
 
-# ============================================================================
-# EXTRACTION PATTERNS
-# ============================================================================
+EXTRACTION_MODEL = OLLAMA_INGEST_MODEL
+EXTRACTION_TIMEOUT_SECONDS = 30
+EXTRACTION_MAX_TOKENS = 500
+ALLOWED_CATEGORIES = {"identity", "work", "interests", "preferences", "relationships", "general"}
+_BACKOFF_SECONDS_TIMEOUT = 90
+_BACKOFF_SECONDS_ENDPOINT = 90
+_BACKOFF_SECONDS_MODEL_MISSING = 300
+_BACKOFF_UNTIL: Dict[tuple, float] = {}
+_BACKOFF_LOCK = threading.Lock()
 
-# Each pattern is (compiled_regex, category, importance, fact_template)
-# The template uses \1, \2 etc. for regex groups
+_EXTRACTION_SYSTEM_PROMPT = """You extract durable user memory from a single chat message.
+Return JSON only with this exact shape:
+{
+  "facts": [{"fact": "...", "category": "...", "importance": 1-5}],
+  "triples": [{"subject": "...", "predicate": "...", "object": "..."}]
+}
 
-_PATTERNS = [
-    # Identity
-    # Name: capture 1-2 words, stop before "and", punctuation, etc.
-    (re.compile(r"\bmy name is (\w+(?:\s(?!and\b|but\b|or\b|i\b)\w+)?)\b", re.I), "identity", 5,
-     "User's name is {0}"),
-    # "I am/I'm X" — stop at conjunctions, punctuation, pronouns
-    (re.compile(r"\bi(?:'m| am) ((?:a |an )?[\w]+(?:\s[\w]+){0,3})(?:\s+and\b|\s+but\b|\s+who\b|\.|,|!|$)", re.I), "identity", 4,
-     "User is {0}"),
-    (re.compile(r"\bi live in ([\w]+(?:[\s,][\w]+){0,4})(?:\s+and\b|\s+but\b|\.|,|!|$)", re.I), "identity", 4,
-     "User lives in {0}"),
-    (re.compile(r"\bi(?:'m| am) from ([\w]+(?:[\s,][\w]+){0,4})(?:\s+and\b|\s+but\b|\.|,|!|$)", re.I), "identity", 3,
-     "User is from {0}"),
-    (re.compile(r"\bi speak ([\w]+(?:[\s,][\w]+){0,3})(?:\s+and\b|\s+but\b|\.|,|!|$)", re.I), "identity", 3,
-     "User speaks {0}"),
+Rules:
+- Facts must be stable personal information about the user, not temporary troubleshooting chatter.
+- Include explicit user self-statements about active projects, role, company, stack, goals, collaborators, and long-lived preferences.
+- Treat ongoing project/work updates as memory-worthy if they help future assistance (even if they may evolve later).
+- If user says "remember ..." treat that as memory-worthy unless clearly temporary.
+- Skip generic technical questions unless they reveal a durable user trait.
+- Use category from: identity, work, interests, preferences, relationships, general.
+- Keep fact text concise and self-contained.
+- If nothing should be saved, return {"facts":[],"triples":[]}.
+- Triples should be user-centric, e.g. {"subject":"user","predicate":"works_at","object":"Acme"}.
+- Prefer at least one fact for clear first-person disclosures that include project, role, company, location, collaborator, or preference details.
+- Never include commentary outside JSON."""
 
-    # Work
-    (re.compile(r"\bi work (?:at|for) ([\w&.]+(?:\s[\w&.]+){0,4})(?:\s+and\b|\s+but\b|\.|,|!|$)", re.I), "work", 4,
-     "User works at {0}"),
-    (re.compile(r"\bmy (?:job|role|title) is ([\w]+(?:\s[\w]+){0,4})(?:\s+and\b|\s+but\b|\.|,|!|$)", re.I), "work", 4,
-     "User's role is {0}"),
-    (re.compile(r"\bi(?:'m| am) (?:a |an )([\w\s]{2,40}?(?:developer|engineer|designer|manager|architect|founder|scientist|researcher|analyst|consultant))", re.I), "work", 4,
-     "User is a {0}"),
-    (re.compile(r"\bi(?:'m| am) (?:building|working on|developing) ([\w]+(?:\s[\w]+){0,6})(?:\s+and\b|\s+but\b|\.|,|!|$)", re.I), "work", 4,
-     "User is building {0}"),
-    (re.compile(r"\bmy (?:project|app|product|startup|company) (?:is called |is |called )([\w]+(?:\s[\w]+){0,4})(?:\s+and\b|\s+but\b|\.|,|!|$)", re.I), "work", 4,
-     "User's project is {0}"),
-    (re.compile(r"\bour tech stack (?:is|includes) ([\w\s,/+]{2,80})", re.I), "work", 3,
-     "User's tech stack includes {0}"),
 
-    # Interests
-    (re.compile(r"\bi(?:'m| am) (?:interested in|passionate about|studying|learning) ([\w]+(?:\s[\w]+){0,6})(?:\s+and\b|\s+but\b|\.|,|!|$)", re.I), "interests", 3,
-     "User is interested in {0}"),
-    (re.compile(r"\bi (?:like|love|enjoy) ([\w]+(?:\s[\w]+){0,6})(?:\s+and\b|\s+but\b|\.|,|!|$)", re.I), "interests", 3,
-     "User enjoys {0}"),
-    (re.compile(r"\bmy (?:goal|aim) is (?:to )?([\w]+(?:\s[\w]+){0,8})(?:\s+and\b|\s+but\b|\.|,|!|$)", re.I), "interests", 4,
-     "User's goal is to {0}"),
+def _normalize_category(category: str) -> str:
+    value = (category or "general").strip().lower()
+    return value if value in ALLOWED_CATEGORIES else "general"
 
-    # Preferences
-    (re.compile(r"\bi prefer ([\w]+(?:\s[\w]+){0,6})(?: over| to| instead)", re.I), "preferences", 3,
-     "User prefers {0}"),
-    (re.compile(r"\bplease (?:always |)(respond|answer|write|code|explain) (?:in |with |using )?([\w]+(?:\s[\w]+){0,4})", re.I), "preferences", 4,
-     "User prefers responses in {0} {1}"),
-    (re.compile(r"\bi (?:don't|do not) like ([\w]+(?:\s[\w]+){0,4})(?:\s+and\b|\s+but\b|\.|,|!|$)", re.I), "preferences", 3,
-     "User doesn't like {0}"),
 
-    # Relationships
-    (re.compile(r"\bmy (?:friend|colleague|partner|wife|husband|boss|cofounder|co-founder) (\w+(?:\s\w+)?)\b", re.I), "relationships", 3,
-     "User's relationship: {0}"),
+def _normalize_fact(item: Dict) -> Dict:
+    text = str(item.get("fact", "")).strip()
+    if not text or len(text) < 5 or len(text) > 240:
+        return {}
+    try:
+        importance = max(1, min(5, int(item.get("importance", 3))))
+    except (ValueError, TypeError):
+        importance = 3
+    return {
+        "fact": text,
+        "category": _normalize_category(str(item.get("category", "general"))),
+        "importance": importance,
+    }
 
-    # Possessions / personal details
-    (re.compile(r"\bi (?:have|own|drive|ride) (?:a |an )([\w]+(?:\s[\w]+){0,4})(?:\s+and\b|\s+but\b|\.|,|!|$)", re.I), "identity", 3,
-     "User has a {0}"),
-    (re.compile(r"\bmy (?:car|truck|vehicle|bike|motorcycle) is (?:a |an )?([\w]+(?:\s[\w]+){0,4})(?:\s+and\b|\s+but\b|\.|,|!|$)", re.I), "identity", 3,
-     "User's vehicle is a {0}"),
-    (re.compile(r"\bmy (?:dog|cat|pet|bird|fish) (?:is called |is named |named )([\w]+(?:\s\w+)?)\b", re.I), "identity", 3,
-     "User's pet is named {0}"),
-    (re.compile(r"\bi(?:'m| am) (\d{1,3}) years old", re.I), "identity", 4,
-     "User is {0} years old"),
-]
 
-# Phrases that indicate the user is NOT making a personal statement
-# (e.g., "I am not sure", "I'm happy to help" in a code context)
-_NEGATIVE_PATTERNS = [
-    re.compile(r"\bi(?:'m| am) (?:not sure|sorry|confused|wondering|asking|trying|looking|having trouble)", re.I),
-    re.compile(r"\bi(?:'m| am) (?:happy to|glad to|here to)", re.I),
-    re.compile(r"\bi(?:'m| am) (?:getting|seeing|receiving) (?:an? )?error", re.I),
-    re.compile(r"\bcan you|could you|would you|please help", re.I),
-]
+def _normalize_triple(item: Dict, source: str) -> Dict:
+    subject = str(item.get("subject", "")).strip() or "user"
+    predicate = str(item.get("predicate", "")).strip().lower()
+    obj = str(item.get("object", "")).strip()
+    if not predicate or not obj:
+        return {}
+    return {
+        "subject": subject,
+        "predicate": predicate.replace(" ", "_"),
+        "object": obj,
+        "source": source,
+        "confidence": 0.75,
+    }
 
-# Patterns for extracting user facts from assistant messages.
-# These catch when the assistant echoes back confirmed user info.
-_ASSISTANT_PATTERNS = [
-    (re.compile(r"\byou(?:'re| are) (?:a |an )?([\w\s]{2,40}?)(?:,| who| based| living| from| working| and)", re.I), "identity", 3,
-     "User is {0}"),
-    (re.compile(r"\byou live in ([\w\s,]{2,40})", re.I), "identity", 3,
-     "User lives in {0}"),
-    (re.compile(r"\byou work (?:at|for|with) ([\w\s&.]{2,40})", re.I), "work", 3,
-     "User works at {0}"),
-    (re.compile(r"\byou(?:'re| are) (?:building|developing|working on) ([\w\s]{2,60})", re.I), "work", 3,
-     "User is building {0}"),
-    (re.compile(r"\byour (?:project|app|product|startup|company),? ([\w\s]{2,40})", re.I), "work", 3,
-     "User's project is {0}"),
-    (re.compile(r"\byou(?:'re| are) (?:interested in|learning|studying) ([\w\s]{2,60})", re.I), "interests", 3,
-     "User is interested in {0}"),
-    (re.compile(r"\byou prefer ([\w\s]{2,60})", re.I), "preferences", 3,
-     "User prefers {0}"),
-    (re.compile(r"\byour name is (\w[\w\s]{0,30})", re.I), "identity", 5,
-     "User's name is {0}"),
-]
 
-# Negative patterns for assistant messages — skip generic/templated text
-_ASSISTANT_NEGATIVE_PATTERNS = [
-    re.compile(r"\byou(?:'re| are) (?:welcome|right|correct|asking|looking|trying)", re.I),
-    re.compile(r"\byou(?:'re| are) (?:experiencing|encountering|getting|seeing|having)", re.I),
-    re.compile(r"\bif you(?:'re| are)", re.I),
-    re.compile(r"\bwhen you(?:'re| are)", re.I),
-    re.compile(r"\bonce you(?:'re| are)", re.I),
-]
+def _parse_model_json(raw) -> Dict:
+    """Parse model content robustly into a dict payload."""
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, list):
+        return {"facts": raw, "triples": []}
+    if not isinstance(raw, str):
+        return {"facts": [], "triples": []}
+
+    text = raw.strip()
+    if not text:
+        return {"facts": [], "triples": []}
+
+    # Primary path: strict JSON.
+    try:
+        parsed = json.loads(text)
+    except Exception:
+        parsed = None
+
+    # Fallback: strip fenced markdown blocks.
+    if parsed is None:
+        fenced = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.IGNORECASE | re.DOTALL).strip()
+        try:
+            parsed = json.loads(fenced)
+        except Exception:
+            parsed = None
+
+    # Fallback: extract first JSON object/array.
+    if parsed is None:
+        first_obj = text.find("{")
+        last_obj = text.rfind("}")
+        first_arr = text.find("[")
+        last_arr = text.rfind("]")
+        candidate = None
+        if first_obj >= 0 and last_obj > first_obj:
+            candidate = text[first_obj:last_obj + 1]
+        elif first_arr >= 0 and last_arr > first_arr:
+            candidate = text[first_arr:last_arr + 1]
+        if candidate:
+            parsed = json.loads(candidate)
+
+    if isinstance(parsed, list):
+        return {"facts": parsed, "triples": []}
+    if isinstance(parsed, dict):
+        return parsed
+    return {"facts": [], "triples": []}
+
+
+def _triples_to_facts(triples: List[Dict]) -> List[Dict]:
+    """Synthesize minimal fact rows from triples when facts are missing."""
+    if not triples:
+        return []
+
+    synthesized: List[Dict] = []
+    for triple in triples[:10]:
+        subject = str(triple.get("subject", "user") or "user").strip()
+        predicate = str(triple.get("predicate", "") or "").replace("_", " ").strip()
+        obj = str(triple.get("object", "") or "").strip()
+        if not predicate or not obj:
+            continue
+
+        if subject.lower() == "user":
+            text = f"User {predicate} {obj}"
+        else:
+            text = f"{subject} {predicate} {obj}"
+
+        category = "general"
+        pred_lower = predicate.lower()
+        if any(token in pred_lower for token in ("work", "project", "company", "role", "build")):
+            category = "work"
+        elif any(token in pred_lower for token in ("prefer", "style", "like")):
+            category = "preferences"
+        elif any(token in pred_lower for token in ("friend", "partner", "cofounder", "team", "relationship")):
+            category = "relationships"
+        elif any(token in pred_lower for token in ("live", "from", "name", "age")):
+            category = "identity"
+
+        synthesized.append(
+            {
+                "fact": text,
+                "category": category,
+                "importance": 3,
+            }
+        )
+    return synthesized
+
+
+def _candidate_targets() -> List[tuple]:
+    """
+    Ordered extraction targets.
+    In strict-isolation mode, extraction only uses ingestion capacity.
+    """
+    targets = [(OLLAMA_INGEST_HOST, EXTRACTION_MODEL)]
+    if not MEMORY_INGEST_STRICT_ISOLATION:
+        from config import MODEL_NAME, OLLAMA_CHAT_HOST, OLLAMA_CHAT_MODEL
+
+        targets.extend(
+            [
+                (OLLAMA_CHAT_HOST, OLLAMA_CHAT_MODEL),
+                (OLLAMA_CHAT_HOST, MODEL_NAME),
+            ]
+        )
+    unique: List[tuple] = []
+    seen = set()
+    for host, model in targets:
+        key = (host or "", model or "")
+        if not host or not model or key in seen:
+            continue
+        now = time.time()
+        with _BACKOFF_LOCK:
+            blocked_until = float(_BACKOFF_UNTIL.get(key, 0.0) or 0.0)
+        if blocked_until > now:
+            continue
+        seen.add(key)
+        unique.append((host, model))
+    return unique
+
+
+def _set_target_backoff(host: str, model: str, seconds: int, reason: str):
+    key = (host or "", model or "")
+    if not key[0] or not key[1]:
+        return
+    until = time.time() + max(1, int(seconds))
+    with _BACKOFF_LOCK:
+        previous = float(_BACKOFF_UNTIL.get(key, 0.0) or 0.0)
+        if until > previous:
+            _BACKOFF_UNTIL[key] = until
+    logger.warning(
+        "⏳ Extraction target in backoff for %ss (%s @ %s): %s",
+        int(seconds),
+        model,
+        host,
+        reason,
+    )
+
+
+def _call_model_once(message: str, source: str, host: str, model: str) -> Dict:
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": _EXTRACTION_SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": f"source={source}\nmessage={message}",
+            },
+        ],
+        "stream": False,
+        "format": "json",
+        "think": False,
+        "options": {
+            "temperature": 0.1,
+            "num_predict": EXTRACTION_MAX_TOKENS,
+        },
+    }
+    response = http_session.post(
+        f"{host}/api/chat",
+        json=payload,
+        timeout=EXTRACTION_TIMEOUT_SECONDS,
+    )
+    if response.status_code != 200:
+        error_text = ""
+        try:
+            error_text = str(response.json().get("error", ""))
+        except Exception:
+            error_text = response.text or ""
+        raise ValueError(f"Ollama status {response.status_code}: {error_text}")
+
+    body = response.json()
+    raw = body.get("message", {}).get("content", "")
+    if not raw:
+        return {"facts": [], "triples": []}
+
+    parsed = _parse_model_json(raw)
+
+    seen_facts = set()
+    facts: List[Dict] = []
+    for item in parsed.get("facts", [])[:25]:
+        if not isinstance(item, dict):
+            continue
+        fact = _normalize_fact(item)
+        if not fact:
+            continue
+        key = fact["fact"].lower()
+        if key in seen_facts:
+            continue
+        seen_facts.add(key)
+        facts.append(fact)
+
+    seen_triples = set()
+    triples: List[Dict] = []
+    for item in parsed.get("triples", [])[:25]:
+        if not isinstance(item, dict):
+            continue
+        triple = _normalize_triple(item, source=source)
+        if not triple:
+            continue
+        key = (
+            triple["subject"].lower(),
+            triple["predicate"].lower(),
+            triple["object"].lower(),
+        )
+        if key in seen_triples:
+            continue
+        seen_triples.add(key)
+        triples.append(triple)
+
+    # Some models emit only triples even when facts were requested.
+    if not facts and triples:
+        for item in _triples_to_facts(triples):
+            fact = _normalize_fact(item)
+            if not fact:
+                continue
+            key = fact["fact"].lower()
+            if key in seen_facts:
+                continue
+            seen_facts.add(key)
+            facts.append(fact)
+
+    return {"facts": facts, "triples": triples}
+
+
+def _call_extraction_model(message: str, source: str) -> Dict:
+    """
+    Run extraction with optional fallback.
+
+    In strict isolation mode this uses ingestion endpoint only.
+    """
+    targets = _candidate_targets()
+    if not targets:
+        raise RuntimeError("Extraction targets are temporarily in backoff")
+
+    last_error = None
+    for host, model in targets:
+        try:
+            return _call_model_once(message, source, host, model)
+        except Exception as e:
+            last_error = e
+            err = str(e).lower()
+            model_missing = "not found" in err or ("pull" in err and "model" in err)
+            if model_missing:
+                _set_target_backoff(host, model, _BACKOFF_SECONDS_MODEL_MISSING, "model unavailable")
+                logger.warning("⚠️ Extraction model unavailable (%s @ %s): %s", model, host, e)
+                continue
+            endpoint_unavailable = "connection refused" in err or "max retries exceeded" in err
+            if endpoint_unavailable:
+                _set_target_backoff(host, model, _BACKOFF_SECONDS_ENDPOINT, "endpoint unavailable")
+                logger.warning("⚠️ Extraction endpoint unavailable (%s @ %s): %s", model, host, e)
+                continue
+            if "timed out" in err or "timeout" in err:
+                _set_target_backoff(host, model, _BACKOFF_SECONDS_TIMEOUT, "timeout")
+            # Treat malformed JSON/other model errors as retryable on fallback targets.
+            logger.warning("⚠️ Extraction attempt failed (%s @ %s): %s", model, host, e)
+            continue
+    if last_error:
+        raise last_error
+    return {"facts": [], "triples": []}
+
+
+def extract_memory_candidates(message: str, source: str = "user") -> Dict[str, List[Dict]]:
+    """Extract profile facts and graph triples from one message."""
+    if not message or len(message.strip()) < 5:
+        return {"facts": [], "triples": []}
+
+    try:
+        return _call_extraction_model(message.strip(), source=source)
+    except Exception as e:
+        if "temporarily in backoff" in str(e).lower():
+            logger.debug("Extraction backoff active (%s): %s", source, e)
+        else:
+            logger.warning("⚠️ LLM extraction failed (%s): %s", source, e)
+        return {"facts": [], "triples": []}
 
 
 def extract_profile_facts(message: str, source: str = "user") -> List[Dict]:
-    """
-    Extract candidate profile facts from a message.
-
-    Args:
-        message: The message text to extract facts from
-        source: "user" or "assistant" — controls which patterns are applied
-
-    Returns a list of dicts:
-        [{"fact": str, "category": str, "importance": int}, ...]
-
-    These can be fed directly into tool_save_memory's params format.
-    Returns empty list if no extractable facts found.
-    """
-    if not message or len(message) < 5:
-        return []
-
-    message_stripped = message.strip()
-
-    if source == "user":
-        # Skip messages that are clearly questions or technical help requests
-        if message_stripped.endswith("?") and len(message_stripped) < 100:
-            return []
-
-        # Check negative patterns
-        for neg in _NEGATIVE_PATTERNS:
-            if neg.search(message):
-                return []
-
-        patterns = _PATTERNS
-    else:
-        # Assistant source — use assistant-specific patterns
-        # Check assistant negative patterns
-        for neg in _ASSISTANT_NEGATIVE_PATTERNS:
-            if neg.search(message):
-                return []
-
-        patterns = _ASSISTANT_PATTERNS
-
-    candidates = []
-    seen_texts = set()  # prevent duplicates within one extraction
-
-    for pattern, category, importance, template in patterns:
-        match = pattern.search(message)
-        if match:
-            groups = [g.strip().rstrip(".,!") for g in match.groups() if g]
-            if not groups:
-                continue
-
-            # Build fact text from template
-            try:
-                fact_text = template.format(*groups)
-            except (IndexError, KeyError):
-                fact_text = groups[0]
-
-            # Clean up
-            fact_text = fact_text.strip()
-            if len(fact_text) < 5 or len(fact_text) > 200:
-                continue
-
-            # Dedup within this extraction
-            text_lower = fact_text.lower()
-            if text_lower in seen_texts:
-                continue
-            seen_texts.add(text_lower)
-
-            candidates.append({
-                "fact": fact_text,
-                "category": category,
-                "importance": str(importance),
-            })
-
-    return candidates
+    """Backwards-compatible fact-only view of extraction output."""
+    return extract_memory_candidates(message, source=source).get("facts", [])
 
 
 def auto_extract_and_save(message: str, principal_id: str, source: str = "user") -> int:
     """
     Extract profile facts from a message and save them to user memory.
 
-    Uses tool_save_memory which handles dedup/merge, so it's safe to
-    call on every message — redundant facts are silently skipped.
-
-    Args:
-        message: The message text to extract facts from
-        principal_id: User's principal ID
-        source: "user" or "assistant" — controls extraction patterns
-
-    Returns:
-        Number of new facts saved (0 if nothing extracted or all duped).
+    Keeps existing public signature for callers.
     """
     candidates = extract_profile_facts(message, source=source)
     if not candidates:
@@ -223,14 +378,15 @@ def auto_extract_and_save(message: str, principal_id: str, source: str = "user")
     saved = 0
     try:
         from .memory_tools import tool_save_memory
+
         for candidate in candidates:
             success, result = tool_save_memory(candidate, principal_id)
             if success and "Saved:" in result:
                 saved += 1
-                logger.info(f"📝 Auto-extracted ({source}): {candidate['fact']}")
+                logger.info("📝 Auto-extracted (%s): %s", source, candidate["fact"])
             elif success and "Updated" in result:
                 saved += 1
-                logger.info(f"📝 Auto-updated ({source}): {result}")
+                logger.info("📝 Auto-updated (%s): %s", source, result)
     except Exception as e:
         logger.warning(f"⚠️ Auto-extraction error: {e}")
 

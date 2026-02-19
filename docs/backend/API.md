@@ -32,7 +32,7 @@ Trinity exposes API endpoints organized into 9 blueprints. Auth uses Ed25519 sig
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | POST | `/generate` | No | Standard inference |
-| POST | `/generate/agent` | No | Agent inference with ReAct + tool calling (primary endpoint) |
+| POST | `/generate/agent` | Yes | Agent inference with canonical server-side persistence (primary endpoint) |
 
 ### POST /generate/agent
 
@@ -40,20 +40,17 @@ Trinity exposes API endpoints organized into 9 blueprints. Auth uses Ed25519 sig
 ```json
 {
   "prompt": "What is the current price of Bitcoin?",
-  "principal": "icp-principal-string",
-  "context_messages": [{"role": "user", "content": "..."}],
-  "user_memory": {"facts": [...]},
-  "chat_id": "chat-abc123",
-  "message_index": 10
+  "chat_id": "optional-chat-id"
 }
 ```
 
 **Response:** Server-Sent Events:
 ```
+data: {"type": "session", "chat_id": "chat-abc123", "user_message_id": 123}
 data: {"phase": "understanding", "message": "Analyzing..."}
 data: {"token": "The "}
 data: {"token": "current "}
-data: {"done": true, "response": {"complexity": "medium"}}
+data: {"done": true, "assistant_message_id": 124, "done_reason": "stop"}
 ```
 
 ---
@@ -62,9 +59,11 @@ data: {"done": true, "response": {"complexity": "medium"}}
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/chat/autosave` | Save encrypted chat (`chatId` field, camelCase) |
+| POST | `/chat/start` | Create chat, return canonical `chat_id` |
+| POST | `/chat/autosave` | Retired compatibility endpoint |
 | GET | `/chat/list` | List user's chats |
-| GET | `/chat/<chat_id>` | Load specific chat |
+| GET | `/chat/<chat_id>?before_message_id=&limit=` | Load specific chat (paginated) |
+| PATCH | `/chat/<chat_id>` | Update chat title/pin/archive |
 | DELETE | `/chat/<chat_id>` | Delete chat |
 | POST | `/chat/<chat_id>/pin` | Pin/unpin chat |
 | POST | `/chat/<chat_id>/archive` | Archive to IPFS |
@@ -82,8 +81,8 @@ data: {"done": true, "response": {"complexity": "medium"}}
 | GET | `/user/memory` | Get stored facts |
 | POST | `/user/memory` | Replace all facts |
 | POST | `/user/memory/fact` | Add single fact |
-| PUT | `/user/memory/fact/<index>` | Edit fact (text, category, importance) |
-| DELETE | `/user/memory/fact/<index>` | Delete fact |
+| PATCH | `/user/memory/fact/<fact_id>` | Edit fact (text, category, importance) |
+| DELETE | `/user/memory/fact/<fact_id>` | Soft-delete fact |
 
 ---
 

@@ -392,11 +392,13 @@ def detect_tools_needed(query: str, understanding: Dict = None) -> List[str]:
             tools.append("web_search")
             break
 
-    # Document search detection - require explicit document/file references
+    # Document search detection - require explicit uploaded/attached doc intent.
+    # Do not trigger on generic "file" mentions in coding requests.
     doc_patterns = [
-        r"(this |the |my |uploaded )?(document|file|upload|pdf|attachment)",
-        r"according to (the|my|this|that)",
-        r"(search|look|find)\s+(in|through|within)\s+(the|my|this)",
+        r"\b(uploaded|attached)\s+(document|file|pdf|attachment)\b",
+        r"\b(this|that|the|my)\s+(document|pdf|attachment)\b",
+        r"according to (the|my|this|that)\s+(document|pdf|attachment)",
+        r"(search|look|find)\s+(in|through|within)\s+(the|my|this)\s+(document|file|pdf|attachment)\b",
     ]
     for pattern in doc_patterns:
         if re.search(pattern, query_lower):
@@ -404,20 +406,41 @@ def detect_tools_needed(query: str, understanding: Dict = None) -> List[str]:
             break
 
     # Code detection - only detect if code execution is actually enabled.
-    # When disabled, code_display is just a formatting tool and the model
-    # should write code inline using markdown fenced blocks.
+    # Keep this conservative: most "write code" asks should be answered inline,
+    # not via tool mode. Trigger code_display mainly for explicit execution/debug
+    # intent where running code or iterative fixing is useful.
     if CODE_EXECUTION_ENABLED:
-        code_patterns = [
+        code_generation_patterns = [
             r"(write|create|generate|build|make)\s+(me\s+)?(a\s+)?(code|function|program|script|class)",
             r"(show|give)\s+me\s+(the\s+)?(code|function|implementation)",
-            r"\b(debug|refactor|optimize|fix)\s+(this|the|my)\s+(code|function|program|script)",
             r"(python|javascript|typescript|java|c\+\+|rust|go)\s+(code|function|program|script|implementation)",
             r"implement\b|write\s+a?\s*function|def\s+\w+\(|class\s+\w+[\(:]",
+            r"(create|write|generate)\s+(a\s+)?(python|javascript|typescript|java|c\+\+|rust|go)\s+file",
         ]
-        for pattern in code_patterns:
-            if re.search(pattern, query_lower):
-                tools.append("code_display")
-                break
+        code_exec_or_fix_patterns = [
+            r"\b(debug|refactor|optimize|fix)\s+(this|the|my)\s+(?:\w+\s+){0,2}(code|function|program|script)",
+            r"\b(run|execute|test)\s+(this|the|my)\s+(code|script|program)",
+            r"\b(run|execute)\b.*\b(python|javascript|node|script)\b",
+        ]
+        explicit_workspace_or_path_patterns = [
+            r"\b(workspace|project|repo|repository|directory|folder|codebase)\b",
+            r"\b(path|filepath|file path)\b",
+            r"(?:^|\s)(?:\.{1,2}/|/)\S+",  # ./foo, ../foo, /abs/path
+            r"\b\w[\w\-./]*\.(?:py|js|ts|tsx|jsx|json|md|txt|html|css|yaml|yml|sh|rs|go|java|c|cpp)\b",
+            r"\b(?:named|called)\s+\w[\w\-./]*\.\w+\b",
+            r"\bsave (?:it|this|that)?\s*(?:to|as)\s+\w[\w\-./]*\.\w+\b",
+        ]
+
+        has_code_generation = any(re.search(pattern, query_lower) for pattern in code_generation_patterns)
+        has_code_exec_or_fix = any(re.search(pattern, query_lower) for pattern in code_exec_or_fix_patterns)
+        has_explicit_workspace_or_path = any(
+            re.search(pattern, query_lower) for pattern in explicit_workspace_or_path_patterns
+        )
+
+        # Only trigger tool-mode code handling when explicit execution/fixing
+        # or concrete filesystem intent exists.
+        if has_code_exec_or_fix or (has_code_generation and has_explicit_workspace_or_path):
+            tools.append("code_display")
 
     # Fact check detection - require full phrases, not bare words
     fact_patterns = [
@@ -460,18 +483,31 @@ def detect_tools_needed(query: str, understanding: Dict = None) -> List[str]:
             break
 
     # Filesystem tool detection
-    fs_patterns = [
+    # Keep this strict to avoid hijacking normal "write code" requests
+    # into filesystem mode when the user only wants inline code.
+    fs_scope_patterns = [
+        r"\b(workspace|project|repo|repository|directory|folder|codebase)\b",
+        r"\b(path|filepath|file path)\b",
+        r"(?:^|\s)(?:\.{1,2}/|/)\S+",  # ./foo, ../foo, /abs/path
+        r"\b\w[\w\-./]*\.(?:py|js|ts|tsx|jsx|json|md|txt|html|css|yaml|yml|sh|rs|go|java|c|cpp)\b",
+        r"\b(?:named|called)\s+\w[\w\-./]*\.\w+\b",
+        r"\bsave (?:it|this|that)?\s*(?:to|as)\s+\w[\w\-./]*\.\w+\b",
+    ]
+    fs_action_patterns = [
         r"(read|show|open|cat|display|view)\s+.*?(file|source\s+code|code\s+in)",
         r"(list|show)\s+(the\s+|me\s+the\s+)?(files?|director|folder|project\s+structure)",
-        r"(write|create|save)\s+(a\s+)?(file|to\s+file)",
+        r"(write|create|save)\s+(?:a\s+)?file\b",
         r"(search|find|grep|look\s+for)\s+.*(in\s+the\s+)?(code|project|repo|files?|codebase)",
-        r"(run|execute)\s+(the\s+)?(test|pytest|python|node|script|command)",
         r"what('?s|\s+is)\s+in\s+(this|the|my)\s+(project|directory|folder|repo)",
     ]
-    for pattern in fs_patterns:
-        if re.search(pattern, query_lower):
-            tools.append("read_file")  # General filesystem signal
-            break
+    fs_execute_patterns = [
+        r"(run|execute)\s+(the\s+)?(test|pytest|python|node|script|command)",
+    ]
+    has_fs_scope = any(re.search(pattern, query_lower) for pattern in fs_scope_patterns)
+    has_fs_action = any(re.search(pattern, query_lower) for pattern in fs_action_patterns)
+    has_fs_execute = any(re.search(pattern, query_lower) for pattern in fs_execute_patterns)
+    if has_fs_execute or (has_fs_action and has_fs_scope):
+        tools.append("read_file")  # General filesystem signal
 
     return list(set(tools))  # Remove duplicates
 

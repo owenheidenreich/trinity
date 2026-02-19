@@ -14,6 +14,7 @@ No complexity classification. No multi-pass. One prompt, one response.
 import json
 import logging
 import re
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Dict, Generator, List, Optional
@@ -71,6 +72,9 @@ _SMALLTALK_CANONICAL = {
     "afternoon",
     "evening",
     "sup",
+    "what up",
+    "what up friend",
+    "what up my friend",
     "whats up",
     "what's up",
     "how are you",
@@ -79,6 +83,52 @@ _SMALLTALK_CANONICAL = {
     "thank you",
     "thx",
 }
+_SMALLTALK_GREETING_TOKENS = {
+    "hi",
+    "hello",
+    "hey",
+    "yo",
+    "sup",
+    "what",
+    "up",
+    "my",
+    "friend",
+    "morning",
+    "afternoon",
+    "evening",
+    "thanks",
+    "thank",
+    "you",
+    "thx",
+    "trinity",
+    "there",
+}
+
+_CODE_REQUEST_PATTERNS = [
+    re.compile(r"\b(write|create|generate|build|make|implement)\b.*\b(code|script|function|program|file)\b"),
+    re.compile(r"\b(show|give)\b.*\b(code|implementation|example)\b"),
+    re.compile(r"\b(can you|could you)\b.*\b(code|script|function|program|file)\b"),
+    re.compile(r"\b(python|javascript|typescript|html|css|sql|bash|shell|rust|go|java|c\+\+|c#)\b"),
+]
+_EXECUTION_INTENT_PATTERNS = [
+    re.compile(r"\b(run|execute|debug|fix|test|benchmark|profile)\b"),
+]
+_CODE_LANGUAGE_PATTERNS = [
+    (re.compile(r"\btypescript\b|\b\.ts\b"), "typescript"),
+    (re.compile(r"\bjavascript\b|\b\.js\b"), "javascript"),
+    (re.compile(r"\bpython\b|\b\.py\b"), "python"),
+    (re.compile(r"\bhtml\b|\b\.html\b"), "html"),
+    (re.compile(r"\bcss\b|\b\.css\b"), "css"),
+    (re.compile(r"\bsql\b"), "sql"),
+    (re.compile(r"\brust\b|\b\.rs\b"), "rust"),
+    (re.compile(r"\bgo\b|\b\.go\b"), "go"),
+    (re.compile(r"\bjava\b|\b\.java\b"), "java"),
+    (re.compile(r"\bbash\b|\bshell\b|\b\.sh\b"), "bash"),
+]
+_FAKE_FILE_CLAIM_PATTERN = re.compile(
+    r"\b(file|script|program)\b[\w\s\"'`:/\\.-]{0,120}\b(created|written|saved|generated)\b",
+    re.IGNORECASE,
+)
 
 _PERSONAL_MEMORY_PATTERNS = [
     re.compile(r"\bwhat do you know about me\b"),
@@ -109,6 +159,30 @@ _PERSONAL_DISCLOSURE_NEGATIVE_PATTERNS = [
     re.compile(r"\bwhy is\b"),
 ]
 
+_CATEGORY_REPRESENTATIVES = {
+    "identity": "user name age location background timezone language identity personal profile",
+    "work": "user work job role company project startup engineering stack coding professional",
+    "interests": "user interests hobbies learning reading sports music goals topics curiosity",
+    "preferences": "user preferences preferred style format tone tools language response settings",
+    "relationships": "user relationships partner cofounder friend colleague family team collaborators",
+    "general": "durable facts about the user",
+}
+_CATEGORY_EMBEDDINGS: Dict[str, "object"] = {}
+_CATEGORY_EMBEDDINGS_LOCK = threading.Lock()
+_PREFERENCE_QUERY_HINTS = {
+    "style",
+    "tone",
+    "format",
+    "respond",
+    "reply",
+    "wording",
+    "color",
+    "green",
+    "concise",
+    "verbose",
+    "bullet",
+}
+
 
 def _question_requests_personal_memory(question: str) -> bool:
     """Return True only when the user explicitly asks for personal/profile recall."""
@@ -137,6 +211,14 @@ def _normalize_smalltalk_text(text: str) -> str:
     return " ".join(normalized.split())
 
 
+def _query_targets_response_preferences(query: str) -> bool:
+    normalized = _normalize_smalltalk_text(query)
+    if not normalized:
+        return False
+    words = set(normalized.split())
+    return any(hint in words for hint in _PREFERENCE_QUERY_HINTS)
+
+
 def is_trivial_smalltalk(question: str, context_messages: Optional[List[Dict]] = None) -> bool:
     """Return True for low-value phatic messages that should use a fast path."""
     normalized = _normalize_smalltalk_text(question)
@@ -147,7 +229,14 @@ def is_trivial_smalltalk(question: str, context_messages: Optional[List[Dict]] =
         return False
 
     # Keep this conservative: only clear greetings/acknowledgements.
-    return normalized in _SMALLTALK_CANONICAL
+    if normalized in _SMALLTALK_CANONICAL:
+        return True
+
+    words = normalized.split()
+    if 1 <= len(words) <= 3 and all(w in _SMALLTALK_GREETING_TOKENS for w in words):
+        return True
+
+    return False
 
 
 def _smalltalk_fast_response(question: str) -> str:
@@ -161,9 +250,119 @@ def _smalltalk_fast_response(question: str) -> str:
     return "Hey. I'm here and ready when you are."
 
 
+def _is_code_generation_request(question: str) -> bool:
+    text = _normalize_smalltalk_text(question)
+    if not text:
+        return False
+    if any(pattern.search(text) for pattern in _EXECUTION_INTENT_PATTERNS):
+        return False
+    return any(pattern.search(text) for pattern in _CODE_REQUEST_PATTERNS)
+
+
+def _infer_code_language(question: str) -> str:
+    text = _normalize_smalltalk_text(question)
+    for pattern, language in _CODE_LANGUAGE_PATTERNS:
+        if pattern.search(text):
+            return language
+    return "text"
+
+
+def _contains_fenced_code(text: str) -> bool:
+    return bool(text and text.count("```") >= 2)
+
+
+def _looks_like_code(text: str) -> bool:
+    if not text:
+        return False
+    code_markers = (
+        "def ",
+        "class ",
+        "function ",
+        "const ",
+        "let ",
+        "var ",
+        "import ",
+        "console.log",
+        "print(",
+        "{",
+        "}",
+        "<html",
+        "SELECT ",
+        "#include",
+        "public static",
+    )
+    snippet = text.strip()
+    if any(marker in snippet for marker in code_markers):
+        return True
+    lines = [line for line in snippet.splitlines() if line.strip()]
+    return len(lines) >= 3 and any(("=" in line or ":" in line) for line in lines[:6])
+
+
+def _wrap_code_block(text: str, language: str) -> str:
+    body = (text or "").strip()
+    return f"```{language}\n{body}\n```" if body else f"```{language}\n\n```"
+
+
 def _estimate_tokens(text: str) -> int:
     """Rough token estimate: ~4 chars per token for English text."""
     return max(1, len(text) // 4)
+
+
+def _compute_category_boosts(
+    query: str,
+    query_embedding,
+    embed_text,
+    cosine_similarity,
+) -> Dict[str, float]:
+    """Compute query-adaptive category boosts from embedding similarity."""
+    import numpy as np
+
+    boosts = {cat: 0.0 for cat in _CATEGORY_REPRESENTATIVES}
+    if query_embedding is None:
+        return boosts
+    if not isinstance(query_embedding, np.ndarray):
+        query_embedding = np.array(query_embedding)
+
+    personal_query = _question_requests_personal_memory(query)
+    if personal_query:
+        multipliers = {
+            "identity": 0.22,
+            "relationships": 0.22,
+            "work": 0.08,
+            "interests": 0.08,
+            "preferences": 0.08,
+            "general": 0.05,
+        }
+    else:
+        multipliers = {
+            "identity": 0.05,
+            "relationships": 0.05,
+            "work": 0.18,
+            "interests": 0.18,
+            "preferences": 0.14,
+            "general": 0.10,
+        }
+
+    for category, representative in _CATEGORY_REPRESENTATIVES.items():
+        rep_emb = None
+        with _CATEGORY_EMBEDDINGS_LOCK:
+            rep_emb = _CATEGORY_EMBEDDINGS.get(category)
+            if rep_emb is None:
+                generated = embed_text(representative)
+                if generated is not None:
+                    rep_emb = np.array(generated)
+                    _CATEGORY_EMBEDDINGS[category] = rep_emb
+
+        if rep_emb is None:
+            continue
+
+        try:
+            similarity = float(cosine_similarity(query_embedding, rep_emb))
+        except Exception:
+            similarity = 0.0
+        boosts[category] = max(0.0, similarity) * multipliers.get(category, 0.0)
+
+    return boosts
 
 
 def _format_user_memory(
@@ -203,13 +402,28 @@ def _format_user_memory(
     now_ms = int(time.time() * 1000)
     scored_facts = []
     query_embedding = None
+    embed_text = None
+    cosine_similarity = None
+    category_boosts = {cat: 0.0 for cat in _CATEGORY_REPRESENTATIVES}
 
     if query:
         try:
-            from .embeddings import cosine_similarity, embed_text
+            from .embeddings import cosine_similarity as cosine_similarity_fn, embed_text as embed_text_fn
+
+            cosine_similarity = cosine_similarity_fn
+            embed_text = embed_text_fn
             query_embedding = embed_text(query)
+            category_boosts = _compute_category_boosts(
+                query=query,
+                query_embedding=query_embedding,
+                embed_text=embed_text,
+                cosine_similarity=cosine_similarity,
+            )
         except Exception:
             pass
+
+    prefers_style_memory = _query_targets_response_preferences(query)
+    personal_recall_query = _question_requests_personal_memory(query)
 
     for fact in facts:
         # Handle plain string facts (legacy format)
@@ -219,7 +433,7 @@ def _format_user_memory(
                 continue
             if not include_personal:
                 continue
-            score = 0.5 * 0.5 + (3 / 5.0) * 0.3 + 1.0 * 0.2
+            score = 0.5 * 0.5 + (3 / 5.0) * 0.3 + 1.0 * 0.2 + category_boosts.get("general", 0.0)
             scored_facts.append((score, fact, text, "general"))
             continue
 
@@ -250,18 +464,20 @@ def _format_user_memory(
         # Combined score
         score = relevance * 0.5 + importance * 0.3 + recency * 0.2
 
-        # Identity facts get a big boost — always include the user's name
         category = fact.get("category", "general")
-        if category == "identity" and include_personal:
-            score += 0.35
+        score += category_boosts.get(category, 0.0)
+
+        if query and category == "preferences":
+            # Style/format preferences should only be injected when the user is
+            # explicitly asking for response style guidance or profile recall.
+            if not (prefers_style_memory or personal_recall_query):
+                continue
 
         if not include_personal and category in {"identity", "relationships"}:
             continue
 
         if not include_personal:
-            if category == "preferences":
-                pass
-            elif query_embedding is not None and score < PROFILE_RELEVANCE_FLOOR:
+            if query_embedding is not None and score < PROFILE_RELEVANCE_FLOOR:
                 continue
             elif query_embedding is None:
                 continue
@@ -544,6 +760,92 @@ class AgentPipeline:
             accumulator.append(buf)
             yield buf
 
+    @staticmethod
+    def _yield_text_chunks(text: str, chunk_size: int = 320) -> Generator[str, None, None]:
+        body = text or ""
+        if not body:
+            return
+        for start in range(0, len(body), chunk_size):
+            yield body[start:start + chunk_size]
+
+    def _repair_inline_code_response(
+        self,
+        *,
+        question: str,
+        draft_response: str,
+        language: str,
+    ) -> str:
+        """
+        One-shot repair pass when a code request returned prose without fenced code.
+        """
+        try:
+            repair_messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You format code answers. Return ONLY runnable code in ONE fenced markdown block. "
+                        "No prose, no explanations, no tool tags, no claims about file creation."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"User request:\n{question}\n\n"
+                        f"Draft answer (may be invalid):\n{draft_response}\n\n"
+                        f"Return corrected code only. Preferred language: {language}."
+                    ),
+                },
+            ]
+            repaired = self.client.chat(
+                repair_messages,
+                max_tokens=min(MAX_TOKENS, 3000),
+                temperature=0.1,
+                timeout=TIMEOUT,
+                think=False,
+            )
+            repaired_text = (repaired or "").strip()
+            if not repaired_text:
+                return ""
+            if _contains_fenced_code(repaired_text):
+                return repaired_text
+            if _looks_like_code(repaired_text):
+                return _wrap_code_block(repaired_text, language)
+            return ""
+        except Exception as e:
+            logger.debug("Code-response repair skipped: %s", e)
+            return ""
+
+    def _finalize_response_contract(self, question: str, response_text: str) -> tuple[str, str]:
+        """
+        Enforce deterministic inline-code contract for code-generation requests.
+        """
+        normalized = (response_text or "").strip()
+        if not _is_code_generation_request(question):
+            return normalized, "normal"
+
+        language = _infer_code_language(question)
+
+        if _contains_fenced_code(normalized):
+            return normalized, "inline_code"
+
+        if normalized and _looks_like_code(normalized):
+            return _wrap_code_block(normalized, language), "inline_code"
+
+        sanitized_draft = normalized
+        if _FAKE_FILE_CLAIM_PATTERN.search(sanitized_draft):
+            sanitized_draft = ""
+
+        repaired = self._repair_inline_code_response(
+            question=question,
+            draft_response=sanitized_draft or normalized,
+            language=language,
+        )
+        if repaired:
+            return repaired, "inline_code"
+
+        fallback = sanitized_draft or normalized
+        return _wrap_code_block(fallback or "# No code returned.", language), "inline_code"
+
     def process_streaming(
         self,
         question: str,
@@ -569,6 +871,7 @@ class AgentPipeline:
         search_context = ""
         search_performed = False
         last_done_reason = "stop"
+        response_mode = "normal"
 
         record_complexity("single_pass")
         record_routing("agent")
@@ -586,32 +889,52 @@ class AgentPipeline:
                 search_query=None,
                 total_time_seconds=round(total_time, 2),
             )
-            yield {"done": True, "response": response.to_dict(), "done_reason": "stop"}
+            yield {
+                "done": True,
+                "response": response.to_dict(),
+                "done_reason": "stop",
+                "response_mode": "normal",
+            }
             return
 
         tools_needed = self._should_use_react(question)
         disclosure_path = bool(kwargs.get("disclosure_path")) or is_personal_disclosure(question)
-        include_personal_memory = _question_requests_personal_memory(question)
+        include_personal_memory = _question_requests_personal_memory(question) or disclosure_path
         formatted_user_memory = ""
+        conversation_summary = ""
+        last_summarized_index = -1
+        chat_id = kwargs.get("chat_id")
+        current_message_index = kwargs.get("message_index")
+        formatted_user_memory = _format_user_memory(
+            user_memory,
+            query=question,
+            include_personal=include_personal_memory,
+        )
+        if isinstance(user_memory, dict) and chat_id:
+            summaries = user_memory.get("conversation_summaries", {})
+            if isinstance(summaries, dict):
+                summary_record = summaries.get(chat_id, {})
+                if isinstance(summary_record, dict):
+                    conversation_summary = str(summary_record.get("summary", "")).strip()
+                    try:
+                        last_summarized_index = int(
+                            summary_record.get("last_summarized_index", -1)
+                        )
+                    except (TypeError, ValueError):
+                        last_summarized_index = -1
 
-        if not disclosure_path:
-            formatted_user_memory = _format_user_memory(
-                user_memory,
-                query=question,
-                include_personal=include_personal_memory,
-            )
-            formatted_semantic = _format_semantic_context(semantic_context)
-            formatted_graph = _format_graph_context(graph_context)
-            if formatted_semantic:
-                if formatted_user_memory:
-                    formatted_user_memory = f"{formatted_user_memory}\n\n{formatted_semantic}"
-                else:
-                    formatted_user_memory = formatted_semantic
-            if formatted_graph:
-                if formatted_user_memory:
-                    formatted_user_memory = f"{formatted_user_memory}\n\n{formatted_graph}"
-                else:
-                    formatted_user_memory = formatted_graph
+        formatted_semantic = _format_semantic_context(semantic_context)
+        formatted_graph = _format_graph_context(graph_context)
+        if formatted_semantic:
+            if formatted_user_memory:
+                formatted_user_memory = f"{formatted_user_memory}\n\n{formatted_semantic}"
+            else:
+                formatted_user_memory = formatted_semantic
+        if formatted_graph:
+            if formatted_user_memory:
+                formatted_user_memory = f"{formatted_user_memory}\n\n{formatted_graph}"
+            else:
+                formatted_user_memory = formatted_graph
 
         logger.info(
             "🧠 Agent streaming: single-pass, tools=%s, disclosure=%s",
@@ -656,35 +979,60 @@ class AgentPipeline:
                         full_response += event["token"]
                     yield event
             else:
-                # Direct single-pass chat (think=False to avoid
-                # proxy timeouts — think blocks produce no SSE events
-                # and the 60s Akash read_timeout kills the connection).
-                # Uses /api/chat with structured messages for proper
-                # turn-taking awareness (games, role-play, multi-turn).
                 messages = build_chat_messages(
-                    question, context_messages, formatted_user_memory, search_context
+                    question,
+                    context_messages,
+                    formatted_user_memory,
+                    search_context,
+                    include_tools=False,
+                    chat_id=kwargs.get("chat_id"),
+                    conversation_summary=conversation_summary,
+                    last_summarized_index=last_summarized_index,
+                    current_message_index=current_message_index,
                 )
-                filtered_parts = []
-                for token in self._filter_think_blocks(
-                    self.client.chat_stream(
+                code_intent = _is_code_generation_request(question)
+                if code_intent:
+                    # Deterministic inline-code contract path.
+                    generated = self.client.chat(
                         messages,
                         kwargs.get("max_tokens", MAX_TOKENS),
                         timeout=TIMEOUT,
                         think=False,
-                    ),
-                    filtered_parts,
-                ):
-                    if isinstance(token, dict) and "__done_reason" in token:
-                        last_done_reason = token["__done_reason"]
-                        continue
-                    yield {"token": token}
-                full_response = "".join(filtered_parts)
+                    )
+                    finalized, response_mode = self._finalize_response_contract(question, generated or "")
+                    full_response = finalized
+                    for chunk in self._yield_text_chunks(full_response):
+                        yield {"token": chunk}
+                    last_done_reason = "stop"
+                else:
+                    # Direct single-pass chat (think=False to avoid
+                    # proxy timeouts — think blocks produce no SSE events
+                    # and the 60s Akash read_timeout kills the connection).
+                    # Uses /api/chat with structured messages for proper
+                    # turn-taking awareness (games, role-play, multi-turn).
+                    filtered_parts = []
+                    for token in self._filter_think_blocks(
+                        self.client.chat_stream(
+                            messages,
+                            kwargs.get("max_tokens", MAX_TOKENS),
+                            timeout=TIMEOUT,
+                            think=False,
+                        ),
+                        filtered_parts,
+                    ):
+                        if isinstance(token, dict) and "__done_reason" in token:
+                            last_done_reason = token["__done_reason"]
+                            continue
+                        yield {"token": token}
+                    full_response = "".join(filtered_parts)
 
         except Exception as e:
             logger.error(f"Agent streaming error: {e}")
             yield {"error": str(e)}
 
         total_time = time.time() - start_time
+        if response_mode == "normal" and _contains_fenced_code(full_response):
+            response_mode = "inline_code"
 
         response = AgentResponse(
             answer=full_response,
@@ -693,7 +1041,12 @@ class AgentPipeline:
             total_time_seconds=round(total_time, 2),
         )
 
-        yield {"done": True, "response": response.to_dict(), "done_reason": last_done_reason}
+        yield {
+            "done": True,
+            "response": response.to_dict(),
+            "done_reason": last_done_reason,
+            "response_mode": response_mode,
+        }
 
 
 # ============================================================================

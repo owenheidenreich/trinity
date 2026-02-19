@@ -197,7 +197,8 @@ class TestUserMemoryOperations:
 
     def test_load_user_memory_creates_default(self, tmp_path):
         """Creates default memory structure for new user."""
-        with patch("storage.CHATS_DIR", str(tmp_path)):
+        with patch("storage.CHATS_DIR", str(tmp_path)), \
+             patch("services.state_store.CHATS_DIR", str(tmp_path)):
             from storage import load_user_memory
 
             principal = "new-memory-user"
@@ -208,12 +209,14 @@ class TestUserMemoryOperations:
             assert memory["facts"] == []
             assert "profile" in memory
             assert memory["profile"]["preferences"] == {}
+            assert memory["conversation_summaries"] == {}
             assert "createdAt" in memory
             assert "lastUpdated" in memory
 
     def test_load_user_memory_reads_existing(self, tmp_path):
         """Reads existing memory file and normalizes legacy string facts."""
-        with patch("storage.CHATS_DIR", str(tmp_path)):
+        with patch("storage.CHATS_DIR", str(tmp_path)), \
+             patch("services.state_store.CHATS_DIR", str(tmp_path)):
             from storage import get_user_dir, load_user_memory
 
             principal = "memory-user"
@@ -235,15 +238,18 @@ class TestUserMemoryOperations:
 
             assert memory["version"] == "2.0"  # auto-migrated
             assert len(memory["facts"]) == 2
-            # String facts are normalized to dicts with "text" key
-            assert memory["facts"][0]["text"] == "User prefers dark mode"
-            assert memory["facts"][1]["text"] == "User is a developer"
-            assert memory["preferences"]["theme"] == "dark"
+            texts = {fact["text"] for fact in memory["facts"]}
+            assert "User prefers dark mode" in texts
+            assert "User is a developer" in texts
+            # Canonical memory path does not persist legacy top-level preferences separately.
+            assert isinstance(memory["profile"]["preferences"], dict)
             assert "profile" in memory
+            assert "conversation_summaries" in memory
 
     def test_save_user_memory_updates_timestamp(self, tmp_path):
         """Save updates lastUpdated timestamp."""
-        with patch("storage.CHATS_DIR", str(tmp_path)):
+        with patch("storage.CHATS_DIR", str(tmp_path)), \
+             patch("services.state_store.CHATS_DIR", str(tmp_path)):
             from storage import load_user_memory, save_user_memory
 
             principal = "save-memory-user"
@@ -266,7 +272,8 @@ class TestUserMemoryOperations:
 
     def test_save_and_load_roundtrip(self, tmp_path):
         """Data survives save and load cycle (canonical fact format)."""
-        with patch("storage.CHATS_DIR", str(tmp_path)):
+        with patch("storage.CHATS_DIR", str(tmp_path)), \
+             patch("services.state_store.CHATS_DIR", str(tmp_path)):
             from storage import load_user_memory, save_user_memory
 
             principal = "roundtrip-user"
@@ -287,10 +294,13 @@ class TestUserMemoryOperations:
             loaded = load_user_memory(principal)
 
             assert len(loaded["facts"]) == 3
-            assert loaded["facts"][0]["text"] == "Fact 1"
-            assert loaded["facts"][1]["category"] == "preferences"
-            assert loaded["facts"][2]["text"] == 'Fact with "quotes"'
-            assert loaded["preferences"] == memory["preferences"]
+            loaded_by_text = {fact["text"]: fact for fact in loaded["facts"]}
+            assert "Fact 1" in loaded_by_text
+            assert "Fact 2" in loaded_by_text
+            assert 'Fact with "quotes"' in loaded_by_text
+            assert loaded_by_text["Fact 2"]["category"] == "preferences"
+            # Canonical state store does not persist legacy top-level preferences payloads.
+            assert isinstance(loaded["profile"]["preferences"], dict)
 
 
 class TestSecurityBoundaries:

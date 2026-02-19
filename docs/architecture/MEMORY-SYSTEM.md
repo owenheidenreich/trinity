@@ -13,7 +13,7 @@ Trinity uses a **three-tier memory system** that gives the AI context, personali
 │  ┌────────────────────┐                                              │
 │  │   WORKING MEMORY   │  Last 5 messages from current chat           │
 │  │   (Short-term)     │  Always available, zero retrieval cost       │
-│  │                    │  Source: vector_store.get_recent_messages()   │
+│  │                    │  Source: state_store.messages                 │
 │  └────────┬───────────┘                                              │
 │           │                                                          │
 │  ┌────────┴───────────┐                                              │
@@ -25,13 +25,13 @@ Trinity uses a **three-tier memory system** that gives the AI context, personali
 │           │                                                          │
 │  ┌────────┴───────────┐                                              │
 │  │    USER MEMORY     │  Persistent facts across all chats           │
-│  │  (Long-term)       │  Stored encrypted on IPFS                    │
+│  │  (Long-term)       │  Stored in canonical encrypted SQLite        │
 │  │                    │  Managed via tools or API                     │
-│  │                    │  Source: storage.load_user_memory()           │
+│  │                    │  Source: services/state_store.py              │
 │  └────────────────────┘                                              │
 │                                                                      │
-│  All three tiers are assembled into the system prompt before         │
-│  each LLM call by build_system_prompt() in agent_prompts.py         │
+│  These tiers are assembled into chat prompts by                      │
+│  build_chat_messages() / build_system_prompt() in agent_prompts.py  │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -42,9 +42,9 @@ Trinity uses a **three-tier memory system** that gives the AI context, personali
 **What:** The last few messages from the current conversation.  
 **Purpose:** Ensures the AI has immediate context about what was just said.  
 **Size:** 5 messages (configurable via `WORKING_MEMORY_SIZE`).  
-**Source:** `vector_store.get_recent_messages(chat_id, limit=5)`
+**Source:** `state_store.get_messages(chat_id, limit=5)` (via server-side context loading)
 
-This is the cheapest tier — no embedding search needed, just a simple database query sorted by timestamp. These messages are always included in the LLM context regardless of relevance.
+This is the cheapest tier — no embedding search needed, just a canonical DB query. These messages are always included in the LLM context regardless of relevance.
 
 ### How It Works
 
@@ -55,8 +55,8 @@ User sends message #10 in a conversation
 │   as working memory (last 5)
 │
 └── No embedding computation needed
-    Just: SELECT * FROM message_embeddings
-          WHERE chat_id = ? ORDER BY timestamp DESC LIMIT 5
+    Just: SELECT * FROM messages
+          WHERE chat_id = ? ORDER BY message_id DESC LIMIT 5
 ```
 
 ---
@@ -130,16 +130,17 @@ Agent completes response
 
 **What:** Persistent facts about the user that survive across all conversations.  
 **Purpose:** Makes the AI feel like it "knows" you — your identity, work, interests, preferences, relationships. Trinity builds a lasting relationship with each user.  
-**Size:** Unlimited facts, stored as encrypted JSON on IPFS. Facts are organized by category and scored by importance/relevance.
+**Size:** Unlimited facts in the canonical encrypted SQLite store. Facts are organized by category and scored by importance/relevance.
 
 ### Data Structure (v2.0)
 
 ```json
 {
   "principalId": "abc12-defgh...",
-  "version": "2.0",
+  "version": "3.0",
   "facts": [
     {
+      "fact_id": 101,
       "text": "User is building a decentralized AI platform called Trinity",
       "category": "work",
       "importance": 4,
@@ -166,6 +167,13 @@ Agent completes response
     "interests": {},
     "preferences": {},
     "relationships": {}
+  },
+  "conversation_summaries": {
+    "chat-abc123": {
+      "summary": "Rolling summary of older turns...",
+      "last_message_id": 124,
+      "updated_at": 1707851000
+    }
   },
   "createdAt": 1707840000,
   "lastUpdated": 1707850000
@@ -201,21 +209,31 @@ There are four ways to manage user memory:
 
 #### 1. Auto-Extraction (Background)
 
-After each AI response, a background thread runs `auto_extract_and_save()` from `services/profile_extractor.py`:
+After each AI response, the ingestion worker runs a single LLM extraction call (`qwen3:32b`) in the background:
 
 ```
 User: "I'm a Python developer working at Google"
 
 Background thread (after response):
-  → profile_extractor.extract_profile_facts(message)
-    ├── Regex: "I'm a ... developer" → category=work, importance=4
-    ├── Regex: "working at Google" → category=work, importance=4
-    └── Returns candidate facts
-  → For each candidate:
-    └── auto_extract_and_save() → tool_save_memory() with merge semantics
+  → profile_extractor.extract_memory_candidates(message)
+    ├── Ollama /api/chat call (format=json, think=false)
+    ├── Returns {facts:[...], triples:[...]}
+    └── Normalizes/dedups extraction output
+  → facts feed into tool_save_memory() (existing dedup + contradiction logic)
+  → triples feed into graph_memory.ingest_triples()
 ```
 
-This happens silently — the user doesn't see it, but the AI gradually builds a profile.
+This stays off the user-facing latency path because it runs in the existing async ingestion queue.
+
+### Rolling Conversation Summaries
+
+Long chats are compressed incrementally in background ingestion:
+- Summaries are stored at `user_memory.conversation_summaries[chat_id]`.
+- Each summary tracks `last_summarized_index` so only new messages are summarized.
+- A summary update runs when more than 10 unsummarized messages exist.
+- Prompt construction injects the summary as a system message, then keeps only unsummarized recent turns (up to 15).
+
+This preserves long-range context without sending the full raw transcript every turn.
 
 #### 2. Agent Tool Calls (Semi-Automatic)
 
@@ -236,7 +254,8 @@ During conversation, the AI uses 5 memory tools:
 | `/user/memory` | GET | Retrieve all facts + profile |
 | `/user/memory` | POST | Replace entire memory |
 | `/user/memory/fact` | POST | Add single fact (with merge-dedup) |
-| `/user/memory/fact/<index>` | DELETE | Soft-delete a specific fact |
+| `/user/memory/fact/{fact_id}` | PATCH | Edit a specific fact |
+| `/user/memory/fact/{fact_id}` | DELETE | Soft-delete a specific fact |
 | `/user/export` | GET | Download all data as ZIP |
 | `/user/stats` | GET | Profile, chat, storage statistics |
 
@@ -273,18 +292,19 @@ New fact: "User is a Python developer"
 
 ### Token-Budget Profile Injection
 
-When assembling the system prompt, `_format_user_memory()` in `agent.py` selects the most relevant facts within a token budget (default: 1500 tokens):
+When assembling the system prompt, `_format_user_memory()` in `agent.py` selects the most relevant facts within a token budget (default: 3500 tokens, max 25 facts):
 
 ```
 All active facts (non-deleted)
 │
 ├── Score each fact:
 │   score = relevance × 0.5 + importance × 0.3 + recency × 0.2
-│   (identity category gets +1.0 boost — always include the user's name)
+│   + query-adaptive category boost (embedding similarity vs category exemplars)
+│   (personal prompts boost identity/relationships; task prompts boost work/interests)
 │
 ├── Sort by score (descending)
 │
-├── Pack into 1500-token budget:
+├── Pack into 3500-token budget:
 │   For each fact (highest score first):
 │     If adding this fact stays within budget → include
 │     Else → skip
@@ -326,13 +346,15 @@ AgentPipeline.process_streaming(prompt, context_messages, ...)
 │   ├── Working memory: last 5 messages
 │   └── Semantic memory: top 8 relevant past messages
 │
-├── Build system prompt:
-│   build_system_prompt(
-│     context=semantic_context,
-│     memory=user_memory,
-│     search_results=None,
-│     tools=available_tools
+├── Build chat messages:
+│   build_chat_messages(
+│     question=prompt,
+│     context_messages=recent_context,
+│     user_memory=formatted_memory,
+│     chat_id=current_chat_id
 │   )
+│   ├── Inject rolling summary (if present)
+│   └── Include unsummarized tail only (max 15 when summary exists)
 │
 │   Resulting prompt structure:
 │   ┌──────────────────────────────────────────────┐
@@ -488,28 +510,19 @@ Cost estimation uses model-specific rates (since all inference is self-hosted, t
 
 ## Frontend Context Window
 
-On the frontend side, a simpler context window manages what gets sent to the API:
+Frontend still keeps a simple sliding context window (`CONTEXT_WINDOW_SIZE=20`) to keep request payloads bounded.
+Backend prompt construction now adds an additional compression layer via rolling summaries.
 
 ```
-Zustand Store:
-  contextMemory: ChatMessage[]    (sliding window)
-  CONTEXT_WINDOW_SIZE: 20         (max messages)
-
-When addMessage() is called:
-  1. Append to chatHistory (permanent)
-  2. Append to contextMemory
-  3. If contextMemory.length > 20:
-     Remove oldest messages from front
-
-getContextForLLM() returns:
-  {
-    recentMessages: contextMemory,    // last 20 messages
-    totalConversationLength: chatHistory.length,
-    totalTokens: estimated_count
-  }
+Frontend → send up to 20 recent messages
+Backend  → if summary exists for chat:
+           - inject summary system message
+           - include only messages after last_summarized_index (max 15)
+         else:
+           - include last 20 messages
 ```
 
-This ensures the API request body doesn't grow unbounded while keeping enough recent context for coherent conversation.
+This preserves long-range context without forcing every request to resend the full conversation history.
 
 ---
 
@@ -517,15 +530,16 @@ This ensures the API request body doesn't grow unbounded while keeping enough re
 
 | Config Key | Default | Location | Description |
 |-----------|---------|----------|-------------|
-| `WORKING_MEMORY_SIZE` | 3 | `config.py` | Messages in working memory |
-| `SEMANTIC_MEMORY_SIZE` | 5 | `config.py` | Semantic search results |
+| `WORKING_MEMORY_SIZE` | 5 | `config.py` | Messages in working memory |
+| `SEMANTIC_MEMORY_SIZE` | 8 | `config.py` | Semantic search results |
 | `RECENCY_WEIGHT` | 0.3 | `config.py` | Recency vs similarity balance |
 | `EMBEDDING_MODEL` | `BAAI/bge-small-en-v1.5` | `config.py` | Embedding model |
 | `EMBEDDING_DIM` | 384 | `config.py` | Vector dimensions |
 | `CHUNK_SIZE` | 500 | `config.py` | Document chunk size (chars) |
 | `RAG_TOP_K` | 5 | `config.py` | Top RAG results |
 | `CONTEXT_WINDOW_SIZE` | 20 | `store/types.ts` | Frontend context window |
-| `PROFILE_TOKEN_BUDGET` | 1500 | `config.py` | Max tokens for user profile in system prompt |
+| `PROFILE_TOKEN_BUDGET` | 3500 | `config.py` | Max tokens for user profile in system prompt |
+| `PROFILE_MAX_FACTS` | 25 | `config.py` | Max facts packed into profile prompt section |
 | `PROFILE_CATEGORIES` | identity, work, interests, preferences, relationships | `config.py` | Profile category classifications |
 | `DEDUP_MERGE_THRESHOLD` | 0.85 | `config.py` | Cosine similarity to trigger fact merge |
 | `DEDUP_SKIP_THRESHOLD` | 0.95 | `config.py` | Cosine similarity to skip (identical) |
@@ -538,7 +552,8 @@ This ensures the API request body doesn't grow unbounded while keeping enough re
 |------|------|
 | `services/memory.py` | `SemanticMemory` class — orchestrates working + semantic retrieval |
 | `services/memory_tools.py` | Tool handlers: `save_memory`, `recall_memory`, `search_memory`, `update_memory`, `forget_memory` |
-| `services/profile_extractor.py` | Background auto-extraction of profile facts from user messages |
+| `services/profile_extractor.py` | Single-call LLM extraction for profile facts + graph triples |
+| `services/memory_ingestion.py` | Async ingestion queue, unified extraction fan-out, rolling summary updates |
 | `services/embeddings.py` | Embedding computation + caching |
 | `services/vector_store.py` | Per-user SQLite vector database |
 | `services/caching.py` | `EmbeddingCache`, `SemanticResponseCache`, `TokenTracker` |

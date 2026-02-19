@@ -158,7 +158,7 @@ class TestFormatUserMemory:
             assert identity_pos < general_pos
 
     def test_non_personal_queries_filter_identity_facts(self):
-        """Identity/relationship facts are omitted for neutral factual prompts."""
+        """Neutral factual prompts omit identity and style preferences."""
         from services.agent import _format_user_memory
 
         memory = {
@@ -174,7 +174,7 @@ class TestFormatUserMemory:
         )
 
         assert "User's name is Owen" not in result
-        assert "User prefers concise answers" in result
+        assert "User prefers concise answers" not in result
 
     def test_personal_memory_detector_is_explicit(self):
         """Only explicit profile recall prompts should trigger full personal memory injection."""
@@ -192,6 +192,85 @@ class TestFormatUserMemory:
         assert is_personal_disclosure("i like sci-fi books")
         assert not is_personal_disclosure("what is the quadratic formula")
         assert not is_personal_disclosure("can you help me with python")
+
+
+# ============================================================================
+# Rolling summary prompt injection
+# ============================================================================
+
+class TestConversationSummaryPrompt:
+    def test_injects_summary_and_uses_unsummarized_tail(self):
+        from services.agent_prompts import build_chat_messages
+
+        context = [
+            {"role": "user" if i % 2 == 0 else "assistant", "content": f"message-{i}", "message_index": i}
+            for i in range(30)
+        ]
+
+        messages = build_chat_messages(
+            question="What were we discussing?",
+            context_messages=context,
+            user_memory="",
+            chat_id="chat-1",
+            conversation_summary="Summary of older context",
+            last_summarized_index=20,
+        )
+
+        assert messages[0]["role"] == "system"
+        assert messages[1]["role"] == "system"
+        assert "Summary of older context" in messages[1]["content"]
+
+        history_contents = [m["content"] for m in messages if m["role"] in ("user", "assistant")]
+        assert "message-20" not in history_contents
+        assert "message-21" in history_contents
+        assert "message-29" in history_contents
+
+    def test_without_summary_keeps_last_twenty_messages(self):
+        from services.agent_prompts import build_chat_messages
+
+        context = [
+            {"role": "user" if i % 2 == 0 else "assistant", "content": f"message-{i}", "message_index": i}
+            for i in range(30)
+        ]
+
+        messages = build_chat_messages(
+            question="continue",
+            context_messages=context,
+            user_memory="",
+        )
+
+        history = [m for m in messages if m["role"] in ("user", "assistant")]
+        # 20 historical messages + current user question
+        assert len(history) == 21
+        assert any(m["content"] == "message-10" for m in history)
+        assert not any(m["content"] == "message-9" for m in history)
+
+    def test_summary_without_message_indexes_keeps_recent_tail(self):
+        from services.agent_prompts import build_chat_messages
+
+        # Frontend request shape: role/content only (no message_index fields).
+        context = [
+            {"role": "user" if i % 2 == 0 else "assistant", "content": f"message-{i}"}
+            for i in range(20)
+        ]
+
+        messages = build_chat_messages(
+            question="continue",
+            context_messages=context,
+            user_memory="",
+            chat_id="chat-1",
+            conversation_summary="Older summary",
+            last_summarized_index=200,  # absolute index outside this 20-message local window
+            current_message_index=220,
+        )
+
+        history = [m for m in messages if m["role"] in ("user", "assistant")]
+        # 15 historical tail + current user question
+        assert len(history) == 16
+        assert history[-1]["content"] == "continue"
+        historical = history[:-1]
+        assert historical[0]["content"] == "message-5"
+        assert historical[-1]["content"] == "message-19"
 
 
 # ============================================================================

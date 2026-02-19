@@ -164,40 +164,34 @@ class TestGenerationPipeline:
     """Test the main generation endpoints."""
 
     def test_generate_basic(self, client, mock_ollama_generate):
-        """Basic generation with mocked Ollama should work."""
+        """Legacy /generate endpoint is explicitly retired."""
         response = client.post(
             "/generate", json={"prompt": "Hello, how are you?"}, content_type="application/json"
         )
 
-        # Should succeed or return 500 if Ollama check fails at startup
-        assert response.status_code in [200, 500]
-        if response.status_code == 200:
-            data = response.get_json()
-            assert "response" in data
+        assert response.status_code == 404
 
     def test_generate_with_complexity(self, client, mock_ollama_generate):
-        """Generation should process complexity routing."""
+        """Legacy /generate endpoint is retired regardless of prompt complexity."""
         response = client.post(
             "/generate",
             json={"prompt": "Compare and contrast Python vs JavaScript for web development."},
             content_type="application/json",
         )
 
-        # Should succeed or return 500 if Ollama unavailable
-        assert response.status_code in [200, 500]
+        assert response.status_code == 404
 
     def test_generate_empty_prompt_rejected(self, client):
-        """Empty prompt should be rejected."""
+        """Legacy /generate endpoint remains retired."""
         response = client.post("/generate", json={"prompt": ""}, content_type="application/json")
 
-        # Empty prompt must be rejected with 400
-        assert response.status_code == 400, f"Expected 400 for empty prompt, got {response.status_code}"
+        assert response.status_code == 404, f"Expected 404 for removed route, got {response.status_code}"
 
     def test_generate_missing_prompt_rejected(self, client):
-        """Missing prompt field should be rejected."""
+        """Legacy /generate endpoint remains retired."""
         response = client.post("/generate", json={}, content_type="application/json")
 
-        assert response.status_code == 400
+        assert response.status_code == 404
 
 
 # =============================================================================
@@ -211,7 +205,7 @@ class TestAuthentication:
     def test_auth_required_endpoint_without_headers(self, client):
         """Protected endpoints should reject unauthenticated requests."""
         response = client.post(
-            "/chat/autosave", json={"chatId": "test", "data": {}}, content_type="application/json"
+            "/chat/start", json={"chat_id": "test", "title": "Test"}, content_type="application/json"
         )
 
         assert response.status_code == 401
@@ -228,13 +222,12 @@ class TestAuthentication:
         }
 
         response = client.post(
-            "/chat/autosave",
-            json={"chatId": "test-chat-123", "title": "Test Chat", "messages": []},
+            "/chat/start",
+            json={"chat_id": "test-chat-123", "title": "Test Chat"},
             headers=headers,
         )
 
-        # Mock bypasses signature verification, so 401 should never happen
-        assert response.status_code in [200, 400, 500], f"Unexpected {response.status_code}"
+        assert response.status_code == 200, f"Unexpected {response.status_code}"
 
     def test_invalid_signature_rejected(self, client):
         """Invalid signatures should be rejected."""
@@ -248,7 +241,7 @@ class TestAuthentication:
         }
 
         response = client.post(
-            "/chat/autosave", json={"chatId": "test", "data": {}}, headers=headers
+            "/chat/start", json={"chat_id": "test", "title": "Test"}, headers=headers
         )
 
         assert response.status_code in [400, 401]
@@ -334,19 +327,15 @@ class TestFullPipelineIntegration:
     """Test complete request lifecycle."""
 
     def test_simple_query_pipeline(self, client, mock_ollama_generate):
-        """Simple query should complete full pipeline."""
+        """Legacy /generate endpoint stays retired after hard cutover."""
         response = client.post(
             "/generate", json={"prompt": "What is 2+2?"}, content_type="application/json"
         )
 
-        # Should succeed or 500 if Ollama unavailable at startup
-        assert response.status_code in [200, 500]
-        if response.status_code == 200:
-            data = response.get_json()
-            assert "response" in data
+        assert response.status_code == 404
 
     def test_complex_query_pipeline(self, client, mock_ollama_generate, mock_auth):
-        """Complex query should route appropriately."""
+        """Legacy /generate endpoint stays retired for complex prompts too."""
         response = client.post(
             "/generate",
             json={
@@ -357,11 +346,10 @@ class TestFullPipelineIntegration:
             content_type="application/json",
         )
 
-        # Should succeed or 500 if Ollama unavailable
-        assert response.status_code in [200, 500]
+        assert response.status_code == 404
 
     def test_authenticated_storage_pipeline(self, client, mock_auth):
-        """Authenticated user should be able to save/load chats."""
+        """Authenticated user should create chat via canonical /chat/start."""
         chat_id = f"e2e-test-{int(time.time())}"
 
         headers = {
@@ -373,55 +361,35 @@ class TestFullPipelineIntegration:
             "Content-Type": "application/json",
         }
 
-        # Save a chat
         save_response = client.post(
-            "/chat/autosave",
-            json={
-                "chatId": chat_id,
-                "title": "E2E Test Chat",
-                "messages": [
-                    {"role": "user", "content": "Hello"},
-                    {"role": "assistant", "content": "Hi there!"},
-                ],
-            },
+            "/chat/start",
+            json={"chat_id": chat_id, "title": "E2E Test Chat"},
             headers=headers,
         )
-
-        # Mock bypasses signature verification; 401 should never happen
-        assert save_response.status_code in [200, 500], f"Unexpected {save_response.status_code}"
-
-        if save_response.status_code == 200:
-            # Try to list chats
-            list_response = client.get("/chat/list", headers=headers)
-            assert list_response.status_code == 200
+        assert save_response.status_code == 200, f"Unexpected {save_response.status_code}"
 
 
 class TestErrorHandling:
     """Test error handling across the pipeline."""
 
     def test_malformed_json_handling(self, client):
-        """Should handle malformed JSON gracefully."""
+        """Removed /generate route returns 404 for malformed payloads too."""
         response = client.post("/generate", data="not valid json", content_type="application/json")
 
-        # Malformed JSON — route catches BadRequest as generic Exception, returns 500
-        # TODO: Generate route should catch werkzeug.exceptions.BadRequest → 400
-        assert response.status_code in [400, 500], f"Expected 400 or 500 for malformed JSON, got {response.status_code}"
+        assert response.status_code == 404, f"Expected 404 for removed route, got {response.status_code}"
 
     def test_missing_content_type(self, client):
-        """Should handle missing content type."""
+        """Removed /generate route returns 404 when content-type is missing."""
         response = client.post("/generate", data='{"prompt": "test"}')
 
-        # Without application/json, werkzeug raises UnsupportedMediaType (415)
-        # but the route's generic except block may return 500
-        assert response.status_code in [400, 415, 500], f"Expected 400/415/500 for missing content type, got {response.status_code}"
+        assert response.status_code == 404, f"Expected 404 for removed route, got {response.status_code}"
 
     def test_very_long_prompt(self, client, mock_ollama_generate):
-        """Should handle very long prompts."""
+        """Removed /generate route returns 404 regardless of prompt length."""
         long_prompt = "Test " * 10000  # Very long input
 
         response = client.post(
             "/generate", json={"prompt": long_prompt}, content_type="application/json"
         )
 
-        # Should reject with 400 for length limit, or 500 if Ollama unreachable
-        assert response.status_code in [200, 400, 413, 500], f"Unexpected {response.status_code}"
+        assert response.status_code == 404, f"Unexpected {response.status_code}"

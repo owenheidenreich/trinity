@@ -14,6 +14,7 @@ Created: February 10, 2026
 
 import json
 import os
+import sqlite3
 import sys
 import time
 import uuid
@@ -160,8 +161,9 @@ class TestEncryptedUserMemory:
     @pytest.mark.p0
     @pytest.mark.security
     def test_save_user_memory_encrypts_data(self, tmp_path):
-        """Saved user memory file must NOT contain plaintext JSON."""
-        with patch("storage.CHATS_DIR", str(tmp_path)):
+        """Saved memory facts must be encrypted at rest in canonical state.db."""
+        with patch("storage.CHATS_DIR", str(tmp_path)), \
+             patch("services.state_store.CHATS_DIR", str(tmp_path)):
             from storage import save_user_memory
 
             principal = "test-encrypt-user"
@@ -176,31 +178,32 @@ class TestEncryptedUserMemory:
 
             save_user_memory(principal, memory)
 
-            # Read the raw file
-            memory_path = tmp_path / principal / "user_memory.json"
-            assert memory_path.exists(), "Memory file was not created"
+            db_path = tmp_path / principal / "state.db"
+            assert db_path.exists(), "Canonical state DB was not created"
 
-            raw_content = memory_path.read_text()
+            conn = sqlite3.connect(str(db_path))
+            rows = conn.execute(
+                "SELECT text_enc FROM memory_facts WHERE principal_id = ? ORDER BY fact_id ASC",
+                (principal,),
+            ).fetchall()
+            conn.close()
 
-            # The raw file should NOT contain plaintext facts
-            assert "User likes Python" not in raw_content, (
-                "User memory is stored in PLAINTEXT - encryption not working!"
-            )
-            assert "User lives in NYC" not in raw_content, (
-                "User memory is stored in PLAINTEXT - encryption not working!"
-            )
+            assert len(rows) == 2
+            raw_values = [row[0] for row in rows]
+            assert all("User likes Python" not in value for value in raw_values)
+            assert all("User lives in NYC" not in value for value in raw_values)
 
-            # The file should contain encryption markers
-            parsed = json.loads(raw_content)
-            assert "encryption" in parsed, "No encryption metadata found"
-            assert "encryptedContent" in parsed, "No encrypted content found"
+            parsed = json.loads(raw_values[0])
+            assert "encryption" in parsed
+            assert "encryptedContent" in parsed
             assert parsed["encryption"]["algorithm"] == "AES-256-GCM"
 
     @pytest.mark.p0
     @pytest.mark.security
     def test_load_user_memory_decrypts_data(self, tmp_path):
         """Loading encrypted user memory should return the original data."""
-        with patch("storage.CHATS_DIR", str(tmp_path)):
+        with patch("storage.CHATS_DIR", str(tmp_path)), \
+             patch("services.state_store.CHATS_DIR", str(tmp_path)):
             from storage import load_user_memory, save_user_memory
 
             principal = "test-decrypt-user"
@@ -216,16 +219,18 @@ class TestEncryptedUserMemory:
             save_user_memory(principal, original_memory)
             loaded = load_user_memory(principal)
 
-            # String facts are normalized to dicts on load
+            # String facts are normalized to dicts on load.
             assert len(loaded["facts"]) == 2
-            assert loaded["facts"][0]["text"] == "Secret fact A"
-            assert loaded["facts"][1]["text"] == "Secret fact B"
-            assert loaded["preferences"]["lang"] == "en"
+            loaded_texts = {fact["text"] for fact in loaded["facts"]}
+            assert loaded_texts == {"Secret fact A", "Secret fact B"}
+            # Legacy top-level preferences are not persisted in canonical schema.
+            assert isinstance(loaded["profile"]["preferences"], dict)
 
     @pytest.mark.p1
     def test_load_legacy_unencrypted_memory(self, tmp_path):
         """Legacy plaintext memory files should still load (backward compat)."""
-        with patch("storage.CHATS_DIR", str(tmp_path)):
+        with patch("storage.CHATS_DIR", str(tmp_path)), \
+             patch("services.state_store.CHATS_DIR", str(tmp_path)):
             from storage import load_user_memory
 
             principal = "legacy-user"
@@ -251,8 +256,9 @@ class TestEncryptedUserMemory:
     @pytest.mark.p0
     @pytest.mark.security
     def test_different_principals_cannot_decrypt(self, tmp_path):
-        """Memory encrypted for one principal cannot be decrypted by another."""
-        with patch("storage.CHATS_DIR", str(tmp_path)):
+        """Fact envelopes encrypted for one principal cannot be decrypted by another."""
+        with patch("storage.CHATS_DIR", str(tmp_path)), \
+             patch("services.state_store.CHATS_DIR", str(tmp_path)):
             from encryption import EncryptionUtils
             from storage import save_user_memory
 
@@ -268,12 +274,22 @@ class TestEncryptedUserMemory:
 
             save_user_memory(principal_a, memory)
 
-            # Try to decrypt with a different principal
-            memory_path = tmp_path / principal_a / "user_memory.json"
-            encrypted_data = json.loads(memory_path.read_text())
+            db_path = tmp_path / principal_a / "state.db"
+            conn = sqlite3.connect(str(db_path))
+            row = conn.execute(
+                "SELECT text_enc FROM memory_facts WHERE principal_id = ? LIMIT 1",
+                (principal_a,),
+            ).fetchone()
+            conn.close()
+            assert row is not None
+            encrypted_envelope = json.loads(row[0])
 
-            with pytest.raises(ValueError, match="Failed to decrypt"):
-                EncryptionUtils.decrypt_chat(encrypted_data, "principal-bbb")
+            with pytest.raises(ValueError):
+                EncryptionUtils.decrypt_auto(
+                    encrypted_envelope,
+                    passphrase=None,
+                    principal_id="principal-bbb",
+                )
 
 
 # =============================================================================

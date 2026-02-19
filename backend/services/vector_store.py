@@ -49,6 +49,7 @@ class VectorStore:
         try:
             self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
             self.conn.row_factory = sqlite3.Row
+            self.conn.create_function("cosine_sim", 2, self._cosine_similarity_blob)
 
             # Try to load VSS extension
             try:
@@ -166,31 +167,26 @@ class VectorStore:
             List of {content, filename, score} dicts
         """
         try:
+            query_blob = np.array(query_embedding, dtype=np.float32).tobytes()
             cursor = self.conn.cursor()
-            cursor.execute("SELECT id, filename, content, embedding FROM document_chunks")
-            rows = cursor.fetchall()
-
-            if not rows:
-                return []
-
-            # Compute similarities
-            results = []
-            for row in rows:
-                if row["embedding"]:
-                    stored_embedding = np.frombuffer(row["embedding"], dtype=np.float32)
-                    similarity = self._cosine_similarity(query_embedding, stored_embedding)
-                    results.append(
-                        {
-                            "content": row["content"],
-                            "filename": row["filename"],
-                            "score": similarity,
-                        }
-                    )
-
-            # Sort by similarity and return top-k
-            results.sort(key=lambda x: x["score"], reverse=True)
-            return results[:k]
-
+            cursor.execute(
+                """
+                SELECT filename, content, cosine_sim(embedding, ?) AS score
+                FROM document_chunks
+                WHERE embedding IS NOT NULL
+                ORDER BY score DESC
+                LIMIT ?
+                """,
+                (query_blob, int(k)),
+            )
+            return [
+                {
+                    "content": row["content"],
+                    "filename": row["filename"],
+                    "score": float(row["score"] or 0.0),
+                }
+                for row in cursor.fetchall()
+            ]
         except Exception as e:
             logger.error(f"❌ Document search error: {e}")
             return []
@@ -251,53 +247,82 @@ class VectorStore:
             List of {role, content, score, timestamp} dicts
         """
         try:
-            cursor = self.conn.cursor()
+            query_blob = np.array(query_embedding, dtype=np.float32).tobytes()
+            now = float(time.time())
+            max_age = 86400.0 * 7.0
+            recency_weight = max(0.0, min(1.0, float(recency_weight)))
+            similarity_weight = 1.0 - recency_weight
 
+            cursor = self.conn.cursor()
             if chat_id:
                 cursor.execute(
-                    "SELECT * FROM message_embeddings WHERE chat_id = ? ORDER BY timestamp DESC",
-                    (chat_id,),
+                    """
+                    SELECT
+                        role,
+                        content,
+                        timestamp,
+                        chat_id,
+                        cosine_sim(embedding, ?) AS similarity,
+                        (
+                            (? * cosine_sim(embedding, ?)) +
+                            (? * MAX(0.0, 1.0 - ((? - timestamp) * 1.0 / ?)))
+                        ) AS score
+                    FROM message_embeddings
+                    WHERE chat_id = ? AND embedding IS NOT NULL
+                    ORDER BY score DESC
+                    LIMIT ?
+                    """,
+                    (
+                        query_blob,
+                        similarity_weight,
+                        query_blob,
+                        recency_weight,
+                        now,
+                        max_age,
+                        chat_id,
+                        int(k),
+                    ),
                 )
             else:
-                cursor.execute("SELECT * FROM message_embeddings ORDER BY timestamp DESC")
+                cursor.execute(
+                    """
+                    SELECT
+                        role,
+                        content,
+                        timestamp,
+                        chat_id,
+                        cosine_sim(embedding, ?) AS similarity,
+                        (
+                            (? * cosine_sim(embedding, ?)) +
+                            (? * MAX(0.0, 1.0 - ((? - timestamp) * 1.0 / ?)))
+                        ) AS score
+                    FROM message_embeddings
+                    WHERE embedding IS NOT NULL
+                    ORDER BY score DESC
+                    LIMIT ?
+                    """,
+                    (
+                        query_blob,
+                        similarity_weight,
+                        query_blob,
+                        recency_weight,
+                        now,
+                        max_age,
+                        int(k),
+                    ),
+                )
 
-            rows = cursor.fetchall()
-
-            if not rows:
-                return []
-
-            # Compute combined scores
-            now = time.time()
-            max_age = 86400 * 7  # 7 days for decay calculation
-            results = []
-
-            for row in rows:
-                if row["embedding"]:
-                    stored_embedding = np.frombuffer(row["embedding"], dtype=np.float32)
-                    similarity = self._cosine_similarity(query_embedding, stored_embedding)
-
-                    # Time decay: exponential decay over max_age
-                    age = now - row["timestamp"]
-                    time_score = max(0, 1 - (age / max_age))
-
-                    # Combined score
-                    combined_score = (1 - recency_weight) * similarity + recency_weight * time_score
-
-                    results.append(
-                        {
-                            "role": row["role"],
-                            "content": row["content"],
-                            "score": combined_score,
-                            "similarity": similarity,
-                            "timestamp": row["timestamp"],
-                            "chat_id": row["chat_id"],
-                        }
-                    )
-
-            # Sort by combined score
-            results.sort(key=lambda x: x["score"], reverse=True)
-            return results[:k]
-
+            return [
+                {
+                    "role": row["role"],
+                    "content": row["content"],
+                    "score": float(row["score"] or 0.0),
+                    "similarity": float(row["similarity"] or 0.0),
+                    "timestamp": row["timestamp"],
+                    "chat_id": row["chat_id"],
+                }
+                for row in cursor.fetchall()
+            ]
         except Exception as e:
             logger.error(f"❌ Message search error: {e}")
             return []
@@ -332,6 +357,72 @@ class VectorStore:
             logger.error(f"❌ Get recent messages error: {e}")
             return []
 
+    def get_chat_messages(
+        self,
+        chat_id: str,
+        start_index: int = 0,
+        limit: int = 0,
+    ) -> List[Dict]:
+        """
+        Get chat messages ordered by message_index.
+
+        Args:
+            chat_id: Chat identifier
+            start_index: Inclusive starting message index
+            limit: Optional max rows (0 = no limit)
+        """
+        try:
+            cursor = self.conn.cursor()
+            if limit and limit > 0:
+                cursor.execute(
+                    """
+                    SELECT role, content, message_index, timestamp FROM message_embeddings
+                    WHERE chat_id = ? AND message_index >= ?
+                    ORDER BY message_index ASC
+                    LIMIT ?
+                """,
+                    (chat_id, int(start_index), int(limit)),
+                )
+            else:
+                cursor.execute(
+                    """
+                    SELECT role, content, message_index, timestamp FROM message_embeddings
+                    WHERE chat_id = ? AND message_index >= ?
+                    ORDER BY message_index ASC
+                """,
+                    (chat_id, int(start_index)),
+                )
+            return [dict(row) for row in cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"❌ Get chat messages error: {e}")
+            return []
+
+    def get_next_message_index(self, chat_id: str) -> int:
+        """
+        Return the next available message_index for a chat.
+
+        Uses MAX(message_index)+1 so callers without an explicit index do not
+        overwrite the (chat_id, message_index) unique key at index 0.
+        """
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                """
+                SELECT MAX(message_index) AS max_index
+                FROM message_embeddings
+                WHERE chat_id = ?
+            """,
+                (chat_id,),
+            )
+            row = cursor.fetchone()
+            max_index = row["max_index"] if row else None
+            if max_index is None:
+                return 0
+            return int(max_index) + 1
+        except Exception as e:
+            logger.error(f"❌ Get next message index error: {e}")
+            return 0
+
     def _cosine_similarity(self, a: np.ndarray, b: np.ndarray) -> float:
         """Compute cosine similarity between two vectors."""
         norm_a = np.linalg.norm(a)
@@ -341,6 +432,19 @@ class VectorStore:
             return 0.0
 
         return float(np.dot(a, b) / (norm_a * norm_b))
+
+    def _cosine_similarity_blob(self, a_blob, b_blob) -> float:
+        """SQLite scalar function wrapper for cosine similarity on float32 BLOB vectors."""
+        try:
+            if not a_blob or not b_blob:
+                return 0.0
+            a = np.frombuffer(a_blob, dtype=np.float32)
+            b = np.frombuffer(b_blob, dtype=np.float32)
+            if a.size == 0 or b.size == 0 or a.size != b.size:
+                return 0.0
+            return self._cosine_similarity(a, b)
+        except Exception:
+            return 0.0
 
     def export_for_ipfs(self) -> bytes:
         """

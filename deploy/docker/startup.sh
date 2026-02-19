@@ -47,6 +47,8 @@ echo "=========================================="
 echo "Trinity Inference Server - Starting..."
 echo "Provider: $PROVIDER_ID"
 echo "Model: $MODEL_NAME"
+echo "Chat model: ${OLLAMA_CHAT_MODEL:-$MODEL_NAME}"
+echo "Ingest model: ${OLLAMA_INGEST_MODEL:-$MODEL_NAME}"
 echo "GPU: $GPU_TYPE"
 echo "Max Queue: $MAX_QUEUE_SIZE"
 echo "=========================================="
@@ -104,7 +106,7 @@ done
 # - Llama3.1 8B: ~5GB, takes 5-10 minutes
 # On subsequent runs, if the model is already downloaded, this is fast
 
-echo "Pulling primary model: $MODEL_NAME"
+echo "Preparing model pull list..."
 echo "⚠️  WARNING: Large models (70B+) can take 10-20 minutes to download"
 echo "Please be patient..."
 echo ""
@@ -114,58 +116,77 @@ echo "Available disk space:"
 df -h / || true
 echo ""
 
-# Pull the primary model with retry logic
-# Ollama registry rate-limits pulls (429 errors), so we retry with backoff
+# Pull required models with retry logic.
+# Ollama registry rate-limits pulls (429 errors), so we retry with backoff.
 echo "Starting model download at $(date)"
 
 MAX_PULL_ATTEMPTS=7
 PULL_DELAYS=(0 60 120 300 600 900 1200)  # seconds: 0, 1m, 2m, 5m, 10m, 15m, 20m
-PULL_SUCCESS=false
 
-for attempt in $(seq 1 $MAX_PULL_ATTEMPTS); do
-    echo "📥 Pull attempt $attempt/$MAX_PULL_ATTEMPTS..."
-    if timeout 1800 ollama pull "$MODEL_NAME" 2>&1; then
-        PULL_SUCCESS=true
-        echo "✅ Model pull succeeded on attempt $attempt"
-        break
-    else
-        PULL_EXIT=$?
-        echo "⚠️  Pull attempt $attempt failed (exit code: $PULL_EXIT)"
+pull_model_with_retry() {
+    local model_name="$1"
+    local pull_success=false
+    echo "Pulling model: $model_name"
 
-        if [ $attempt -lt $MAX_PULL_ATTEMPTS ]; then
-            # Get delay for this retry (0-indexed)
-            DELAY=${PULL_DELAYS[$attempt]}
-            echo "⏳ Waiting ${DELAY}s before retry (rate limit backoff)..."
-            sleep $DELAY
+    for attempt in $(seq 1 $MAX_PULL_ATTEMPTS); do
+        echo "📥 [$model_name] Pull attempt $attempt/$MAX_PULL_ATTEMPTS..."
+        if timeout 1800 ollama pull "$model_name" 2>&1; then
+            pull_success=true
+            echo "✅ [$model_name] Model pull succeeded on attempt $attempt"
+            break
+        else
+            pull_exit=$?
+            echo "⚠️  [$model_name] Pull attempt $attempt failed (exit code: $pull_exit)"
+            if [ $attempt -lt $MAX_PULL_ATTEMPTS ]; then
+                delay=${PULL_DELAYS[$attempt]}
+                echo "⏳ [$model_name] Waiting ${delay}s before retry..."
+                sleep $delay
+            fi
         fi
+    done
+
+    if [ "$pull_success" != "true" ]; then
+        echo "ERROR: Model pull failed after $MAX_PULL_ATTEMPTS attempts"
+        echo "Model: $model_name"
+        df -h / || true
+        exit 1
     fi
+}
+
+REQUIRED_MODELS="$MODEL_NAME"
+if [ -n "$OLLAMA_CHAT_MODEL" ]; then
+    REQUIRED_MODELS="$REQUIRED_MODELS $OLLAMA_CHAT_MODEL"
+fi
+if [ -n "$OLLAMA_INGEST_MODEL" ]; then
+    REQUIRED_MODELS="$REQUIRED_MODELS $OLLAMA_INGEST_MODEL"
+fi
+
+# Deduplicate while preserving order.
+UNIQUE_MODELS=""
+for model in $REQUIRED_MODELS; do
+    case " $UNIQUE_MODELS " in
+        *" $model "*) ;;
+        *) UNIQUE_MODELS="$UNIQUE_MODELS $model" ;;
+    esac
 done
 
-if [ "$PULL_SUCCESS" != "true" ]; then
-    echo "ERROR: Model pull failed after $MAX_PULL_ATTEMPTS attempts"
-    echo "Model: $MODEL_NAME"
-    echo "This could mean:"
-    echo "1. Ollama registry rate limiting (429) — try again later"
-    echo "2. Model name is incorrect"
-    echo "3. Network connection issues"
-    echo "4. Insufficient disk space"
-    echo "5. Model is too large for available resources"
-    df -h / || true
-    exit 1
-fi
-echo "Primary model download completed at $(date)"
+for model in $UNIQUE_MODELS; do
+    pull_model_with_retry "$model"
+done
+
+echo "Model downloads completed at $(date)"
 echo ""
 
-echo ""
-
-# Verify the primary model was downloaded successfully
-echo "Verifying model..."
-if ollama list | grep -q "$MODEL_NAME"; then
-    echo "✓ Model $MODEL_NAME is available"
-else
-    echo "ERROR: Model $MODEL_NAME not found after pull"
-    exit 1
-fi
+# Verify required models are available.
+echo "Verifying required models..."
+for model in $UNIQUE_MODELS; do
+    if ollama list | grep -q "$model"; then
+        echo "✓ Model $model is available"
+    else
+        echo "ERROR: Model $model not found after pull"
+        exit 1
+    fi
+done
 
 # Show all available models
 echo "Available models:"

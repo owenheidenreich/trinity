@@ -42,9 +42,9 @@ class TestBlueprintRegistration:
     """Verify all blueprints are properly registered."""
 
     def test_all_blueprints_registered(self, app):
-        """All 7 blueprints should be registered on the app."""
+        """Canonical blueprints should be registered on the app."""
         blueprint_names = list(app.blueprints.keys())
-        expected = ["health", "admin", "generate", "chat", "tools", "v4", "session"]
+        expected = ["health", "admin", "generate", "chat", "tools", "session", "mcp", "passphrase"]
         for name in expected:
             assert name in blueprint_names, f"Blueprint '{name}' not registered"
 
@@ -58,7 +58,6 @@ class TestBlueprintRegistration:
         """Chat blueprint routes should exist (require auth, not 404)."""
         endpoints = [
             ("GET", "/chat/list"),
-            ("POST", "/chat/autosave"),
             ("GET", "/user/status"),
             ("GET", "/user/memory"),
         ]
@@ -75,14 +74,10 @@ class TestBlueprintRegistration:
             response = client.get(path)
             assert response.status_code != 404, f"{path} returned 404"
 
-    def test_v4_status_route(self, client):
-        """V4 status endpoint returns feature flags."""
+    def test_v4_routes_removed(self, client):
+        """Legacy /v4 endpoints are fully removed in hard-cutover mode."""
         response = client.get("/v4/status")
-        assert response.status_code == 200
-        data = response.get_json()
-        assert "available" in data
-        assert "features" in data
-        assert "version" in data
+        assert response.status_code == 404
 
     def test_app_factory_line_count(self):
         """inference_server.py should be slim (< 500 lines)."""
@@ -125,9 +120,9 @@ class TestBlueprintImports:
         assert _io_executor._max_workers == 10
 
     def test_all_blueprints_list(self):
-        """routes.__init__ exports ALL_BLUEPRINTS list with 9 items."""
+        """routes.__init__ exports canonical ALL_BLUEPRINTS list."""
         from routes import ALL_BLUEPRINTS
-        assert len(ALL_BLUEPRINTS) == 9
+        assert len(ALL_BLUEPRINTS) == 8
 
 
 class TestRequestHooks:
@@ -374,5 +369,3 @@ class TestDockerfileUpdates:
         path = Path(__file__).parent.parent.parent.parent / "deploy" / "docker" / "Dockerfile"
         content = path.read_text()
         assert "routes/" in content, "Dockerfile missing COPY for routes/"
-
-

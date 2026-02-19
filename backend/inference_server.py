@@ -7,8 +7,9 @@ Phase 3.1 refactor: all route handlers live in routes/ blueprints.
 This file creates the Flask app, registers blueprints, hooks, and scheduler.
 """
 
-import json
 import time
+import atexit
+import threading
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -23,81 +24,32 @@ from config import (
     MAX_QUEUE_SIZE,
     MODEL_BACKEND,
     MODEL_NAME,
-    OLLAMA_HOST,
     PROVIDER_ID,
     GPU_TYPE,
     logger,
 )
-from encryption import EncryptionUtils
 from services.provider_factory import get_provider
-from services.session_manager import get_session_passphrase
-from storage import save_metadata
+from services.state_checkpoint import checkpoint_all_state_stores
 
 # Route blueprints
 from routes import ALL_BLUEPRINTS
 
 # ===========================================================================
-# V4 feature detection (stored on app.config for blueprints)
+# Runtime feature flags
 # ===========================================================================
 
+# Keep legacy-named config keys for API compatibility, but source them from
+# canonical runtime behavior instead of import-probing sidecar modules.
 V4_IMPORT_ERROR = None
-V4_EMBEDDINGS_AVAILABLE = False
-V4_VECTOR_STORE_AVAILABLE = False
-V4_MEMORY_AVAILABLE = False
-V4_TOOLS_AVAILABLE = False
-V4_CODE_EXECUTOR_AVAILABLE = False
-V4_STRUCTURED_AVAILABLE = False
-
-try:
-    from services.embeddings import V4_EMBEDDINGS_AVAILABLE
-    logger.info(f"✅ embeddings: V4_EMBEDDINGS_AVAILABLE={V4_EMBEDDINGS_AVAILABLE}")
-except Exception as e:
-    V4_IMPORT_ERROR = f"embeddings: {e}"
-    logger.error(f"❌ embeddings import failed: {e}")
-
-try:
-    from services.vector_store import V4_VECTOR_STORE_AVAILABLE
-    logger.info(f"✅ vector_store: V4_VECTOR_STORE_AVAILABLE={V4_VECTOR_STORE_AVAILABLE}")
-except Exception as e:
-    V4_IMPORT_ERROR = f"vector_store: {e}"
-    logger.error(f"❌ vector_store import failed: {e}")
-
-try:
-    from services.memory import V4_MEMORY_AVAILABLE
-    logger.info(f"✅ memory: V4_MEMORY_AVAILABLE={V4_MEMORY_AVAILABLE}")
-except Exception as e:
-    V4_IMPORT_ERROR = f"memory: {e}"
-    logger.error(f"❌ memory import failed: {e}")
-
-try:
-    from services.tools import V4_TOOLS_AVAILABLE
-    logger.info(f"✅ tools: V4_TOOLS_AVAILABLE={V4_TOOLS_AVAILABLE}")
-except Exception as e:
-    V4_IMPORT_ERROR = f"tools: {e}"
-    logger.error(f"❌ tools import failed: {e}")
-
-try:
-    from services.code_executor import V4_CODE_EXECUTOR_AVAILABLE
-    logger.info(f"✅ code_executor: V4_CODE_EXECUTOR_AVAILABLE={V4_CODE_EXECUTOR_AVAILABLE}")
-except Exception as e:
-    V4_IMPORT_ERROR = f"code_executor: {e}"
-    logger.error(f"❌ code_executor import failed: {e}")
-
-try:
-    from services.structured import V4_STRUCTURED_AVAILABLE
-    logger.info(f"✅ structured: V4_STRUCTURED_AVAILABLE={V4_STRUCTURED_AVAILABLE}")
-except Exception as e:
-    V4_IMPORT_ERROR = f"structured: {e}"
-    logger.error(f"❌ structured import failed: {e}")
-
-V4_FEATURES_AVAILABLE = all([
-    V4_EMBEDDINGS_AVAILABLE,
-    V4_VECTOR_STORE_AVAILABLE,
-    V4_MEMORY_AVAILABLE,
-    V4_TOOLS_AVAILABLE,
-    V4_CODE_EXECUTOR_AVAILABLE,
-])
-logger.info(f"🧠 V4.0 Intelligence features: {'ENABLED' if V4_FEATURES_AVAILABLE else 'PARTIAL'}")
+V4_FEATURES = {
+    "embeddings": True,          # canonical embeddings tables in state.db
+    "vector_store": False,       # sidecar vectors.db is retired from runtime path
+    "semantic_memory": True,
+    "tools": True,
+    "code_executor": True,
+    "structured": True,
+}
+V4_FEATURES_AVAILABLE = True
 
 MCP_SERVER_AVAILABLE = False
 MCP_CLIENT_TOOLS = 0
@@ -142,20 +94,57 @@ CORS(app, origins=ALLOWED_ORIGINS, supports_credentials=True)
 # Store feature flags on app.config so blueprints can access them
 app.config["V4_FEATURES_AVAILABLE"] = V4_FEATURES_AVAILABLE
 app.config["V4_IMPORT_ERROR"] = V4_IMPORT_ERROR
-app.config["V4_FEATURES"] = {
-    "embeddings": V4_EMBEDDINGS_AVAILABLE,
-    "vector_store": V4_VECTOR_STORE_AVAILABLE,
-    "semantic_memory": V4_MEMORY_AVAILABLE,
-    "tools": V4_TOOLS_AVAILABLE,
-    "code_executor": V4_CODE_EXECUTOR_AVAILABLE,
-    "structured": V4_STRUCTURED_AVAILABLE,
-}
+app.config["V4_FEATURES"] = V4_FEATURES
 app.config["MCP_SERVER_AVAILABLE"] = MCP_SERVER_AVAILABLE
 app.config["MCP_CLIENT_TOOLS"] = MCP_CLIENT_TOOLS
+
+
+def _startup_state_integrity_scan(max_users: int = 500):
+    """
+    Validate canonical state.db schema for existing principals before serving.
+    Any corrupt/mismatched DB is self-healed by get_state_store().
+    """
+    try:
+        from services.state_store import get_state_store
+
+        root = Path(CHATS_DIR)
+        if not root.exists():
+            return
+
+        scanned = 0
+        healed = 0
+        for child in root.iterdir():
+            if scanned >= max_users:
+                break
+            if not child.is_dir():
+                continue
+            principal_id = child.name
+            try:
+                store = get_state_store(principal_id)
+                store.ensure_required_schema()
+                scanned += 1
+            except Exception as e:
+                healed += 1
+                logger.warning(
+                    "⚠️ Startup integrity scan self-healed %s: %s",
+                    principal_id[:16],
+                    e,
+                )
+        if scanned or healed:
+            logger.info(
+                "✅ Startup integrity scan complete: scanned=%s healed=%s",
+                scanned,
+                healed,
+            )
+    except Exception as e:
+        logger.warning("⚠️ Startup state integrity scan skipped: %s", e)
+
 
 # ===========================================================================
 # Register Blueprints
 # ===========================================================================
+
+_startup_state_integrity_scan()
 
 for bp in ALL_BLUEPRINTS:
     app.register_blueprint(bp)
@@ -228,14 +217,14 @@ def not_found(e):
                 "provider_id": PROVIDER_ID,
                 "available_endpoints": [
                     "/health",
-                    "/generate",
+                    "/generate/agent",
                     "/stats",
-                    "/chat/autosave",
+                    "/chat/start",
                     "/chat/list",
                     "/chat/{chatId}",
-                    "/chat/{chatId}/archive",
-                    "/chat/recover-archives",
-                    "/chat/archive/{cid}",
+                    "/chat/{chatId} [PATCH|DELETE]",
+                    "/user/memory",
+                    "/user/memory/fact",
                 ],
             }
         ),
@@ -255,79 +244,39 @@ def internal_error(e):
 
 
 def cleanup_inactive_chats():
-    """Delete chats that haven't been updated in 7 days (except archived)"""
+    """Delete inactive chats from canonical state store (except archived/pinned)."""
     try:
         logger.info("Running 7-day cleanup job...")
         chats_root = Path(CHATS_DIR)
         current_time = time.time()
         inactive_seconds = CHAT_INACTIVE_DAYS * 24 * 60 * 60
         deleted_count = 0
+        from services.state_store import get_state_store
 
         for principal_dir in chats_root.iterdir():
             if not principal_dir.is_dir():
                 continue
 
             principal_id = principal_dir.name
-            metadata_path = principal_dir / "metadata.json"
-
-            if not metadata_path.exists():
+            state_db_path = principal_dir / "state.db"
+            if not state_db_path.exists():
                 continue
 
             try:
-                with open(metadata_path, "r") as f:
-                    raw_metadata = json.load(f)
-
-                if isinstance(raw_metadata, dict) and "encryption" in raw_metadata:
-                    passphrase = get_session_passphrase(principal_id)
-                    kdf_source = raw_metadata.get("encryption", {}).get("kdf_source")
-
-                    # Avoid accidental data loss for locked passphrase-protected users.
-                    if kdf_source == "passphrase" and not passphrase:
-                        logger.info(
-                            "Skipping cleanup for %s: passphrase-locked metadata",
-                            principal_id[:16],
-                        )
+                store = get_state_store(principal_id)
+                chats = store.list_chats(include_archived=True, limit=1000)
+                for chat in chats:
+                    if chat.get("archived") or chat.get("pinned"):
                         continue
-
-                    try:
-                        metadata = EncryptionUtils.decrypt_auto(
-                            raw_metadata,
-                            passphrase=passphrase,
-                            principal_id=principal_id,
-                        )
-                    except ValueError as e:
-                        logger.warning(
-                            "Skipping cleanup for %s: metadata decrypt failed (%s)",
-                            principal_id[:16],
-                            e,
-                        )
+                    last_updated = float(chat.get("lastUpdated", 0)) / 1000.0
+                    if current_time - last_updated <= inactive_seconds:
                         continue
-                else:
-                    metadata = raw_metadata
-
-                chats_to_keep = []
-
-                for chat in metadata.get("chats", []):
-                    last_updated = chat.get("lastUpdated", 0) / 1000
-                    is_archived = chat.get("isArchived", False)
-                    is_pinned = chat.get("pinned", False)
-
-                    if is_archived or is_pinned:
-                        chats_to_keep.append(chat)
+                    chat_id = str(chat.get("chatId", ""))
+                    if not chat_id:
                         continue
-
-                    if current_time - last_updated > inactive_seconds:
-                        chat_file = principal_dir / f"{chat['chatId']}.json"
-                        if chat_file.exists():
-                            chat_file.unlink()
-                            deleted_count += 1
-                            logger.info(f'Deleted inactive chat: {chat["chatId"]}')
-                    else:
-                        chats_to_keep.append(chat)
-
-                metadata["chats"] = chats_to_keep
-                save_metadata(principal_id, metadata)
-
+                    if store.delete_chat(chat_id):
+                        deleted_count += 1
+                        logger.info("Deleted inactive chat from canonical store: %s", chat_id[:16])
             except Exception as e:
                 logger.error(f"Error processing user {principal_id}: {e}")
                 continue
@@ -340,6 +289,50 @@ def cleanup_inactive_chats():
 
 scheduler = BackgroundScheduler()
 scheduler.add_job(cleanup_inactive_chats, "cron", hour=2, minute=0, id="chat_cleanup")
+scheduler.add_job(
+    checkpoint_all_state_stores,
+    "interval",
+    minutes=15,
+    id="state_db_checkpoint",
+    kwargs={"max_users": 200},
+)
+atexit.register(lambda: checkpoint_all_state_stores(max_users=500))
+
+
+def _bootstrap_state_checkpoints_async(max_users: int = 200):
+    """
+    Best-effort startup restore for principals missing local canonical state.
+    Does not block boot path.
+    """
+    def _run():
+        try:
+            from services.state_checkpoint import restore_state_checkpoint_from_ipfs
+
+            root = Path(CHATS_DIR)
+            if not root.exists():
+                return
+            processed = 0
+            for child in root.iterdir():
+                if processed >= max_users:
+                    break
+                if not child.is_dir():
+                    continue
+                state_db = child / "state.db"
+                if state_db.exists() and state_db.stat().st_size > 0:
+                    continue
+                principal_id = child.name
+                try:
+                    restore_state_checkpoint_from_ipfs(principal_id)
+                except Exception as e:
+                    logger.debug("Startup checkpoint restore skipped for %s: %s", principal_id[:16], e)
+                processed += 1
+        except Exception as e:
+            logger.debug("Startup checkpoint bootstrap failed: %s", e)
+
+    threading.Thread(target=_run, daemon=True, name="state-checkpoint-bootstrap").start()
+
+
+_bootstrap_state_checkpoints_async()
 
 
 # ===========================================================================

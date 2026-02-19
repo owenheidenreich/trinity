@@ -165,12 +165,9 @@ class GraphMemory:
                 self._upsert_kuzu(row)
             self._save_sidecar(rows)
         if added > 0:
-            try:
-                from services.user_data_store import notify_graph_changed
-
-                notify_graph_changed(self.principal_id)
-            except Exception:
-                pass
+            # Legacy graph-sidecar IPFS fanout was retired. Canonical graph
+            # ingestion/write path is state_store-backed.
+            logger.debug("Graph sidecar updated for %s (+%s triples)", self.principal_id[:16], added)
         return added
 
     def retrieve_relevant(self, query: str, limit: int = GRAPH_MEMORY_TOP_K) -> List[Dict]:

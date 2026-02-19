@@ -295,6 +295,19 @@ class TestGetRecentMessages:
         assert messages == []
 
 
+class TestMessageIndexHelpers:
+    """Test helper methods for chat message index bookkeeping."""
+
+    def test_get_next_message_index_empty_chat(self, vector_store):
+        assert vector_store.get_next_message_index("chat-empty") == 0
+
+    def test_get_next_message_index_after_writes(self, vector_store, embedding_32):
+        vector_store.add_message_embedding("chat-1", 0, "user", "a", embedding_32)
+        vector_store.add_message_embedding("chat-1", 1, "assistant", "b", embedding_32)
+        vector_store.add_message_embedding("chat-1", 4, "user", "c", embedding_32)
+        assert vector_store.get_next_message_index("chat-1") == 5
+
+
 # =============================================================================
 # _cosine_similarity TESTS
 # =============================================================================

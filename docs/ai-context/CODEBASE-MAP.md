@@ -1,7 +1,7 @@
 # Trinity Codebase Map
 
 > **Purpose:** Single-file reference for any LLM to understand Trinity without searching the codebase.
-> **Last Updated:** February 17, 2026
+> **Last Updated:** February 18, 2026
 > **Accuracy:** Verified against live codebase on `main` branch.
 
 ---
@@ -21,7 +21,7 @@ backend/
 ├── config.py                # All constants, env vars, defaults
 ├── icp_auth.py              # Ed25519 signature verification
 ├── encryption.py            # AES-256-GCM encrypt/decrypt
-├── storage.py               # Chat file I/O + user memory (v2.0 structured profile)
+├── storage.py               # Compatibility facade (memory payload helpers)
 ├── validation.py            # Input sanitization
 ├── lighthouse.py            # IPFS upload/download via Lighthouse
 ├── database.py              # SQLAlchemy ORM (NOT integrated — future feature)
@@ -32,7 +32,7 @@ backend/
 │   ├── health.py            # /health, /metrics, /stats
 │   ├── admin.py             # /admin/* cache, quota, storage, SLO
 │   ├── generate.py          # /generate, /generate/agent
-│   ├── chat.py              # /chat/*, /user/* CRUD + memory + export
+│   ├── chat.py              # Canonical chat + memory CRUD (state_store-backed)
 │   ├── tools.py             # /tools/* search, browse, documents
 │   ├── v4.py                # /v4/* vector store, tool execution
 │   ├── session.py           # /session/*, /funding/*
@@ -47,12 +47,13 @@ backend/
 │   ├── code_executor.py     # Tool dispatcher (all 15 tools)
 │   ├── tools.py             # Tool definitions, detection, parsing
 │   ├── memory_tools.py      # MemGPT save/recall/search/update/forget with embeddings
-│   ├── profile_extractor.py # Background auto-extraction of user profile facts
+│   ├── profile_extractor.py # Unified LLM extraction for profile facts + triples
 │   ├── memory.py            # Semantic memory retrieval
-│   ├── memory_ingestion.py  # Async ingestion worker for memory/profile/graph
+│   ├── memory_ingestion.py  # Async ingestion + rolling conversation summaries
+│   ├── state_store.py       # Canonical encrypted SQLite source-of-truth per principal
 │   ├── memory_eval.py       # Memory quality evaluation
 │   ├── graph_memory.py      # Kuzu-backed graph memory
-│   ├── graph_extractor.py   # Entity/relationship extraction for graph
+│   ├── graph_extractor.py   # Compatibility layer for unified extraction triples
 │   ├── model_router.py      # Route queries to conversation vs coder model
 │   ├── ollama.py            # Ollama HTTP client
 │   ├── ollama_provider.py   # Ollama LLM provider implementation
@@ -67,7 +68,7 @@ backend/
 │   ├── structured.py        # Structured output parsing
 │   ├── loading_messages.py  # Phase update messages
 │   ├── akash.py             # Akash deployment info
-│   ├── user_data_store.py   # IPFS persistence pipeline (retry, sync, restore, manifest)
+│   ├── user_data_store.py   # IPFS checkpoint/archive pipeline
 │   ├── session_manager.py   # Session passphrase management
 │   ├── slo_metrics.py       # SLO tracking and burn-rate alerting
 │   ├── mcp_server.py        # MCP server (JSON-RPC 2.0)
@@ -163,7 +164,6 @@ deploy/
 | GET | `/metrics` | Prometheus metrics |
 | GET | `/stats` | Server statistics |
 | POST | `/generate` | Standard inference |
-| POST | `/generate/agent` | Agent inference with ReAct + tool calling |
 | GET | `/v4/status` | V4 feature status |
 | GET | `/funding/status` | Funding status |
 | GET | `/session/status` | Session tier info |
@@ -176,9 +176,12 @@ deploy/
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/chat/autosave` | Save encrypted chat |
+| POST | `/generate/agent` | Canonical agent inference (server-side persistence + SSE IDs) |
+| POST | `/chat/start` | Create chat, return canonical `chat_id` |
+| POST | `/chat/autosave` | Retired compatibility endpoint (backend persistence is server-owned) |
 | GET | `/chat/list` | List user's chats |
-| GET | `/chat/<chat_id>` | Load specific chat |
+| GET | `/chat/<chat_id>?before_message_id=&limit=` | Load paginated chat messages |
+| PATCH | `/chat/<chat_id>` | Update title/pin/archive |
 | DELETE | `/chat/<chat_id>` | Delete chat |
 | POST | `/chat/<chat_id>/pin` | Pin/unpin chat |
 | POST | `/chat/<chat_id>/archive` | Archive to IPFS |
@@ -189,8 +192,8 @@ deploy/
 | GET | `/user/memory` | Get user memory |
 | POST | `/user/memory` | Update user memory |
 | POST | `/user/memory/fact` | Add memory fact |
-| PUT | `/user/memory/fact/<int:index>` | Edit memory fact (text, category, importance) with re-embedding |
-| DELETE | `/user/memory/fact/<int:index>` | Soft-delete memory fact |
+| PATCH | `/user/memory/fact/<int:fact_id>` | Edit memory fact (text, category, importance) |
+| DELETE | `/user/memory/fact/<int:fact_id>` | Soft-delete memory fact |
 | GET | `/user/export` | Download all user data as ZIP |
 | GET | `/user/stats` | User profile/chat/storage statistics |
 | POST | `/tools/search` | Web search |
@@ -300,21 +303,26 @@ Nonce is required on protected endpoints.
 | `RAG_TOP_K` | `5` |
 | `WORKING_MEMORY_SIZE` | `5` (env-configurable) |
 | `SEMANTIC_MEMORY_SIZE` | `8` (env-configurable) |
-| `PROFILE_TOKEN_BUDGET` | `2500` (env-configurable) |
+| `PROFILE_TOKEN_BUDGET` | `3500` (env-configurable) |
+| `PROFILE_MAX_FACTS` | `25` (env-configurable) |
 | `DEDUP_MERGE_THRESHOLD` | `0.85` |
 | `DEDUP_SKIP_THRESHOLD` | `0.95` |
 | `PROFILE_CATEGORIES` | `identity, work, interests, preferences, relationships` |
 
-### Fact Schema (v2.1)
+### Fact Schema (v3 canonical)
 
-Each fact in `user_memory.json` has:
+Each fact in canonical `memory_facts` has:
 ```
-text, category, importance, embedding, created_at, deleted,
-source_chat_id, last_mentioned, valid_at, invalid_at
+fact_id, text, category, importance, created_at, updated_at,
+deleted_at, valid_at, invalid_at, source_message_id
 ```
+- `fact_id` — stable API key for edit/delete
 - `valid_at` — when the fact became true (ms epoch)
 - `invalid_at` — when the fact was superseded (ms epoch, null = still valid)
-- Facts with `invalid_at` set are excluded from prompts but preserved in data
+- facts with `deleted_at` or `invalid_at` are excluded from prompts
+
+Conversation summaries are stored in `conversation_summaries`:
+`{chat_id, summary, last_message_id, updated_at}`.
 ---
 
 ## State Management (Zustand)
@@ -352,7 +360,7 @@ Store: `trinity-icp/src-react/store/index.ts` · Types: `trinity-icp/src-react/s
 | Change rate limits | `backend/middleware/rate_limit.py` |
 | Fix metrics | `backend/middleware/observability.py` |
 | Change state shape | `trinity-icp/src-react/store/index.ts` |
-| Fix autosave | `trinity-icp/src-react/hooks/useAutosave.ts` |
+| Canonical message persistence | `backend/routes/generate.py`, `backend/services/state_store.py` |
 | Fix streaming | `trinity-icp/src-react/hooks/useChat.ts` |
 | Modify Docker | `deploy/docker/Dockerfile` |
 | Change Akash deploy | `deploy/akash/deploy-production.yaml`, `deploy/akash/deploy-test.yaml` |

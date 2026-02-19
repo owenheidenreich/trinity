@@ -10,7 +10,7 @@ import { useStore } from '../store';
 import { streamSSE } from '../utils/sse';
 import CONFIG from '../config';
 import Logger from '../utils/logger';
-import type { AgentResponse, AgentPhase, ChatMessage, AuthHeaders } from '../types';
+import type { AgentResponse, AgentPhase, AuthHeaders } from '../types';
 
 export interface UseChatReturn {
   /** Accumulated tokens from current stream */
@@ -26,9 +26,24 @@ export interface UseChatReturn {
   /** Get current tokens (ref-based, avoids stale closures) */
   getTokens: () => string;
   /** Send a prompt to the backend. Returns success/error to avoid stale closure issues. */
-  send: (prompt: string, buildAuthHeaders: (endpoint: string) => Promise<AuthHeaders | null>) => Promise<{ success: boolean; error?: string }>;
+  send: (
+    prompt: string,
+    buildAuthHeaders: (endpoint: string) => Promise<AuthHeaders | null>
+  ) => Promise<{
+    success: boolean;
+    error?: string;
+    chatId?: string;
+    assistantMessageId?: number | null;
+  }>;
   /** Continue a truncated response */
-  continueGeneration: (buildAuthHeaders: (endpoint: string) => Promise<AuthHeaders | null>) => Promise<{ success: boolean; error?: string }>;
+  continueGeneration: (
+    buildAuthHeaders: (endpoint: string) => Promise<AuthHeaders | null>
+  ) => Promise<{
+    success: boolean;
+    error?: string;
+    chatId?: string;
+    assistantMessageId?: number | null;
+  }>;
   /** Abort the current stream */
   stop: () => void;
   /** Clear error state */
@@ -44,6 +59,8 @@ export function useChat(): UseChatReturn {
 
   const abortRef = useRef<AbortController | null>(null);
   const tokensRef = useRef('');
+  const sessionChatIdRef = useRef<string | null>(null);
+  const assistantMessageIdRef = useRef<number | null>(null);
 
   /** Get current tokens (ref-based, avoids stale closures) */
   const getTokens = useCallback(() => tokensRef.current, []);
@@ -57,6 +74,11 @@ export function useChat(): UseChatReturn {
       signal: AbortSignal
     ): AsyncGenerator<void, void, unknown> {
       for await (const event of streamSSE(response, signal)) {
+        if (event.type === 'session' && event.chat_id) {
+          sessionChatIdRef.current = event.chat_id;
+          useStore.setState({ currentChatId: event.chat_id });
+        }
+
         // Phase updates
         if (event.phase) {
           setPhase({ name: event.phase, message: event.message });
@@ -70,11 +92,17 @@ export function useChat(): UseChatReturn {
 
         // Completion
         if (event.done) {
+          assistantMessageIdRef.current = event.assistant_message_id ?? null;
           const agentResp: AgentResponse = {
             done_reason: event.done_reason ?? 'stop',
             ...(event.response ?? {}),
           };
           setAgentResponse(agentResp);
+          // Unlock UI immediately on protocol-level completion.
+          // Socket teardown can lag briefly after final token/done event.
+          setIsStreaming(false);
+          setGenerating(false);
+          return;
         }
 
         // Error from backend
@@ -93,7 +121,12 @@ export function useChat(): UseChatReturn {
     async (
       prompt: string,
       buildAuthHeaders: (endpoint: string) => Promise<AuthHeaders | null>
-    ): Promise<{ success: boolean; error?: string }> => {
+    ): Promise<{
+      success: boolean;
+      error?: string;
+      chatId?: string;
+      assistantMessageId?: number | null;
+    }> => {
       // Reset state
       abortRef.current = new AbortController();
       setIsStreaming(true);
@@ -102,6 +135,8 @@ export function useChat(): UseChatReturn {
       setError(null);
       setAgentResponse(null);
       tokensRef.current = '';
+      sessionChatIdRef.current = null;
+      assistantMessageIdRef.current = null;
       setGenerating(true);
 
       try {
@@ -109,22 +144,10 @@ export function useChat(): UseChatReturn {
         if (!headers) throw new Error('Authentication required');
 
         const state = useStore.getState();
-        let chatId = state.currentChatId;
-        if (!chatId) {
-          chatId = state.generateChatId();
-          useStore.setState({ currentChatId: chatId });
-        }
 
         const body = {
           prompt,
-          principal: state.principal,
-          context_messages: state.contextMemory.map((m: ChatMessage) => ({
-            role: m.role,
-            content: m.content,
-          })),
-          chat_id: chatId,
-          message_index: state.chatHistory.length,
-          user_memory: state.userMemory || {},
+          chat_id: state.currentChatId ?? undefined,
         };
 
         const response = await fetch(`${CONFIG.API_URL}/generate/agent`, {
@@ -151,7 +174,11 @@ export function useChat(): UseChatReturn {
           // Events processed by processEvents
         }
 
-        return { success: true };
+        return {
+          success: true,
+          chatId: sessionChatIdRef.current ?? (useStore.getState().currentChatId ?? undefined),
+          assistantMessageId: assistantMessageIdRef.current,
+        };
       } catch (e) {
         const err = e as Error;
         if (err.name !== 'AbortError') {
@@ -173,7 +200,12 @@ export function useChat(): UseChatReturn {
   const continueGeneration = useCallback(
     async (
       buildAuthHeaders: (endpoint: string) => Promise<AuthHeaders | null>
-    ): Promise<{ success: boolean; error?: string }> => {
+    ): Promise<{
+      success: boolean;
+      error?: string;
+      chatId?: string;
+      assistantMessageId?: number | null;
+    }> => {
       const previousText = tokensRef.current;
       if (!previousText) return { success: false, error: 'No previous text' };
 
@@ -185,6 +217,8 @@ export function useChat(): UseChatReturn {
       setPhase(null);
       setError(null);
       setAgentResponse(null);
+      sessionChatIdRef.current = null;
+      assistantMessageIdRef.current = null;
       setGenerating(true);
 
       try {
@@ -192,22 +226,10 @@ export function useChat(): UseChatReturn {
         if (!headers) throw new Error('Authentication required');
 
         const state = useStore.getState();
-        let chatId = state.currentChatId;
-        if (!chatId) {
-          chatId = state.generateChatId();
-          useStore.setState({ currentChatId: chatId });
-        }
 
         const body = {
           prompt: continuePrompt,
-          principal: state.principal,
-          context_messages: state.contextMemory.map((m: ChatMessage) => ({
-            role: m.role,
-            content: m.content,
-          })),
-          chat_id: chatId,
-          message_index: state.chatHistory.length,
-          user_memory: state.userMemory || {},
+          chat_id: state.currentChatId ?? undefined,
         };
 
         const response = await fetch(`${CONFIG.API_URL}/generate/agent`, {
@@ -223,20 +245,33 @@ export function useChat(): UseChatReturn {
 
         // Merge with previous output
         for await (const event of streamSSE(response, abortRef.current.signal)) {
+          if (event.type === 'session' && event.chat_id) {
+            sessionChatIdRef.current = event.chat_id;
+            useStore.setState({ currentChatId: event.chat_id });
+          }
           if (event.token) {
             tokensRef.current += event.token;
             setTokens(tokensRef.current);
           }
           if (event.done) {
+            assistantMessageIdRef.current = event.assistant_message_id ?? null;
             setAgentResponse({
               done_reason: event.done_reason ?? 'stop',
               ...(event.response ?? {}),
             });
+            // Same immediate unlock behavior as send().
+            setIsStreaming(false);
+            setGenerating(false);
+            break;
           }
           if (event.error) setError(new Error(event.error));
         }
 
-        return { success: true };
+        return {
+          success: true,
+          chatId: sessionChatIdRef.current ?? (useStore.getState().currentChatId ?? undefined),
+          assistantMessageId: assistantMessageIdRef.current,
+        };
       } catch (e) {
         const err = e as Error;
         if (err.name !== 'AbortError') {
