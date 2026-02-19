@@ -2,6 +2,10 @@
  * StreamingMessage — AI message during active streaming.
  * Splits tokens into stable (completed code blocks, memoized) and tail (re-renders each token).
  * Includes smooth typing animation for natural feel.
+ *
+ * A hidden spacer element renders the full buffered tokens so the parent
+ * scroll container always has the correct height, even while the visible
+ * text lags slightly behind due to the character-reveal animation.
  */
 import { useMemo, useState, useEffect, useRef } from 'react';
 import { splitAtCompletedBlocks } from '../../utils/markdown';
@@ -36,7 +40,6 @@ export function StreamingMessage({ tokens, isStreaming, phase }: StreamingMessag
     }
   }, [displayedLength, tokens.length]);
 
-  // When tokens grow, the animation continues naturally
   // When streaming stops, instantly show any remaining
   useEffect(() => {
     if (!isStreaming && displayedLength < tokens.length) {

@@ -29,7 +29,8 @@ Storage operates on a **local-first, cloud-synced** model:
 │                                                                      │
 │  Also stored on Akash (ephemeral, rebuilt from IPFS):                │
 │  ├── SQLite: sessions, rate limits, usage stats, chat metadata       │
-│  └── Per-user vector databases (SQLite)                              │
+│  ├── Per-user encrypted state.db (sqlcipher when available)          │
+│  └── Per-user vector indexes (sqlite-vec ANN when available)         │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -317,32 +318,39 @@ Database: TrinityChats (v1)
 
 ---
 
-## User Memory Storage (v2.0)
+## User Memory Storage (v3 Canonical)
 
-User memory (structured profile + persistent facts across all chats) is stored as encrypted JSON:
+User memory is stored in per-principal encrypted SQLite databases (canonical source of truth). Facts have stable `fact_id` records with temporal metadata (`valid_at`/`invalid_at`).
 
 ### Storage Path
 
 ```
 On Akash disk:
-  /data/chats/<principal>/user_memory.json  (encrypted)
+  /data/users/<principal>/state.db          (sqlcipher-encrypted SQLite, canonical)
   /data/chats/<principal>/metadata.json     (plaintext index)
 
 On IPFS:
-  Encrypted user_memory.json → CID
-  (backed up alongside chat archives)
+  Encrypted chat archives → CID
+  (backed up alongside metadata)
 ```
 
-### Operations
+### Database Connection Factory (`services/db.py`)
+
+Manages per-user SQLite connections with optional encryption and vector search:
+- **sqlcipher**: Whole-DB encryption when `pysqlcipher3` is available
+- **sqlite-vec**: ANN vector indexes when the extension is available
+- Graceful fallback to plain `sqlite3` when neither is installed
+
+### Key Operations
 
 | Function | Location | Purpose |
 |----------|----------|---------|
-| `load_user_memory(principal)` | `storage.py` | Load + decrypt + auto-migrate v1→v2. Returns v2.0 schema with `profile` dict if not found |
+| `get_connection(principal)` | `db.py` | Get or create encrypted SQLite connection for a user |
+| `knowledge_store.search()` | `knowledge_store.py` | Unified retrieval across facts + messages + relationships (ANN or brute-force) |
+| `knowledge_store.upsert_fact()` | `knowledge_store.py` | Insert or merge fact with KNN-based dedup (O(log n)) |
+| `ingestion_worker.enqueue_ingestion()` | `ingestion_worker.py` | Queue background extraction, indexing, and summarization |
+| `load_user_memory(principal)` | `storage.py` | Load + decrypt legacy user_memory.json (backward compat) |
 | `save_user_memory(principal, memory)` | `storage.py` | Encrypt + write to disk + trigger IPFS sync |
-| `_normalize_fact(fact)` | `storage.py` | Normalize single fact to canonical format (string/legacy dict → canonical dict) |
-| `_migrate_to_structured_profile(memory)` | `storage.py` | Migrate v1.0 → v2.0: add `profile` dict, classify facts by category, set `version: "2.0"` |
-| `_classify_fact_category(text)` | `storage.py` | Keyword heuristics to classify fact into identity/work/interests/preferences/relationships |
-| `get_active_facts(memory)` | `storage.py` | Return only non-deleted facts (filters `deleted: true`) |
 | `load_metadata(principal)` | `storage.py` | Load plaintext metadata (chat index, CIDs, sync state) |
 | `save_metadata(principal, metadata)` | `storage.py` | Save metadata JSON |
 | `get_user_dir(principal)` | `storage.py` | Returns safe path with path-traversal protection |
@@ -433,11 +441,11 @@ A heuristic function detects whether a stored value is encrypted or plaintext:
 │     c. Update metadata index                                      │
 │     d. Upload metadata to IPFS                                    │
 │                                                                   │
-├─ Semantic Indexing ──────────────────────────────────────────────┤
+├─ Knowledge Indexing (via ingestion_worker) ─────────────────────┤
 │                                                                   │
-│  6. Embed message content → 384-dim vector                        │
-│  7. Store in per-user SQLite vector database                      │
-│  8. Available for semantic memory retrieval in future queries      │
+│  6. ingestion_worker extracts facts → 384-dim embeddings          │
+│  7. Store in per-user state.db (sqlite-vec ANN or brute-force)    │
+│  8. Available via knowledge_store.search() in future queries       │
 │                                                                   │
 ├─ Cleanup (daily at 2 AM) ───────────────────────────────────────┤
 │                                                                   │
@@ -468,7 +476,11 @@ A heuristic function detects whether a stored value is encrypted or plaintext:
 | File | Role |
 |------|------|
 | `backend/encryption.py` | `EncryptionUtils`: encrypt/decrypt with AES-256-GCM |
-| `backend/storage.py` | User memory + metadata file I/O |
+| `backend/storage.py` | User memory + metadata file I/O (legacy compat) |
+| `backend/services/db.py` | Database connection factory: sqlcipher + sqlite-vec |
+| `backend/services/knowledge_store.py` | Unified retrieval across facts, messages, relationships |
+| `backend/services/ingestion_worker.py` | Background extraction, indexing, summarization daemon |
+| `backend/services/state_store.py` | Per-principal encrypted state.db (canonical source) |
 | `backend/lighthouse.py` | IPFS upload/download with multi-gateway fallback |
 | `backend/routes/chat.py` | Chat CRUD + autosave + archive endpoints |
 | `src-react/utils/indexedDB.ts` | Frontend IndexedDB operations |

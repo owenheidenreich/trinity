@@ -76,7 +76,7 @@ export function useChat(): UseChatReturn {
       for await (const event of streamSSE(response, signal)) {
         if (event.type === 'session' && event.chat_id) {
           sessionChatIdRef.current = event.chat_id;
-          useStore.setState({ currentChatId: event.chat_id });
+          useStore.getState().setCurrentChatId(event.chat_id);
         }
 
         // Phase updates
@@ -247,7 +247,7 @@ export function useChat(): UseChatReturn {
         for await (const event of streamSSE(response, abortRef.current.signal)) {
           if (event.type === 'session' && event.chat_id) {
             sessionChatIdRef.current = event.chat_id;
-            useStore.setState({ currentChatId: event.chat_id });
+            useStore.getState().setCurrentChatId(event.chat_id);
           }
           if (event.token) {
             tokensRef.current += event.token;

@@ -1,6 +1,6 @@
 # Trinity — Backend Architecture
 
-> Last updated: February 2026 · Covers the Python Flask inference server
+> Last updated: February 19, 2026 · Covers the Python Flask inference server
 
 ## Overview
 
@@ -40,34 +40,58 @@ backend/
 │   ├── rate_limit.py          # Rate limiting + token quotas
 │   └── icp_cache.py           # ICP idempotency cache (for subnet replicas)
 │
-├── services/                  # 34 business logic modules
-│   ├── agent.py               # AgentPipeline orchestrator + OllamaClient
+├── services/                  # 42 business logic modules
+│   │
+│   │   # ── Pipeline (extracted from 1086-line agent.py) ──
+│   ├── context_loader.py      # Single load_context() → RequestContext dataclass
+│   ├── query_classifier.py    # ContextLevel enum, smalltalk/disclosure/code detection
+│   ├── prompt_assembler.py    # Token-budgeted prompt builder + auto-generated tool sections
+│   ├── pipeline.py            # StreamingPipeline: fast-path / tools / direct chat
+│   ├── think_filter.py        # Streaming <think> block filter + code-fence helpers
+│   │
+│   │   # ── Agent & Tools ──
+│   ├── agent.py               # AgentPipeline (thin compat wrapper around StreamingPipeline)
 │   ├── agent_prompts.py       # System prompts + tool documentation
 │   ├── react_loop.py          # ReAct + Reflexion engine
 │   ├── tools.py               # Tool definitions, parsing, detection
 │   ├── code_executor.py       # Tool execution dispatcher + sandboxing
-│   ├── memory.py              # Semantic memory (working + semantic retrieval)
-│   ├── memory_tools.py        # Memory tool handlers (save/recall/search)
-│   ├── memory_ingestion.py    # Async ingestion worker for memory/profile/graph
+│   │
+│   │   # ── Memory & Knowledge ──
+│   ├── knowledge_store.py     # Unified retrieval: facts + messages + relationships (ANN/brute-force)
+│   ├── memory_tools.py        # Memory tool handlers (save/recall/search/update/forget)
+│   ├── ingestion_worker.py    # Background daemon: index, extract facts, update summaries
+│   ├── profile_extractor.py   # LLM extraction → {facts, triples}
+│   ├── graph_extractor.py     # Graph triple extraction compat layer
+│   ├── graph_memory.py        # Graph memory utilities
+│   ├── memory.py              # Semantic memory (legacy shim, being superseded)
+│   ├── memory_ingestion.py    # Shim re-exports from ingestion_worker
 │   ├── memory_eval.py         # Memory quality evaluation
-│   ├── profile_extractor.py   # Background auto-extraction of user profile facts
-│   ├── graph_memory.py        # Kuzu-backed graph memory
-│   ├── graph_extractor.py     # Entity/relationship extraction for graph
-│   ├── model_router.py        # Route queries to conversation vs coder model
-│   ├── embeddings.py          # Text embeddings (FastEmbed, BAAI/bge-small-en-v1.5)
+│   │
+│   │   # ── Storage ──
+│   ├── state_store.py         # Canonical per-principal encrypted SQLite (state.db)
+│   ├── db.py                  # Database connection factory (sqlcipher + sqlite-vec)
+│   ├── state_checkpoint.py    # Periodic IPFS checkpoint/restore for state.db
 │   ├── vector_store.py        # Per-user SQLite vector database
-│   ├── caching.py             # Embedding cache, semantic cache, token tracker
+│   ├── user_data_store.py     # IPFS persistence pipeline (retry, sync, manifest)
+│   │
+│   │   # ── LLM Providers ──
 │   ├── ollama.py              # Ollama client utilities
 │   ├── ollama_provider.py     # Ollama LLM provider implementation
 │   ├── llm_provider.py        # Abstract LLM provider interface
 │   ├── provider_factory.py    # Provider factory (Ollama, vLLM, etc.)
-│   ├── prompts.py             # Core system prompts + prompt builders
+│   ├── model_router.py        # Route queries to conversation vs coder model
+│   │
+│   │   # ── Search & RAG ──
 │   ├── search.py              # Brave Search API integration
 │   ├── fact_check.py          # Dual-search fact verification
+│   ├── embeddings.py          # Text embeddings (FastEmbed, BAAI/bge-small-en-v1.5)
+│   ├── caching.py             # Embedding cache, semantic cache, token tracker
+│   │
+│   │   # ── Infrastructure ──
+│   ├── prompts.py             # Core system prompts + prompt builders
 │   ├── structured.py          # Constrained JSON generation (Outlines)
 │   ├── akash.py               # Akash blockchain integration (AKT price, escrow)
 │   ├── loading_messages.py    # Whimsical loading phrases by phase
-│   ├── user_data_store.py     # IPFS persistence pipeline (retry, sync, manifest)
 │   ├── session_manager.py     # Session passphrase management
 │   ├── slo_metrics.py         # SLO tracking and burn-rate alerting
 │   ├── repo_map.py            # Workspace file structure analyzer
@@ -382,6 +406,14 @@ All values have sensible defaults and can be overridden via environment variable
 | `REACT_MAX_ITERATIONS` | `15` | Max Think→Act→Observe cycles |
 | `REACT_TOKEN_BUDGET` | `48000` | Total token budget per request |
 | `REFLEXION_MAX_RETRIES` | `3` | Self-correction attempts on tool errors |
+
+### Background Jobs
+
+| Job | Schedule | Description |
+|-----|----------|-------------|
+| `cleanup_inactive_chats()` | Daily at 2:00 AM | Deletes chats inactive > 7 days (skips pinned/archived) |
+| `ingestion_worker` | Event-driven daemon | Indexes messages, extracts facts/triples, updates summaries |
+| `state_checkpoint` | Every 15 minutes | Checkpoints state.db to IPFS for backup/restore |
 
 ### Security
 

@@ -189,7 +189,8 @@ describe('useChat', () => {
     const callBody = JSON.parse((fetchSpy.mock.calls[0]?.[1] as { body: string })?.body ?? '{}');
     expect(callBody.chat_id).toBeUndefined();
     expect(mockState.currentChatId).toBe('chat-new');
-    expect(sendResult?.chatId).toBe('chat-new');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((sendResult as any)?.chatId).toBe('chat-new');
   });
 
   it('handles phase events', async () => {

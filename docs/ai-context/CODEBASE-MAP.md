@@ -1,7 +1,7 @@
 # Trinity Codebase Map
 
 > **Purpose:** Single-file reference for any LLM to understand Trinity without searching the codebase.
-> **Last Updated:** February 18, 2026
+> **Last Updated:** February 19, 2026
 > **Accuracy:** Verified against live codebase on `main` branch.
 
 ---
@@ -34,41 +34,63 @@ backend/
 │   ├── generate.py          # /generate, /generate/agent
 │   ├── chat.py              # Canonical chat + memory CRUD (state_store-backed)
 │   ├── tools.py             # /tools/* search, browse, documents
-│   ├── v4.py                # /v4/* vector store, tool execution
 │   ├── session.py           # /session/*, /funding/*
 │   ├── mcp.py               # /mcp (MCP JSON-RPC 2.0)
 │   └── passphrase.py        # /api/passphrase/* setup, unlock, change, lock, status
 │
-├── services/                # 34 business logic modules
+├── services/                # 42 business logic modules
 │   ├── __init__.py          # Service exports
-│   ├── agent.py             # Single-pass orchestrator (detect tools → ReAct or direct)
+│   │
+│   │   # ── Pipeline (new: extracted from 1086-line agent.py god module) ──
+│   ├── context_loader.py    # Single load_context() → RequestContext dataclass
+│   ├── query_classifier.py  # ContextLevel enum, smalltalk/disclosure/code classification
+│   ├── prompt_assembler.py  # Token-budgeted prompt builder, auto-generated tool sections
+│   ├── pipeline.py          # StreamingPipeline: fast-path / tools / direct chat
+│   ├── think_filter.py      # Streaming <think> block filter + code-fence helpers
+│   │
+│   │   # ── Agent & Tools ──
+│   ├── agent.py             # AgentPipeline (thin wrapper around StreamingPipeline)
 │   ├── agent_prompts.py     # System prompts, ReAct prompts
 │   ├── react_loop.py        # ReAct agentic loop (dual-mode: native + XML tools)
 │   ├── code_executor.py     # Tool dispatcher (all 15 tools)
 │   ├── tools.py             # Tool definitions, detection, parsing
+│   │
+│   │   # ── Memory & Knowledge ──
+│   ├── knowledge_store.py   # Unified retrieval: facts + messages + relationships (ANN/brute-force)
 │   ├── memory_tools.py      # MemGPT save/recall/search/update/forget with embeddings
-│   ├── profile_extractor.py # Unified LLM extraction for profile facts + triples
-│   ├── memory.py            # Semantic memory retrieval
-│   ├── memory_ingestion.py  # Async ingestion + rolling conversation summaries
-│   ├── state_store.py       # Canonical encrypted SQLite source-of-truth per principal
-│   ├── memory_eval.py       # Memory quality evaluation
-│   ├── graph_memory.py      # Kuzu-backed graph memory
+│   ├── ingestion_worker.py  # Background daemon: index messages, extract facts, update summaries
+│   ├── profile_extractor.py # LLM extraction for profile facts + graph triples
 │   ├── graph_extractor.py   # Compatibility layer for unified extraction triples
-│   ├── model_router.py      # Route queries to conversation vs coder model
+│   ├── graph_memory.py      # Graph memory utilities
+│   ├── memory.py            # Semantic memory retrieval (legacy shim)
+│   ├── memory_ingestion.py  # Shim re-exports from ingestion_worker
+│   ├── memory_eval.py       # Memory quality evaluation
+│   │
+│   │   # ── Storage ──
+│   ├── state_store.py       # Canonical encrypted SQLite source-of-truth per principal
+│   ├── db.py                # Database connection factory (sqlcipher + sqlite-vec)
+│   ├── state_checkpoint.py  # Periodic IPFS checkpoint/restore for state.db
+│   ├── vector_store.py      # Per-user SQLite vector DB
+│   ├── user_data_store.py   # IPFS checkpoint/archive pipeline
+│   │
+│   │   # ── LLM Providers ──
 │   ├── ollama.py            # Ollama HTTP client
 │   ├── ollama_provider.py   # Ollama LLM provider implementation
 │   ├── llm_provider.py      # Abstract LLM provider interface
 │   ├── provider_factory.py  # Provider factory (Ollama, vLLM, etc.)
+│   ├── model_router.py      # Route queries to conversation vs coder model
+│   │
+│   │   # ── Search & RAG ──
 │   ├── search.py            # Brave web search
 │   ├── fact_check.py        # Dual-search fact verification
 │   ├── embeddings.py        # FastEmbed (384-dim)
-│   ├── vector_store.py      # Per-user SQLite vector DB
 │   ├── caching.py           # Embedding + semantic + token caches
+│   │
+│   │   # ── Infrastructure ──
 │   ├── prompts.py           # System prompt construction
 │   ├── structured.py        # Structured output parsing
 │   ├── loading_messages.py  # Phase update messages
 │   ├── akash.py             # Akash deployment info
-│   ├── user_data_store.py   # IPFS checkpoint/archive pipeline
 │   ├── session_manager.py   # Session passphrase management
 │   ├── slo_metrics.py       # SLO tracking and burn-rate alerting
 │   ├── mcp_server.py        # MCP server (JSON-RPC 2.0)
@@ -84,7 +106,7 @@ backend/
 │
 ├── mcp_stdio_server.py      # MCP stdio entry point (Claude Desktop)
 │
-└── tests/                   # 978 tests
+└── tests/                   # 986 tests
     ├── conftest.py          # Root fixtures
     ├── fixtures/
     │   └── auth_fixtures.py # Ed25519 test keypairs
@@ -108,13 +130,13 @@ trinity-icp/src-react/
 │   ├── layout/         # AppShell, EmptyState
 │   ├── modals/         # AuthModal, ConfirmModal, InfoModal, KeyExportModal,
 │   │                   # PassphraseModal, WelcomeModal
-│   ├── notifications/  # AutosaveIndicator, ToastProvider
+│   ├── notifications/  # ToastProvider, AutosaveIndicator
 │   └── sidebar/        # Sidebar, MemoryPanel
-├── hooks/              # useAuth, useChat, useAutosave, useConnection, usePassphrase
+├── hooks/              # useAuth, useChat, useConnection, usePassphrase
 ├── services/           # canister.ts (ICP canister integration)
 ├── store/              # Zustand store (index.ts, types.ts)
 ├── types/              # api.ts, auth.ts, message.ts
-├── utils/              # crypto, markdown, sse, indexedDB, lighthouse, logger, codeParser
+├── utils/              # crypto, markdown, sse, lighthouse, logger, codeParser
 └── styles/             # tokens.css + global.css + components/
 ```
 
@@ -354,8 +376,14 @@ Store: `trinity-icp/src-react/store/index.ts` · Types: `trinity-icp/src-react/s
 | "I want to..." | File(s) |
 |----------------|---------|
 | Change an API endpoint | `backend/routes/<blueprint>.py` |
-| Change LLM prompts | `backend/services/agent_prompts.py` |
+| Change LLM prompts | `backend/services/agent_prompts.py`, `backend/services/prompt_assembler.py` |
+| Change context loading logic | `backend/services/context_loader.py`, `backend/services/query_classifier.py` |
+| Change the streaming pipeline | `backend/services/pipeline.py` |
 | Add a tool | `backend/services/tools.py` + `code_executor.py` |
+| Fix memory retrieval | `backend/services/knowledge_store.py` |
+| Fix memory ingestion | `backend/services/ingestion_worker.py` |
+| Fix think-block filtering | `backend/services/think_filter.py` |
+| Fix database connections | `backend/services/db.py` |
 | Fix auth | `backend/icp_auth.py` |
 | Change rate limits | `backend/middleware/rate_limit.py` |
 | Fix metrics | `backend/middleware/observability.py` |

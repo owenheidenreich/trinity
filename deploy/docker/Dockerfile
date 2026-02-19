@@ -32,11 +32,14 @@ ENV GPU_TYPE=NVIDIA-A100
 ENV MAX_QUEUE_SIZE=10
 
 # === STEP 3: System packages ===
+# build-essential + libsqlcipher-dev needed for pysqlcipher3 native extension
 RUN apt-get update && apt-get install -y \
     python3.11 \
     python3-pip \
     curl \
     zstd \
+    build-essential \
+    libsqlcipher-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # === STEP 4: Install Ollama ===
@@ -74,6 +77,7 @@ ARG CACHEBUST=1
 COPY backend/inference_server.py .
 COPY backend/icp_auth.py .
 COPY backend/config.py .
+COPY backend/database.py .
 COPY backend/encryption.py .
 COPY backend/storage.py .
 COPY backend/lighthouse.py .

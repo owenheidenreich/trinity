@@ -611,25 +611,22 @@ class TestMemoryBudgets:
 # =============================================================================
 
 class TestSaveMemoryTemporalFields:
-    """Test that tool_save_memory creates facts with temporal metadata."""
+    """Test that tool_save_memory creates facts with temporal metadata.
 
-    def test_new_fact_has_valid_at(self):
-        """New facts created by tool_save_memory include valid_at."""
-        with patch("services.memory_tools._get_embeddings") as mock_emb, \
-             patch("services.memory_tools._get_storage") as mock_storage:
+    v5.0: temporal fields (valid_at) are now handled inside KnowledgeStore.save_fact().
+    This test verifies save_fact is called with the correct parameters.
+    """
 
-            import numpy as np
-            mock_embed = MagicMock(return_value=np.zeros(384))
-            mock_cosine = MagicMock(return_value=0.0)
-            mock_emb.return_value = (mock_embed, mock_cosine)
+    def test_new_fact_calls_knowledge_store(self):
+        """tool_save_memory delegates to KnowledgeStore.save_fact()."""
+        import numpy as np
+        from unittest.mock import MagicMock
 
-            saved_memory = {}
-            def mock_load(pid):
-                return {"facts": [], "version": "2.0"}
-            def mock_save(pid, memory):
-                saved_memory.update(memory)
+        mock_ks = MagicMock()
+        mock_ks.save_fact.return_value = ("insert", 1)
 
-            mock_storage.return_value = (mock_load, mock_save)
+        with patch("services.memory_tools._embed", return_value=np.zeros(384)), \
+             patch("services.memory_tools._get_knowledge_store", return_value=mock_ks):
 
             from services.memory_tools import tool_save_memory
             success, msg = tool_save_memory(
@@ -638,10 +635,10 @@ class TestSaveMemoryTemporalFields:
             )
 
             assert success
-            assert "Saved:" in msg
-            assert len(saved_memory.get("facts", [])) == 1
-
-            new_fact = saved_memory["facts"][0]
-            assert "valid_at" in new_fact
-            assert new_fact["valid_at"] is not None
-            assert new_fact["invalid_at"] is None
+            assert "hiking" in msg
+            mock_ks.save_fact.assert_called_once_with(
+                text="User likes hiking",
+                category="interests",
+                importance=3,
+                source_message_id=None,
+            )

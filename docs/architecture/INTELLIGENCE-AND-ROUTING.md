@@ -1,6 +1,6 @@
 # Trinity — Intelligence, Routing & Decision-Making
 
-> Last updated: February 2026
+> Last updated: February 19, 2026
 
 ## Overview
 
@@ -15,33 +15,41 @@ This document explains how that decision-making works end-to-end.
 
 ---
 
-## The Two Paths
+## The Three Paths
 
-Every message takes one of two paths:
+Every message is classified once by `context_loader.load_context()` (which calls `query_classifier.py`), then routed through `StreamingPipeline`:
 
 ```
 User message arrives at POST /generate/agent
 │
-├── detect_tools_needed(prompt)
-│   Heuristic regex scan of the user's message
+├── context_loader.load_context()
+│   ├── query_classifier.classify_context_level()  → NONE / MINIMAL / DISCLOSURE / FULL
+│   ├── detect_tools_needed(prompt)                → list of tool names
+│   └── knowledge_store.search(embedding, top_k=20) → relevant knowledge items
 │
-├── Tools detected? ─── YES ──> ReAct Loop (iterative tool calling)
-│                                │
-│                                ├── Think → Act → Observe → Think → ...
-│                                ├── Up to 15 iterations
-│                                ├── 48,000 token budget
-│                                └── Self-correction on errors (Reflexion)
+├── prompt_assembler.assemble()                    → token-budgeted messages
 │
-└── Tools detected? ─── NO ───> Direct Chat (single LLM call)
-                                 │
-                                 └── Stream response directly from Ollama
+├── StreamingPipeline.process_streaming()
+│   │
+│   ├── Level == NONE? ─────> Fast-path (static response, no LLM)
+│   │
+│   ├── Tools detected? ─── YES ──> ReAct Loop (iterative tool calling)
+│   │                                │
+│   │                                ├── Think → Act → Observe → Think → ...
+│   │                                ├── Up to 15 iterations
+│   │                                ├── 48,000 token budget
+│   │                                └── Self-correction on errors (Reflexion)
+│   │
+│   └── Tools detected? ─── NO ───> Direct Chat (single LLM call)
+│                                    │
+│                                    └── Stream via Ollama + think_filter
 ```
 
-Both paths:
-- Include user memory in the system prompt
-- Include semantic context (relevant past messages)
+All paths:
+- Include user knowledge in the system prompt (via prompt_assembler)
+- Include semantic context from KnowledgeStore (relevant past messages + facts)
 - Stream results back to the frontend via SSE
-- Index the response into semantic memory after completion
+- Enqueue ingestion (index + extract + summarize) after completion
 
 ---
 
@@ -73,38 +81,51 @@ If **any** pattern matches, the message is routed to the ReAct loop with full to
 
 ## Step 2: Context Assembly
 
-**File:** `services/agent.py` → `AgentPipeline.process_streaming()`
+**Files:** `services/context_loader.py`, `services/prompt_assembler.py`
 
-Before the LLM is called, context is assembled from multiple sources:
+Before the LLM is called, context is assembled by two new modules:
+
+### Context Loader (`context_loader.load_context()`)
+
+Single function that replaces 5 divergent context-loading paths. Called once per request.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                      CONTEXT ASSEMBLY                            │
+│              CONTEXT LOADER — one call, everything loaded         │
 │                                                                  │
-│  ┌── From Frontend ─────────────────────────────────────────┐   │
-│  │  context_messages: last 20 messages (sliding window)      │   │
-│  │  user_memory: persistent facts + preferences              │   │
-│  └───────────────────────────────────────────────────────────┘   │
+│  1. classify_context_level(prompt) → NONE / MINIMAL / FULL     │
+│  2. get_messages(chat_id, limit=25) → conversation history      │
+│  3. list_conversation_summaries() → rolling summary             │
+│  4. embed_text(prompt) → query_embedding (computed once)        │
+│  5. knowledge_store.search(embedding, top_k=20) → facts +      │
+│     messages + relationships (unified scoring)                   │
+│  6. detect_tools_needed(prompt) → tool list                     │
 │                                                                  │
-│  ┌── From Semantic Memory ──────────────────────────────────┐   │
-│  │  Working memory: last 5 messages from current chat        │   │
-│  │  Semantic memory: top 8 relevant past messages            │   │
-│  │  (weighted: 70% similarity + 30% recency)                 │   │
-│  └───────────────────────────────────────────────────────────┘   │
+│  → Returns RequestContext dataclass (passed to prompt_assembler) │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+### Prompt Assembler (`prompt_assembler.assemble()`)
+
+Token-budgeted prompt construction with global budget allocation:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│              PROMPT ASSEMBLER — token-budgeted                   │
 │                                                                  │
-│  ┌── Auto-Detected ─────────────────────────────────────────┐   │
-│  │  Web search results (if query contains search keywords)   │   │
-│  │  Document context (if documents uploaded)                  │   │
-│  └───────────────────────────────────────────────────────────┘   │
+│  Budget: 55% conversation history, 45% knowledge items          │
+│  Safety margin: 2000 tokens reserved                            │
 │                                                                  │
-│  All assembled into system prompt by build_system_prompt():      │
-│                                                                  │
-│  ┌── System Prompt ─────────────────────────────────────────┐   │
+│  ┌── System Message ────────────────────────────────────────┐   │
 │  │  1. Trinity identity + formatting guidelines              │   │
-│  │  2. User memory facts (if any)                            │   │
-│  │  3. Semantic context from past conversations              │   │
-│  │  4. Search results (if auto-searched)                     │   │
-│  │  5. Tool documentation (if tools path)                    │   │
+│  │  2. Knowledge items (facts + semantic matches + graph)    │   │
+│  │  3. Tool documentation (auto-generated from TOOL_DEFS)   │   │
+│  └───────────────────────────────────────────────────────────┘   │
+│                                                                  │
+│  ┌── Conversation ──────────────────────────────────────────┐   │
+│  │  Conversation summary (if exists)                         │   │
+│  │  Last N unsummarized messages (capped at 20)              │   │
+│  │  Current user question                                    │   │
 │  └───────────────────────────────────────────────────────────┘   │
 └──────────────────────────────────────────────────────────────────┘
 ```
@@ -408,7 +429,7 @@ At each iteration:
 
 ## System Prompts
 
-**Files:** `services/prompts.py`, `services/agent_prompts.py`
+**Files:** `services/agent_prompts.py`, `services/prompt_assembler.py`
 
 ### Core Identity Prompt (`TRINITY_SYSTEM_PROMPT`)
 
@@ -423,7 +444,7 @@ Defines Trinity's personality, capabilities, and formatting guidelines. Includes
 Used when tools are available. Includes:
 - The core identity
 - ReAct pattern instructions (Think → Act → Observe → Repeat)
-- Tool documentation for all 15 tools
+- Tool documentation for all 15 tools (auto-generated from `TOOL_DEFINITIONS`)
 - `<final_answer>` tag usage
 - Error handling instructions
 
@@ -431,31 +452,15 @@ Used when tools are available. Includes:
 
 Used for direct chat (no tools). Simpler version without tool documentation.
 
-### Prompt Assembly
+### Prompt Assembly (New Architecture)
 
-```python
-def build_system_prompt(context, memory, search_results, tools):
-    prompt = TRINITY_SYSTEM_PROMPT
+**File:** `services/prompt_assembler.py`
 
-    if memory and memory.get('facts'):
-        prompt += "\n## What You Know About This User\n"
-        for fact in memory['facts']:
-            prompt += f"- {fact['text']}\n"
+The prompt assembler replaced the scattered formatting functions (`build_system_prompt()`, `_format_user_memory()`, `_format_memory_for_chat()`) with a single token-budgeted builder:
 
-    if context:
-        prompt += "\n## Relevant Context\n"
-        prompt += context
-
-    if search_results:
-        prompt += "\n## Search Results\n"
-        prompt += search_results
-
-    if tools:
-        prompt += TOOL_PROMPT_SECTION      # 15 tool docs
-        prompt += REACT_SYSTEM_PROMPT      # ReAct instructions
-
-    return prompt
-```
+- **Auto-generated tool section:** `get_tool_prompt_section()` generates from `TOOL_DEFINITIONS` (single source of truth)
+- **Token budget:** Global allocation across conversation history (55%) and knowledge items (45%)
+- **Memory guidelines:** Included in tool section — when to save/update/forget/search memories
 
 ---
 
@@ -661,14 +666,19 @@ A ring buffer holds the last 500 traces in memory:
 
 | File | Role |
 |------|------|
-| `services/agent.py` | `AgentPipeline` — main orchestrator, `OllamaClient` |
-| `services/agent_prompts.py` | System prompts + tool documentation |
+| `services/context_loader.py` | **NEW** — Single `load_context()` → `RequestContext` |
+| `services/query_classifier.py` | **NEW** — `ContextLevel` enum, all classification logic |
+| `services/prompt_assembler.py` | **NEW** — Token-budgeted prompt builder |
+| `services/pipeline.py` | **NEW** — `StreamingPipeline` (fast-path / tools / direct) |
+| `services/think_filter.py` | **NEW** — Streaming `<think>` block filter |
+| `services/agent.py` | `AgentPipeline` — thin compat wrapper around StreamingPipeline |
+| `services/agent_prompts.py` | System prompts + tool documentation templates |
 | `services/react_loop.py` | `ReactLoop` — iterative tool calling + Reflexion |
 | `services/tools.py` | Tool definitions, parsing, detection |
 | `services/code_executor.py` | Tool dispatch + sandboxed execution |
+| `services/knowledge_store.py` | Unified retrieval (facts + messages + relationships) |
 | `services/search.py` | Brave Search API integration |
 | `services/fact_check.py` | Dual-search fact verification |
 | `services/structured.py` | Constrained JSON generation |
 | `services/tracing.py` | Request tracing + quality reports |
-| `services/loading_messages.py` | Phase-aware loading messages |
 | `routes/generate.py` | `/generate` and `/generate/agent` endpoints |

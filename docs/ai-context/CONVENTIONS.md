@@ -1,7 +1,7 @@
 # Trinity Conventions
 
 > Machine-readable rules for AI coding assistants. One rule per line, grep-friendly.
-> **Last Updated:** February 17, 2026
+> **Last Updated:** February 19, 2026
 
 ## State Management
 DO: Use Zustand setter methods — `State.setAuthenticated()`, `State.setChatHistory()`
@@ -23,6 +23,11 @@ PATTERN: New tool → define in `tools.py` TOOL_DEFINITIONS → dispatch in `cod
 PATTERN: New middleware → add to `middleware/__init__.py` exports
 DON'T: Import from `database.py` — it's unused dead code (future feature)
 DON'T: Omit `think=False` from Ollama calls — Qwen3 `<think>` blocks consume tokens and cause timeouts
+PATTERN: Context loading → `context_loader.load_context()` (single function, not scattered paths)
+PATTERN: Prompt building → `prompt_assembler.assemble()` (token-budgeted, auto-generated tool sections)
+PATTERN: Streaming → `pipeline.StreamingPipeline` (not agent.py directly)
+PATTERN: Memory retrieval → `knowledge_store.search()` (unified ANN/brute-force)
+PATTERN: Background ingestion → `ingestion_worker.enqueue_ingestion()` (event-driven daemon)
 
 ## Frontend Patterns (React 19 — `src-react/`)
 DO: Use hooks (`useAuth`, `useChat`, `useAutosave`, `useConnection`) not raw store access

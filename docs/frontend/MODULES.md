@@ -1,10 +1,10 @@
 # Trinity Frontend Modules
 
-> **Last Updated:** February 2026
+> **Last Updated:** February 19, 2026
 > **Active Frontend:** React 19 + TypeScript in `trinity-icp/src-react/` (v3.0.0)
 > **Legacy Frontend:** Vanilla JS in `trinity-icp/src/` (v2.8.0, still buildable via `npm run build:legacy`)
 >
-> For the complete frontend architecture, see [architecture/01-FRONTEND.md](../architecture/01-FRONTEND.md).
+> For the complete frontend architecture, see [architecture/FRONTEND.md](../architecture/FRONTEND.md).
 
 ---
 
@@ -18,8 +18,10 @@ Fully typed TypeScript rewrite using React 19, Zustand, Vite, and CSS Modules.
 App
 ├── ToastProvider                       ← Global toast notification stack
 └── AppShell                            ← Main layout orchestrator
-    ├── AuthModal → KeyExportModal      ← Identity gate
+    ├── WelcomeModal                    ← Username/password identity gate (deterministic Argon2id)
+    ├── AuthModal → KeyExportModal      ← Legacy identity import/export
     ├── Sidebar                         ← Chat list, connection, identity
+    │   └── MemoryPanel                 ← Inline fact viewer/editor
     ├── EmptyState                      ← Welcome screen
     ├── MessageList                     ← Message container
     │   ├── Message → MarkdownRenderer → CodeBlock
@@ -34,7 +36,7 @@ App
 
 | Hook | Purpose |
 |------|---------|
-| `useAuth` | Ed25519 identity: generate, import, export, sign, build auth headers |
+| `useAuth` | Ed25519 identity: register/signIn with username+password (deterministic Argon2id derivation), import, export, sign, build auth headers |
 | `useChat` | SSE streaming: send, continue, stop, phase tracking |
 | `useAutosave` | Debounced 2s save → IndexedDB (local-first) + cloud sync |
 | `useConnection` | `/health` polling every 30s, connection status |
@@ -47,7 +49,7 @@ State.setAuthenticated(principal, timestamp);  // ✅
 State.isAuthenticated = true;                  // ❌ Fails silently
 ```
 
-**Key state:** `chatHistory`, `contextMemory` (window: 20), `isAuthenticated`, `principal`, `userMemory`, `allChats`, `autosaveStatus`, `isGenerating`
+**Key state:** `chatHistory`, `contextMemory` (window: 50), `isAuthenticated`, `principal`, `username`, `userMemory`, `allChats`, `autosaveStatus`, `isGenerating`
 
 ### File Structure
 
@@ -59,9 +61,9 @@ src-react/
 │   │                  # StreamingMessage, MarkdownRenderer, MathBlock,
 │   │                  # CopyAllButton, ContinueButton, DownloadCards
 │   ├── layout/        # AppShell, EmptyState
-│   ├── modals/        # AuthModal, ConfirmModal, InfoModal, KeyExportModal
+│   ├── modals/        # WelcomeModal, AuthModal, ConfirmModal, InfoModal, KeyExportModal
 │   ├── notifications/ # AutosaveIndicator, ToastProvider
-│   └── sidebar/       # Sidebar
+│   └── sidebar/       # Sidebar, MemoryPanel
 ├── hooks/             # useAuth, useChat, useAutosave, useConnection
 ├── store/             # Zustand store (index.ts, types.ts)
 ├── types/             # api.ts, auth.ts, message.ts

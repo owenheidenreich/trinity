@@ -216,6 +216,9 @@ class PrincipalStateStore:
         conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("PRAGMA journal_mode = WAL")
         conn.execute("PRAGMA synchronous = NORMAL")
+        # Prevent SQLITE_BUSY when the ingestion worker holds a write lock;
+        # the connection will retry for up to 5 seconds before raising.
+        conn.execute("PRAGMA busy_timeout = 5000")
         conn.create_function("cosine_sim", 2, self._sqlite_cosine_similarity)
 
     @classmethod

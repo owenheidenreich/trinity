@@ -17,7 +17,7 @@ version: "2.0"
 
 services:
   trinity:
-    image: gdubx/trinity-inference:v2-20260218-205603
+    image: gdubx/trinity-inference:v2-20260219-004747
     env:
       - PROVIDER_ID=trinity-test-qwen3-8b
       - MODEL_NAME=qwen3:8b
@@ -37,6 +37,7 @@ services:
       - WORKING_MEMORY_SIZE=5
       - SEMANTIC_MEMORY_SIZE=8
       - PROFILE_TOKEN_BUDGET=2500
+      - PROFILE_MAX_FACTS=15
       - RECENCY_WEIGHT=0.3
       # Tool Use & Code Execution
       - CODE_EXECUTION_ENABLED=false

@@ -359,6 +359,13 @@ if __name__ == "__main__":
     if provider.check_connection():
         logger.info(f"✅ Successfully connected to {provider.backend_name} ({MODEL_NAME})")
         provider.warmup()
+        # Warm up embedding model so first request has no cold-start penalty
+        try:
+            from services.embeddings import get_embedding_model
+            get_embedding_model()
+            logger.info("✅ Embedding model pre-loaded")
+        except Exception as e:
+            logger.warning(f"⚠️  Embedding model warmup failed: {e}")
     else:
         logger.warning(f"⚠️  Could not connect to {provider.backend_name} — server will start anyway")
         logger.warning("   Make sure Ollama is running: ollama serve")

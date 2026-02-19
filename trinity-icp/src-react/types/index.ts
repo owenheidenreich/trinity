@@ -2,7 +2,6 @@ export type { SSEEvent, ChatMessage, AgentResponse, AgentPhase, DoneReason } fro
 export type {
   GenerateRequest,
   HealthCheckResponse,
-  AutosaveRequest,
   ChatListItem,
   ChatLoadResponse,
   UserMemory,

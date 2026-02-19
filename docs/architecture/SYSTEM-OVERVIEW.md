@@ -1,6 +1,6 @@
 # Trinity — System Architecture Overview
 
-> Last updated: February 2026 · Version 3.0.0
+> Last updated: February 19, 2026 · Version 3.0.0
 
 ## What Is Trinity?
 
@@ -80,7 +80,7 @@ A Cloudflare Worker sits between the frontend and backend to provide SSL termina
 │  │  │  └────────────┘ └────────────┘  │  │  Context: 65,536 tokens    │  │
 │  │  │                                  │  │                            │  │  │
 │  │  │  ┌────────────┐ ┌────────────┐  │  └────────────────────────────┘  │  │
-│  │  │  │ 34 Service │ │ SQLite DB  │  │                                  │  │
+│  │  │  │ 42 Service │ │ SQLite DB  │  │                                  │  │
 │  │  │  │ Modules    │ │ (sessions, │  │  ┌────────────────────────────┐  │  │
 │  │  │  │            │ │  rate lim, │  │  │  Persistent Volume         │  │  │
 │  │  │  │ Agent      │ │  usage,    │  │  │  (Akash beta3 class)       │  │  │
@@ -216,12 +216,11 @@ Browser                  CF Worker              Akash Backend           Ollama
 ```
 ┌─ First Visit ──────────────────────────────────────────────────┐
 │                                                                 │
-│  1. App shows AuthModal (gates entire UI)                       │
-│  2. User clicks "Generate New Identity"                         │
-│  3. Ed25519KeyIdentity.generate() creates keypair               │
-│  4. Private key encrypted with AES-GCM using browser            │
-│     fingerprint → stored in localStorage                        │
-│  5. Private key hex shown ONCE for user to back up              │
+│  1. App shows WelcomeModal (gates entire UI)                    │
+│  2. User enters username + password                             │
+│  3. Deterministic identity: Argon2id(password, username) → seed │
+│  4. Ed25519KeyIdentity.fromSecretKey(seed) → keypair            │
+│  5. Private key encrypted with AES-GCM + stored in localStorage │
 │  6. Principal derived from public key (ICP standard)            │
 │                                                                 │
 ├─ Every Request ────────────────────────────────────────────────┤
@@ -313,7 +312,7 @@ Trinity/
 │   ├── lighthouse.py                 # IPFS/Lighthouse integration
 │   ├── routes/                       # 9 Flask blueprints (54 endpoints)
 │   ├── middleware/                    # Observability, rate limiting, caching
-│   ├── services/                     # 34 service modules (agent, memory, tools, etc.)
+│   ├── services/                     # 42 service modules (pipeline, agent, memory, knowledge, tools, etc.)
 │   └── tests/                        # Unit, integration, and E2E tests
 │
 ├── trinity-icp/                      # Frontend (ICP canister)

@@ -1,6 +1,6 @@
 # Trinity — AI Context Reference
 
-> **Last Updated:** February 17, 2026 · **Model:** qwen3:32b on Akash
+> **Last Updated:** February 19, 2026 · **Model:** qwen3:32b on Akash
 
 ---
 
@@ -63,7 +63,7 @@ backend/                         # Python Flask server
 ├── inference_server.py          # App factory, blueprint registration
 ├── config.py                    # All constants + env vars
 ├── routes/                      # 9 blueprints, 54 endpoints
-├── services/                    # 34 modules (agent, tools, memory, search, etc.)
+├── services/                    # 42 modules (pipeline, agent, tools, memory, knowledge, etc.)
 ├── middleware/                  # Observability, rate limiting, ICP cache
 └── tests/                       # 978 tests, 66% coverage
 
@@ -82,11 +82,11 @@ docs/                            # Architecture docs, guides, AI context
 
 **Auth:** Ed25519 keypair → principal ID (base32). Signed message format: `{principal}:{timestamp}:{endpoint}:{nonce}`. Backend verifies via `@require_auth` decorator. 60s replay window.
 
-**Agent Pipeline:** User prompt → heuristic tool detection → if tools needed, ReAct loop (max 15 iterations, 48K token budget, 15 tools) → if not, direct LLM generation. `think=False` on all Ollama calls (suppresses Qwen3 `<think>` blocks). Agent-level `MAX_TOKENS=16384`. Context capped to 10 messages × 2000 chars. Reflexion self-correction on errors. Auto-extraction of profile facts runs in daemon thread after each response (non-blocking).
+**Pipeline (refactored):** User prompt → `context_loader.load_context()` (classify + load all context once) → `prompt_assembler.assemble()` (token-budgeted) → `StreamingPipeline.process_streaming()` (fast-path / ReAct / direct). Former 1086-line `agent.py` split into 5 focused modules: `context_loader.py`, `query_classifier.py`, `prompt_assembler.py`, `pipeline.py`, `think_filter.py`. ReAct: max 15 iterations, 48K token budget, 15 tools, Reflexion self-correction. `think=False` on all Ollama calls.
 
-**Memory:** Three tiers — working (last 5 messages), semantic (top 8 by vector similarity), user memory (v2.0 structured profile with categories, token-budget injection, soft-delete, auto-extraction, encrypted on IPFS). 15 tools include `update_memory` and `forget_memory`. Frontend Memory Panel provides transparent read/edit/delete of all stored facts.
+**Memory (refactored):** Four tiers — conversation context (25 messages), rolling summaries, semantic retrieval (top 20 via `knowledge_store.py`), user profile facts. New modules: `knowledge_store.py` (unified ANN retrieval with scoring: 0.6×similarity + 0.25×importance + 0.15×recency), `ingestion_worker.py` (background daemon for indexing + extraction + summarization), `db.py` (sqlcipher + sqlite-vec connection factory). 15 tools include `update_memory` and `forget_memory`. Frontend Memory Panel provides transparent read/edit/delete.
 
-**Storage:** AES-256-GCM + Argon2id KDF. Encrypted client-side before transmission. IPFS (Lighthouse) is source of truth; IndexedDB is session cache. Autosave with 2s debounce.
+**Storage:** Per-principal encrypted SQLite (`state.db`) is canonical source of truth. AES-256-GCM + Argon2id KDF for field encryption. IPFS (Lighthouse) for backup via `state_checkpoint.py`. Frontend uses server-side persistence — no client-side IndexedDB for chat data.
 
 ---
 
@@ -122,6 +122,7 @@ cd backend && python -m pytest tests/ -x -q    # 978 tests
 
 ## Recent Changes
 
+- **Feb 19, 2026:** Pipeline refactor — extracted 1086-line `agent.py` into `context_loader.py`, `query_classifier.py`, `prompt_assembler.py`, `pipeline.py`, `think_filter.py`. New `knowledge_store.py` (unified ANN retrieval), `ingestion_worker.py` (event-driven daemon), `db.py` (sqlcipher + sqlite-vec). Service count: 34 → 42.
 - **Feb 2026:** Deleted LangGraph multi-agent, complexity router, voting, A/B experiments, parallel pipeline — replaced by single-pass agent + ReAct loop
 - **Feb 2026:** Migrated frontend to React 19 + TypeScript (`src-react/`); vanilla JS in `src/` is now legacy
 - **Feb 2026:** Added MCP server/client, 15 tools, MemGPT memory tools

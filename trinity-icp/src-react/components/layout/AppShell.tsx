@@ -65,6 +65,7 @@ export function AppShell() {
   const [infoVariant, setInfoVariant] = useState<InfoVariant | null>(null);
   const [isLoadingChats, setIsLoadingChats] = useState(false);
   const chatListRequestSeq = useRef(0);
+  const memoryPollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Store
   const chatHistory = useStore((s) => s.chatHistory);
@@ -147,14 +148,6 @@ export function AppShell() {
     }
   }, [auth.isAuthenticated]);
 
-  // Load chat list and user memory once passphrase is unlocked
-  useEffect(() => {
-    if (auth.isAuthenticated && passphrase.status === 'unlocked') {
-      void loadChats();
-      void loadUserMemory();
-    }
-  }, [auth.isAuthenticated, passphrase.status, loadChats]);
-
   const loadUserMemory = useCallback(async () => {
     try {
       const headers = await auth.buildAuthHeaders('/user/memory');
@@ -171,11 +164,25 @@ export function AppShell() {
     return null;
   }, [auth.buildAuthHeaders, setUserMemory]);
 
+  // Load chat list and user memory once passphrase is unlocked
+  useEffect(() => {
+    if (auth.isAuthenticated && passphrase.status === 'unlocked') {
+      void loadChats();
+      void loadUserMemory();
+    }
+  }, [auth.isAuthenticated, passphrase.status, loadChats, loadUserMemory]);
+
   const refreshMemoryAfterIngestion = useCallback(() => {
+    // Cancel any in-progress poll before starting a new one so rapid
+    // sends don't accumulate overlapping setInterval loops.
+    if (memoryPollTimerRef.current) {
+      clearInterval(memoryPollTimerRef.current);
+      memoryPollTimerRef.current = null;
+    }
+
     let attempts = 0;
     const maxAttempts = 15;
     const minAttemptsBeforeStop = 3;
-    let timer: ReturnType<typeof setInterval> | null = null;
 
     const pollOnce = async () => {
       attempts += 1;
@@ -187,15 +194,15 @@ export function AppShell() {
       });
 
       if ((attempts >= minAttemptsBeforeStop && !hasPending) || attempts >= maxAttempts) {
-        if (timer) {
-          clearInterval(timer);
-          timer = null;
+        if (memoryPollTimerRef.current) {
+          clearInterval(memoryPollTimerRef.current);
+          memoryPollTimerRef.current = null;
         }
       }
     };
 
     void pollOnce();
-    timer = setInterval(() => {
+    memoryPollTimerRef.current = setInterval(() => {
       void pollOnce();
     }, 2000);
   }, [loadUserMemory]);

@@ -15,11 +15,12 @@ import pytest
 
 
 # ============================================================================
-# B1/B8: _format_user_memory
+# B1/B8: _format_user_memory — SKIPPED (v5.0: replaced by PromptAssembler)
 # ============================================================================
 
+@pytest.mark.skip(reason="_format_user_memory removed in v5.0 memory rewrite — replaced by PromptAssembler")
 class TestFormatUserMemory:
-    """Tests for agent.py _format_user_memory()."""
+    """Tests for agent.py _format_user_memory() — SKIPPED."""
 
     def test_empty_memory_returns_empty(self):
         from services.agent import _format_user_memory
@@ -277,8 +278,9 @@ class TestConversationSummaryPrompt:
 # B3: build_enhanced_context tuple return
 # ============================================================================
 
+@pytest.mark.skip(reason="services.memory module removed in v5.0 — replaced by KnowledgeStore")
 class TestBuildEnhancedContext:
-    """Tests for memory.py build_enhanced_context() returning tuple."""
+    """Tests for memory.py build_enhanced_context() returning tuple — SKIPPED."""
 
     @patch("services.memory.get_semantic_memory")
     def test_returns_tuple(self, mock_get_mem):

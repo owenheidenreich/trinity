@@ -1,7 +1,7 @@
 # Trinity Feature Catalog
 
 > Complete inventory of production features.
-> **Last Updated:** February 17, 2026
+> **Last Updated:** February 19, 2026
 
 ---
 
@@ -50,9 +50,10 @@
 
 ## Intelligence Layer
 
-### Single-Pass Agent Pipeline
-- **Where**: `backend/services/agent.py`, `backend/services/agent_prompts.py`
-- **How**: Detect tools → ReAct loop (if tools needed) or direct generation
+### Composable Pipeline (Refactored Feb 19, 2026)
+- **Where**: `backend/services/pipeline.py`, `backend/services/context_loader.py`, `backend/services/query_classifier.py`, `backend/services/prompt_assembler.py`, `backend/services/think_filter.py`
+- **How**: `context_loader.load_context()` (classify + load once) → `prompt_assembler.assemble()` (token-budgeted) → `StreamingPipeline.process_streaming()` (fast-path / ReAct / direct). Extracted from 1086-line `agent.py`.
+- **Compat wrapper**: `backend/services/agent.py` (`AgentPipeline`) delegates to `StreamingPipeline`
 - **Endpoint**: `POST /generate/agent`
 - **Status**: Production
 
@@ -68,9 +69,10 @@
 - **Parsing**: 4-tier `parse_tool_calls()` fallback: strict XML → lenient XML → nameless `<tool_call>` inference via `_TAG_TO_TOOL` mapping → bare tool name
 - **Status**: Production (code execution disabled by default)
 
-### Semantic Memory (V4)
-- **Where**: `backend/services/memory.py`, `backend/services/vector_store.py`, `backend/services/embeddings.py`
-- **How**: FastEmbed 384-dim embeddings, per-user SQLite vector DB, cosine similarity
+### Unified Knowledge Store (Refactored Feb 19, 2026)
+- **Where**: `backend/services/knowledge_store.py` (new), `backend/services/embeddings.py`
+- **How**: Unified retrieval across facts + messages + relationships. ANN via sqlite-vec (if available), brute-force fallback. Scoring: similarity × 0.6 + importance × 0.25 + recency × 0.15. KNN-based dedup (O(log n)).
+- **Legacy shim**: `backend/services/memory.py` (being superseded)
 - **Status**: Production
 
 ### Memory Tools (MemGPT)
@@ -80,11 +82,16 @@
 - **Status**: Production
 
 ### User Profile System (v3 Canonical)
-- **Where**: `backend/services/state_store.py`, `backend/services/profile_extractor.py`, `backend/services/agent.py`, `backend/services/memory_ingestion.py`
-- **How**: Canonical encrypted SQLite + stable `fact_id` records, single-call LLM extraction (facts + triples), rolling summaries, token-budget profile injection (3500 tokens)
+- **Where**: `backend/services/state_store.py`, `backend/services/profile_extractor.py`, `backend/services/ingestion_worker.py`, `backend/services/knowledge_store.py`
+- **How**: Canonical encrypted SQLite + stable `fact_id` records. `ingestion_worker.py` (event-driven daemon) handles extraction, indexing, and summarization. `knowledge_store.py` handles retrieval and dedup. `prompt_assembler.py` handles token-budget injection.
 - **Extraction categories**: identity, work, interests, preferences, relationships, general
-- **Budgets**: WORKING_MEMORY_SIZE=5, SEMANTIC_MEMORY_SIZE=8, PROFILE_TOKEN_BUDGET=3500, PROFILE_MAX_FACTS=25
+- **Budgets**: PROFILE_TOKEN_BUDGET=3500, PROFILE_MAX_FACTS=25, KNOWLEDGE_TOP_K=20
 - **Endpoints**: `GET /user/memory`, `POST /user/memory/fact`, `PATCH /user/memory/fact/{fact_id}`, `DELETE /user/memory/fact/{fact_id}`
+- **Status**: Production
+
+### Database Connection Factory (Feb 19, 2026)
+- **Where**: `backend/services/db.py`
+- **How**: sqlcipher whole-DB encryption (when available) + sqlite-vec ANN extension. Graceful fallback to plain sqlite3.
 - **Status**: Production
 
 ### MCP (Model Context Protocol)

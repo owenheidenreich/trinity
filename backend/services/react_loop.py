@@ -390,6 +390,7 @@ class ReactLoop:
         temperature: float = 0.7,
         timeout: int = 300,
         complexity: int = 5,
+        messages: List[Dict] = None,
     ) -> Generator[Dict, None, None]:
         """
         Run the ReAct loop with streaming.
@@ -399,11 +400,18 @@ class ReactLoop:
             {"phase": "tool_result", "message": "Calculator: 112"}
             {"token": "..."} — during final answer streaming
             {"react_done": True, "tools_used": [...], "iterations": N}
+
+        If *messages* is provided (pre-assembled by PromptAssembler), it is
+        used directly, skipping the internal _build_messages() call.
         """
-        messages = self._build_messages(
-            question, context_messages, understanding, plan, user_memory, search_context,
-            complexity=complexity,
-        )
+        if messages is not None:
+            # Caller supplied pre-assembled messages (knowledge-enriched, budget-aware)
+            pass
+        else:
+            messages = self._build_messages(
+                question, context_messages, understanding, plan, user_memory, search_context,
+                complexity=complexity,
+            )
 
         tools_used = []
         reflexion_counts = {}  # Track retries per tool type

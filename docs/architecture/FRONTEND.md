@@ -1,6 +1,6 @@
 # Trinity — Frontend Architecture
 
-> Last updated: February 2026 · Covers React frontend v3.0.0 (`src-react/`)
+> Last updated: February 19, 2026 · Covers React frontend v3.0.0 (`src-react/`)
 
 ## Overview
 
@@ -28,7 +28,8 @@ App
     │   └── KeyExportModal              ← Shows private key for backup (shown once)
     │
     ├── Sidebar                         ← Chat list, connection status, identity controls
-    │   └── ChatItem (internal)         ← Per-chat row: load, pin, export, delete
+    │   ├── ChatItem (internal)         ← Per-chat row: load, pin, export, delete
+    │   └── MemoryPanel                 ← Raw JSON display of stored facts, fact count
     │
     ├── EmptyState                      ← Welcome screen (shown before first message)
     │
@@ -95,7 +96,8 @@ src-react/
 │   │   └── ToastProvider.tsx      # Global toast notification stack
 │   │
 │   └── sidebar/
-│       └── Sidebar.tsx         # Chat list, connection, identity controls
+│       ├── Sidebar.tsx         # Chat list, connection, identity controls
+│       └── MemoryPanel.tsx     # Collapsible memory facts display
 │
 ├── hooks/
 │   ├── useAuth.ts              # Ed25519 identity management
@@ -151,12 +153,13 @@ interface StoreState {
   // Auth state
   isAuthenticated: boolean;
   principal: string | null;                // ICP principal text
+  username: string | null;
   authenticatedSince: number | null;
 
   // Memory
   userMemory: UserMemory | null;           // Persistent facts + preferences
   contextMemory: ChatMessage[];            // Sliding window for LLM context
-  CONTEXT_WINDOW_SIZE: number;             // Max context messages (default: 20)
+  CONTEXT_WINDOW_SIZE: number;             // Max context messages (default: 50)
 
   // Autosave
   autosaveStatus: 'idle' | 'saving' | 'saved' | 'error';
@@ -190,7 +193,7 @@ interface StoreState {
 
 ### `useAuth` — Identity Management
 
-Manages the Ed25519 keypair lifecycle for self-custody authentication.
+Manages the Ed25519 keypair lifecycle for self-custody authentication using **deterministic identity derivation**.
 
 ```
 ┌─ useAuth ───────────────────────────────────────────────────────┐
@@ -198,6 +201,7 @@ Manages the Ed25519 keypair lifecycle for self-custody authentication.
 │  State:                                                          │
 │  ├── isAuthenticated: boolean                                    │
 │  ├── principal: string | null                                    │
+│  ├── username: string | null                                     │
 │  └── authenticatedSince: number | null                           │
 │                                                                  │
 │  Identity (useRef):                                              │
@@ -205,10 +209,10 @@ Manages the Ed25519 keypair lifecycle for self-custody authentication.
 │                                                                  │
 │  Actions:                                                        │
 │  ├── initialize()    → Restore from encrypted localStorage       │
-│  ├── login()         → Generate new Ed25519 keypair              │
+│  ├── register(user, pass) → Derive keypair + register on ICP    │
+│  ├── signIn(user, pass) → Derive keypair + verify on-chain      │
 │  ├── logout()        → Clear identity + localStorage             │
-│  ├── importKey(hex)  → Restore from private key hex              │
-│  ├── exportKey()     → Return private key hex                    │
+│  ├── exportKey()     → Return private key hex + principal        │
 │  ├── signMessage()   → Ed25519 sign arbitrary data               │
 │  └── buildAuthHeaders(endpoint) → 5-header auth set              │
 │                                                                  │
@@ -217,10 +221,12 @@ Manages the Ed25519 keypair lifecycle for self-custody authentication.
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-**Key storage:** The private key is encrypted using AES-256-GCM with a key derived from a browser fingerprint (origin + userAgent + platform + screen resolution → PBKDF2 → AES key). This means:
-- The encrypted key in localStorage is useless on a different browser/device
-- Users must export their raw private key hex to transfer identity
-- The key is shown once at creation and available via "Export Key" in the sidebar
+**Deterministic identity derivation:** No random keypairs. Same username + password always produces the same Ed25519 keypair:
+- `deriveIdentitySeed(password, username)` → Argon2id KDF → 32-byte seed
+- `Ed25519KeyIdentity.fromSecretKey(seed)` → deterministic keypair
+- Private key encrypted with `password + username` via AES-256-GCM → stored in localStorage
+- On sign-in: re-derive keypair, compare principal against on-chain registration
+- **Export/Import:** `exportKey()` returns private key hex + principal for backup/migration
 
 ### `useChat` — Message Streaming
 
@@ -340,48 +346,49 @@ This architecture prevents the entire message from re-rendering on every charact
 
 ## Authentication Flow
 
-### First-Time User
+### First-Time User (Registration)
 
 ```
-┌─ AuthModal ──────────────────────────────────────────────┐
+┌─ WelcomeModal ───────────────────────────────────────────┐
 │                                                           │
-│   "Generate New Identity"  or  "Import Existing Key"      │
-│           │                           │                   │
-│           ▼                           ▼                   │
-│   Ed25519KeyIdentity          Ed25519KeyIdentity          │
-│   .generate()                 .fromSecretKey(hex→bytes)   │
-│           │                           │                   │
-│           └───────────┬───────────────┘                   │
-│                       ▼                                   │
-│   derive browser fingerprint key (PBKDF2, 50k rounds)    │
-│                       │                                   │
-│                       ▼                                   │
-│   encrypt private key with AES-256-GCM                   │
-│                       │                                   │
-│                       ▼                                   │
-│   localStorage: trinity_identity_key (encrypted)          │
+│   User enters username + password                         │
+│           │                                               │
+│           ▼                                               │
+│   deriveIdentitySeed(password, username) → Argon2id       │
+│           │                                               │
+│           ▼                                               │
+│   Ed25519KeyIdentity.fromSecretKey(seed)                  │
+│           │                                               │
+│           ▼                                               │
+│   Register principal on ICP canister                      │
+│           │                                               │
+│           ▼                                               │
+│   Encrypt private key with AES-256-GCM (key=pass+user)   │
+│           │                                               │
+│           ▼                                               │
+│   localStorage: trinity_identity_key (encrypted, base64)  │
 │   localStorage: trinity_principal (plaintext)             │
-│                       │                                   │
-│                       ▼                                   │
-│   Show KeyExportModal (ONCE)                              │
-│   → Private key hex for user to save                      │
-│   → Principal ID                                          │
-│   → Warning: "This cannot be recovered"                   │
+│   localStorage: trinity_username (plaintext)              │
 │                                                           │
 └──────────────────────────────────────────────────────────┘
 ```
 
-### Returning User
+### Returning User (Sign-In)
+
+1. User enters username + password in WelcomeModal
+2. `deriveIdentitySeed(password, username)` → same deterministic seed
+3. Reconstruct Ed25519Identity from seed
+4. Lookup username on-chain → compare principals
+5. If match → encrypt key, store locally, set authenticated state
+6. If mismatch → error (wrong password)
+
+### Auto-Restore (Same Browser)
 
 On page load, `useAuth.initialize()` automatically:
 1. Reads encrypted key from localStorage
-2. Derives browser fingerprint key
-3. Decrypts private key
-4. Reconstructs Ed25519Identity
-5. Verifies principal matches stored value
-6. Sets authenticated state
-
-If decryption fails (different browser/device), the AuthModal shows again.
+2. If encrypted → requires password re-entry via PassphraseModal
+3. Decrypts and reconstructs Ed25519Identity
+4. Sets authenticated state
 
 ### Request Signing
 
@@ -555,10 +562,13 @@ Styling uses CSS Modules (`.module.css` files) for component-scoped styles, with
 ### ChatMessage
 ```typescript
 interface ChatMessage {
-  id: string;
+  id: number;                    // negative temp ID until persisted
+  chatId: string;
   role: 'user' | 'assistant';
   content: string;
-  timestamp: number;
+  createdAt: number;             // milliseconds
+  status: 'pending' | 'persisted';
+  timestamp?: number;            // legacy alias
 }
 ```
 
@@ -577,9 +587,12 @@ type AuthHeaders = Record<string, string> & {
 ### SSEEvent
 ```typescript
 interface SSEEvent {
+  type?: 'session';
+  chat_id?: string;
   token?: string;
   done?: boolean;
   done_reason?: 'stop' | 'length';
+  assistant_message_id?: number;
   phase?: string;
   message?: string;
   error?: string;
