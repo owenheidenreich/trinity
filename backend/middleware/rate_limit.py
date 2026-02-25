@@ -7,6 +7,7 @@ Phase 2.1: File-based persistence for rate limits (survives restarts).
 Phase 2.7: Rate limit response headers (X-RateLimit-*).
 """
 
+import hashlib
 import json
 import logging
 import time
@@ -227,7 +228,8 @@ def rate_limit(f):
         request_counts[ip] = [t for t in request_counts[ip] if now - t < window]
 
         if len(request_counts[ip]) >= limit:
-            logger.warning(f"⚠️ Rate limit exceeded for IP: {ip} (anonymous={is_anonymous})")
+            ip_short = hashlib.sha256(ip.encode()).hexdigest()[:8]
+            logger.warning(f"⚠️ Rate limit exceeded for {ip_short} (anonymous={is_anonymous})")
             return rate_limit_exceeded_response(ip, request_counts, limit, window)
 
         request_counts[ip].append(now)
@@ -254,7 +256,8 @@ def storage_rate_limit(f):
         ]
 
         if len(storage_request_counts[ip]) >= STORAGE_RATE_LIMIT:
-            logger.warning(f"⚠️ Storage rate limit exceeded for IP: {ip}")
+            ip_short = hashlib.sha256(ip.encode()).hexdigest()[:8]
+            logger.warning(f"⚠️ Storage rate limit exceeded for {ip_short}")
             return rate_limit_exceeded_response(
                 ip, storage_request_counts, STORAGE_RATE_LIMIT, STORAGE_RATE_WINDOW
             )

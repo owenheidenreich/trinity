@@ -307,9 +307,7 @@ def require_auth_or_anonymous(f):
         ip = request.remote_addr or "unknown"
         request.principal = get_anonymous_principal(ip)
         request.is_anonymous = True
-        logger.info(
-            f"👤 Anonymous request from IP {ip} → {request.principal}"
-        )
+        logger.info(f"👤 Anonymous request → {request.principal}")
 
         return f(*args, **kwargs)
 

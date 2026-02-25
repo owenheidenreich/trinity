@@ -168,7 +168,7 @@ except Exception as e:
 @app.before_request
 def log_request():
     """Log all incoming requests for debugging"""
-    logger.debug(f"{request.method} {request.path} from {request.remote_addr}")
+    logger.debug(f"{request.method} {request.path}")
 
 
 @app.before_request
@@ -192,7 +192,7 @@ def validate_origin():
     origin_base = f"{parsed.scheme}://{parsed.netloc}"
 
     if origin_base not in ALLOWED_ORIGINS:
-        logger.warning(f"🚨 Origin validation failed: {origin_base} from {request.remote_addr}")
+        logger.warning(f"🚨 Origin validation failed: {origin_base}")
         return jsonify({
             "error": {
                 "code": 403,
