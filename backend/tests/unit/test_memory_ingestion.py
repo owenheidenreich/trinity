@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 class TestMemoryIngestion:
     @patch("services.ingestion_worker.MEMORY_INGESTION_ENABLED", True)
     def test_enqueue_user_message(self):
-        from services.memory_ingestion import enqueue_ingestion
+        from services.ingestion_worker import enqueue_ingestion
 
         mock_store = MagicMock()
         mock_store.get_messages.return_value = []
@@ -23,13 +23,13 @@ class TestMemoryIngestion:
 
     @patch("services.ingestion_worker.MEMORY_INGESTION_ENABLED", True)
     def test_enqueue_rejects_empty(self):
-        from services.memory_ingestion import enqueue_ingestion
+        from services.ingestion_worker import enqueue_ingestion
 
         assert enqueue_ingestion("", "hello", source="user") is False
         assert enqueue_ingestion("principal-1", "", source="user") is False
 
     def test_process_job_uses_unified_extraction(self):
-        from services.memory_ingestion import _process_job
+        from services.ingestion_worker import _process_job
 
         mock_store = MagicMock()
         mock_store.get_message_by_id.return_value = {
@@ -53,7 +53,7 @@ class TestMemoryIngestion:
 
 class TestConversationSummaries:
     def test_summary_skipped_when_not_enough_new_messages(self):
-        from services.memory_ingestion import _maybe_update_conversation_summary
+        from services.ingestion_worker import _maybe_update_summary
 
         mock_store = MagicMock()
         mock_store.get_conversation_summary.return_value = {
@@ -67,13 +67,13 @@ class TestConversationSummaries:
 
         with patch("services.state_store.get_state_store", return_value=mock_store), \
              patch("services.ingestion_worker._summarize_incremental") as mock_summarize:
-            _maybe_update_conversation_summary("principal-1", "chat-1")
+            _maybe_update_summary("principal-1", "chat-1")
 
         mock_summarize.assert_not_called()
         mock_store.upsert_conversation_summary.assert_not_called()
 
     def test_summary_persists_incremental_updates(self):
-        from services.memory_ingestion import _maybe_update_conversation_summary
+        from services.ingestion_worker import _maybe_update_summary
 
         mock_store = MagicMock()
         mock_store.get_conversation_summary.return_value = {
@@ -92,6 +92,6 @@ class TestConversationSummaries:
 
         with patch("services.state_store.get_state_store", return_value=mock_store), \
              patch("services.ingestion_worker._summarize_incremental", return_value="Updated summary"):
-            _maybe_update_conversation_summary("principal-1", "chat-1")
+            _maybe_update_summary("principal-1", "chat-1")
 
         mock_store.upsert_conversation_summary.assert_called_once_with("chat-1", "Updated summary", 12)

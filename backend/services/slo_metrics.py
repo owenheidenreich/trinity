@@ -104,23 +104,11 @@ def get_slo_snapshot() -> Dict:
         len(writes_last_hour) / active_users if active_users > 0 else 0.0
     )
 
-    # Memory precision/recall come from deterministic policy eval (offline-safe).
-    memory_precision = 0.0
-    memory_recall = 0.0
-    try:
-        from services.memory_eval import evaluate_memory_policy
-
-        eval_result = evaluate_memory_policy()
-        memory_precision = float(eval_result.get("precision", 0.0))
-        memory_recall = float(eval_result.get("recall", 0.0))
-    except Exception:
-        pass
-
     return {
         "first_token_latency": first_token,
         "memory_precision_recall": {
-            "precision": round(memory_precision, 4),
-            "recall": round(memory_recall, 4),
+            "precision": 0.0,
+            "recall": 0.0,
         },
         "unsolicited_personal_reference_rate": round(unsolicited_rate, 6),
         "ipfs_writes_per_active_user_hour": round(writes_per_active_user_hour, 6),

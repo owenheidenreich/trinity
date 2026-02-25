@@ -122,7 +122,7 @@ class TestBlueprintImports:
     def test_all_blueprints_list(self):
         """routes.__init__ exports canonical ALL_BLUEPRINTS list."""
         from routes import ALL_BLUEPRINTS
-        assert len(ALL_BLUEPRINTS) == 8
+        assert len(ALL_BLUEPRINTS) == 10
 
 
 class TestRequestHooks:

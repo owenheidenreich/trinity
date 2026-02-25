@@ -7,7 +7,9 @@ Blueprints:
   - health_bp:      /health, /health/icp, /metrics, /stats
   - admin_bp:       /admin/*
   - generate_bp:    /generate/agent
-  - chat_bp:        /chat/*, /user/status, /user/memory*
+  - chat_bp:        /chat/*
+  - memory_bp:      /user/memory*
+  - user_bp:        /user/status, /user/stats, /user/export
   - tools_bp:       /tools/*
   - session_bp:     /session/*, /funding/*
   - mcp_bp:         /mcp
@@ -18,6 +20,8 @@ from .health import health_bp
 from .admin import admin_bp
 from .generate import generate_bp
 from .chat import chat_bp
+from .memory import memory_bp
+from .user import user_bp
 from .tools import tools_bp
 from .session import session_bp
 from .mcp import mcp_bp
@@ -28,6 +32,8 @@ ALL_BLUEPRINTS = [
     admin_bp,
     generate_bp,
     chat_bp,
+    memory_bp,
+    user_bp,
     tools_bp,
     session_bp,
     mcp_bp,
@@ -39,6 +45,8 @@ __all__ = [
     "admin_bp",
     "generate_bp",
     "chat_bp",
+    "memory_bp",
+    "user_bp",
     "tools_bp",
     "session_bp",
     "mcp_bp",

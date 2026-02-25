@@ -11,12 +11,10 @@
 
 | Document | Description |
 |----------|-------------|
-| [architecture/SYSTEM-OVERVIEW.md](architecture/SYSTEM-OVERVIEW.md) | **Full system overview** — tech stack, diagrams, request lifecycle, security model |
 | [architecture/FRONTEND.md](architecture/FRONTEND.md) | React component tree, hooks, state management, rendering pipeline |
 | [architecture/BACKEND.md](architecture/BACKEND.md) | Flask server, 54 API endpoints, middleware, configuration |
-| [architecture/MEMORY-SYSTEM.md](architecture/MEMORY-SYSTEM.md) | Four-tier memory: working, semantic, knowledge store, and user profile |
-| [architecture/STORAGE-AND-ENCRYPTION.md](architecture/STORAGE-AND-ENCRYPTION.md) | Encryption, IPFS, autosave, IndexedDB, recovery |
-| [architecture/INTELLIGENCE-AND-ROUTING.md](architecture/INTELLIGENCE-AND-ROUTING.md) | Agent pipeline, ReAct loop, 15 tools, decision-making |
+| [architecture/CHAT-SYSTEM.md](architecture/CHAT-SYSTEM.md) | Chat lifecycle, message storage, memory integration, archiving |
+| [architecture/STORAGE-AND-ENCRYPTION.md](architecture/STORAGE-AND-ENCRYPTION.md) | Encryption, IPFS, autosave, recovery |
 
 ### For Developers
 
@@ -27,7 +25,6 @@
 | [backend/API.md](backend/API.md) | Backend API documentation |
 | [backend/SERVICES.md](backend/SERVICES.md) | Backend service modules reference |
 | [frontend/MODULES.md](frontend/MODULES.md) | Frontend module documentation |
-| [handoffs/2026-02-16-security-and-ui-corrections.md](handoffs/2026-02-16-security-and-ui-corrections.md) | Security hardening + UI chat persistence fixes + validation results |
 
 ### For DevOps
 
@@ -51,6 +48,7 @@
 | [ai-context/CODEBASE-MAP.md](ai-context/CODEBASE-MAP.md) | File-level map with all routes and constants |
 | [ai-context/FEATURE-CATALOG.md](ai-context/FEATURE-CATALOG.md) | Feature inventory with code locations |
 | [ai-context/CONVENTIONS.md](ai-context/CONVENTIONS.md) | Machine-readable do/don't rules for AI coding sessions |
+| [ai-context/MICROGPT.md](ai-context/MICROGPT.md) | Neural classifiers, tool detection, training pipeline |
 
 ---
 
@@ -62,7 +60,7 @@ Trinity/
 │   ├── inference_server.py          # App factory + blueprint registration
 │   ├── routes/                      # 9 blueprints (54 endpoints)
 │   ├── middleware/                   # Observability, rate limiting, caching
-│   ├── services/                    # 42 service modules (pipeline, agent, memory, tools, etc.)
+│   ├── services/                    # 45 service modules (pipeline, agent, memory, tools, etc.)
 │   └── tests/                       # Unit, integration, and E2E tests
 │
 ├── trinity-icp/                     # Frontend (ICP canister)
@@ -70,8 +68,8 @@ Trinity/
 │   └── src/                         # Legacy vanilla JS (v2.8.0, still buildable)
 │
 ├── deploy/                          # Deployment configurations
-│   ├── docker/                      # Dockerfile (CUDA + Ollama)
-│   ├── akash/                       # SDL files for 3 tiers + specialty models
+│   ├── docker/                      # Dockerfile (CUDA + llama-server)
+│   ├── akash/                       # SDL files for 3 tiers (test/production/tier3)
 │   ├── cloudflare-worker/           # SSL termination proxy
 │   └── docker-compose.monitoring.yml
 │
@@ -96,21 +94,11 @@ Trinity/
 
 | ADR | Status | Summary |
 |-----|--------|---------|
-| [Rationale: Test Coverage](architecture/RATIONALE-TEST-COVERAGE.md) | Active | Risk-based coverage targets (P0: 90%, P1: 70%) |
-| [Rationale: Prometheus](architecture/RATIONALE-PROMETHEUS.md) | Active | Self-hosted monitoring ($500+/mo savings) |
-| [Rationale: Caching](architecture/RATIONALE-CACHING.md) | Active | LRU caches vs Redis for single-node deployment |
+| [Tiered Test Coverage](architecture/decisions/002-tiered-test-coverage.md) | Active | Risk-based coverage targets (P0: 90%, P1: 70%) |
+| [Prometheus over SaaS](architecture/decisions/003-prometheus-over-saas.md) | Active | Self-hosted monitoring ($500+/mo savings) |
 
 ---
 
 ## Archive
 
-Completed plans and historical documents:
-
-| Document | Description |
-|----------|-------------|
-| [archive/INTELLIGENCE-OVERHAUL.md](archive/TEAM-A-ANALYSIS.md) | Backend overhaul research (completed Feb 2026) |
-| [archive/FRONTEND-OVERHAUL.md](archive/TEAM-B-ANALYSIS.md) | Frontend overhaul research (completed Feb 2026) |
-| [plans/TRINITY-MONETIZATION-PLAN.md](plans/TRINITY-MONETIZATION-PLAN.md) | Product/monetization strategy |
-| [archive/TRINITY-B2B-PIVOT.md](archive/TRINITY-B2B-PIVOT.md) | Superseded B2B pivot strategy |
-| [archive/TEAM-A-ANALYSIS.md](archive/TEAM-A-ANALYSIS.md) | Intelligence upgrade research (Team A) |
-| [archive/TEAM-B-ANALYSIS.md](archive/TEAM-B-ANALYSIS.md) | Intelligence upgrade research (Team B) |
+Completed plans and historical documents: [archive/](archive/)

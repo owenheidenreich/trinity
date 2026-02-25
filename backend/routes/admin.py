@@ -132,7 +132,7 @@ def rollback_storage_manifest(principal_id):
 def get_slo_status():
     """Get current SLO snapshot + ingestion queue state."""
     try:
-        from services.memory_ingestion import get_ingestion_stats
+        from services.ingestion_worker import get_ingestion_stats
         from services.slo_metrics import get_slo_snapshot
 
         return jsonify({
