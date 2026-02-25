@@ -19,8 +19,10 @@ from flask import g, jsonify, request
 logger = logging.getLogger(__name__)
 
 # Rate limiting configuration
-RATE_LIMIT = 30  # requests per window (generous for legitimate users)
+RATE_LIMIT = 30  # requests per window for authenticated users
 RATE_WINDOW = 60  # seconds
+ANONYMOUS_RATE_LIMIT = 15  # requests per window for anonymous users (tighter)
+ANONYMOUS_RATE_WINDOW = 60  # seconds
 
 # Storage endpoint limits (must accommodate memory panel + autosave + CRUD)
 STORAGE_RATE_LIMIT = 30  # requests per window
@@ -203,7 +205,9 @@ def rate_limit_exceeded_response(ip, counts, limit, window):
 
 
 def rate_limit(f):
-    """Rate limit decorator - limits requests per IP address."""
+    """Rate limit decorator - limits requests per IP address.
+    Uses tighter limits for anonymous (unauthenticated) users.
+    """
 
     @wraps(f)
     def decorated(*args, **kwargs):
@@ -214,12 +218,17 @@ def rate_limit(f):
         ip = request.remote_addr or "unknown"
         now = time.time()
 
-        # Clean old requests
-        request_counts[ip] = [t for t in request_counts[ip] if now - t < RATE_WINDOW]
+        # Use tighter limits for anonymous users
+        is_anonymous = getattr(request, "is_anonymous", False)
+        limit = ANONYMOUS_RATE_LIMIT if is_anonymous else RATE_LIMIT
+        window = ANONYMOUS_RATE_WINDOW if is_anonymous else RATE_WINDOW
 
-        if len(request_counts[ip]) >= RATE_LIMIT:
-            logger.warning(f"⚠️ Rate limit exceeded for IP: {ip}")
-            return rate_limit_exceeded_response(ip, request_counts, RATE_LIMIT, RATE_WINDOW)
+        # Clean old requests
+        request_counts[ip] = [t for t in request_counts[ip] if now - t < window]
+
+        if len(request_counts[ip]) >= limit:
+            logger.warning(f"⚠️ Rate limit exceeded for IP: {ip} (anonymous={is_anonymous})")
+            return rate_limit_exceeded_response(ip, request_counts, limit, window)
 
         request_counts[ip].append(now)
         _maybe_persist()

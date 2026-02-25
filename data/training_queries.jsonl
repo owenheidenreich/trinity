@@ -1,0 +1,978 @@
+{"text": "SURE", "label": "lightweight", "regex_label": "general"}
+{"text": "I work in fintech", "label": "disclosure", "regex_label": "general"}
+{"text": "tell me about the history of the internnet", "label": "general", "regex_label": "general"}
+{"text": "hey there thanks", "label": "smalltalk", "regex_label": "general"}
+{"text": "how does encryption work!!", "label": "general", "regex_label": "general"}
+{"text": "I love cooking?", "label": "disclosure", "regex_label": "general"}
+{"text": "show me the code for binary search", "label": "code", "regex_label": "general"}
+{"text": "would you please my name is Sarah", "label": "disclosure", "regex_label": "general"}
+{"text": "hello there for me", "label": "smalltalk", "regex_label": "general"}
+{"text": "what up for me", "label": "smalltalk", "regex_label": "general"}
+{"text": "my company is Trinity called", "label": "disclosure", "regex_label": "general"}
+{"text": "hi...", "label": "smalltalk", "regex_label": "general"}
+{"text": "write html for a loginform", "label": "code", "regex_label": "general"}
+{"text": "Howdy", "label": "smalltalk", "regex_label": "general"}
+{"text": "maaybe", "label": "lightweight", "regex_label": "general"}
+{"text": "how would you implement pagination!!", "label": "code", "regex_label": "general"}
+{"text": "hello...", "label": "smalltalk", "regex_label": "general"}
+{"text": "write html for a login form?", "label": "code", "regex_label": "general"}
+{"text": "i need a function that calculates fibonacci numbers", "label": "code", "regex_label": "general"}
+{"text": "my hobby is photograhy", "label": "disclosure", "regex_label": "general"}
+{"text": "I prefer concise responses", "label": "disclosure", "regex_label": "general"}
+{"text": "gret", "label": "lightweight", "regex_label": "general"}
+{"text": "what is my company?", "label": "memory_recall", "regex_label": "general"}
+{"text": "like generate a bash script to backup files", "label": "code", "regex_label": "general"}
+{"text": "wassup?", "label": "smalltalk", "regex_label": "general"}
+{"text": "wow.", "label": "lightweight", "regex_label": "general"}
+{"text": "MY ROLE IS CTO", "label": "disclosure", "regex_label": "general"}
+{"text": "my hoby is photography", "label": "disclosure", "regex_label": "general"}
+{"text": "Perfect", "label": "lightweight", "regex_label": "general"}
+{"text": "hi there?", "label": "smalltalk", "regex_label": "general"}
+{"text": "my name is kevin", "label": "disclosure", "regex_label": "general"}
+{"text": "what are the pros and cons of microservices", "label": "general", "regex_label": "general"}
+{"text": "perfect when you get a chance", "label": "lightweight", "regex_label": "general"}
+{"text": "help me create a REST API endpoint", "label": "code", "regex_label": "general"}
+{"text": "Build a typescript interface for user auth", "label": "code", "regex_label": "general"}
+{"text": "Show Me The Code For Binary Search", "label": "code", "regex_label": "general"}
+{"text": "give me a code example for async await?", "label": "code", "regex_label": "general"}
+{"text": "what is blockchain??", "label": "general", "regex_label": "general"}
+{"text": "can yo explain gradient descent", "label": "general", "regex_label": "general"}
+{"text": "USE A CONCISE TONE", "label": "preference", "regex_label": "general"}
+{"text": "my name s actually different from what I told you before", "label": "disclosure", "regex_label": "general"}
+{"text": "Write Me A Rust Implementation Of A Linked List", "label": "code", "regex_label": "general"}
+{"text": "aternoon", "label": "smalltalk", "regex_label": "general"}
+{"text": "my name isSarah", "label": "disclosure", "regex_label": "general"}
+{"text": "what do you remember about me if you can", "label": "memory_recall", "regex_label": "general"}
+{"text": "pece", "label": "smalltalk", "regex_label": "general"}
+{"text": "write me a rust implementation of a linked list?", "label": "code", "regex_label": "general"}
+{"text": "my goal is to build a startp", "label": "disclosure", "regex_label": "general"}
+{"text": "whaat up", "label": "smalltalk", "regex_label": "general"}
+{"text": "like nice", "label": "lightweight", "regex_label": "general"}
+{"text": "write a python fuction to sort a list", "label": "code", "regex_label": "general"}
+{"text": "Morning", "label": "smalltalk", "regex_label": "general"}
+{"text": "my name is actually different from what I told you before quickly", "label": "disclosure", "regex_label": "general"}
+{"text": "DO YOU RECALL WHAT WE DISCUSSED YESTERDAY", "label": "memory_recall", "regex_label": "general"}
+{"text": "hello there", "label": "smalltalk", "regex_label": "general"}
+{"text": "what are design patterns in softwarre engineering", "label": "general", "regex_label": "general"}
+{"text": "explain quantum computing", "label": "general", "regex_label": "general"}
+{"text": "what is halting the problem", "label": "general", "regex_label": "general"}
+{"text": "well thanks", "label": "smalltalk", "regex_label": "general"}
+{"text": "Hi", "label": "smalltalk", "regex_label": "general"}
+{"text": "so build a typescript interface for user auth", "label": "code", "regex_label": "general"}
+{"text": "I like hiking.", "label": "disclosure", "regex_label": "general"}
+{"text": "good afternoon", "label": "smalltalk", "regex_label": "general"}
+{"text": "what did i tell you about my project", "label": "memory_recall", "regex_label": "general"}
+{"text": "give me a code example for async await...", "label": "code", "regex_label": "general"}
+{"text": "gday", "label": "smalltalk", "regex_label": "general"}
+{"text": "I workat Google", "label": "disclosure", "regex_label": "general"}
+{"text": "WHAT IS A NEURAL NETWORK", "label": "general", "regex_label": "general"}
+{"text": "tell me about the history of the internet right now", "label": "general", "regex_label": "general"}
+{"text": "Write Html For A Login Form", "label": "code", "regex_label": "general"}
+{"text": "why is the sky blue please", "label": "general", "regex_label": "general"}
+{"text": "cool", "label": "lightweight", "regex_label": "general"}
+{"text": "hiya?", "label": "smalltalk", "regex_label": "general"}
+{"text": "my project is about ai", "label": "disclosure", "regex_label": "general"}
+{"text": "RIGHT", "label": "lightweight", "regex_label": "general"}
+{"text": "CHEERS", "label": "smalltalk", "regex_label": "general"}
+{"text": "good afternoon!!", "label": "smalltalk", "regex_label": "general"}
+{"text": "I live in New York", "label": "disclosure", "regex_label": "general"}
+{"text": "interesting", "label": "lightweight", "regex_label": "general"}
+{"text": "good affternoon", "label": "smalltalk", "regex_label": "general"}
+{"text": "us a concise tone", "label": "preference", "regex_label": "general"}
+{"text": "howdy quickly", "label": "smalltalk", "regex_label": "general"}
+{"text": "what's crackin quickly", "label": "smalltalk", "regex_label": "general"}
+{"text": "use a concise tone please", "label": "preference", "regex_label": "general"}
+{"text": "how's it going?", "label": "smalltalk", "regex_label": "general"}
+{"text": "hey how are you", "label": "smalltalk", "regex_label": "general"}
+{"text": "thanks?", "label": "smalltalk", "regex_label": "general"}
+{"text": "I prefer responses concise", "label": "disclosure", "regex_label": "general"}
+{"text": "um explain CAP theorem", "label": "general", "regex_label": "general"}
+{"text": "can you hey hey", "label": "smalltalk", "regex_label": "general"}
+{"text": "help me create a REST API endpoint?", "label": "code", "regex_label": "general"}
+{"text": "ok so be more verbose", "label": "preference", "regex_label": "general"}
+{"text": "changeyour wording", "label": "preference", "regex_label": "general"}
+{"text": "explain the theory of relativity??", "label": "general", "regex_label": "general"}
+{"text": "I need a function that fibonacci calculates numbers", "label": "code", "regex_label": "general"}
+{"text": "MY NAME IS KEVIN", "label": "disclosure", "regex_label": "general"}
+{"text": "what do you knowabout me", "label": "memory_recall", "regex_label": "general"}
+{"text": "evening", "label": "smalltalk", "regex_label": "general"}
+{"text": "is what a neural network", "label": "general", "regex_label": "general"}
+{"text": "who am i.", "label": "memory_recall", "regex_label": "general"}
+{"text": "help me create a rest api endpoint", "label": "code", "regex_label": "general"}
+{"text": "do you remember where I work", "label": "memory_recall", "regex_label": "general"}
+{"text": "I  prefer concise responses", "label": "disclosure", "regex_label": "general"}
+{"text": "Tell Me About The Renaissance", "label": "general", "regex_label": "general"}
+{"text": "a generate css grid layout", "label": "code", "regex_label": "general"}
+{"text": "would you please I need a function that calculates fibonacci numbers", "label": "code", "regex_label": "general"}
+{"text": "my team uses react", "label": "disclosure", "regex_label": "general"}
+{"text": "good morning", "label": "smalltalk", "regex_label": "general"}
+{"text": "explainmachine learning", "label": "general", "regex_label": "general"}
+{"text": "use green fr code", "label": "preference", "regex_label": "general"}
+{"text": "afteroon", "label": "smalltalk", "regex_label": "general"}
+{"text": "hey hey", "label": "smalltalk", "regex_label": "general"}
+{"text": "tell me abot me", "label": "memory_recall", "regex_label": "general"}
+{"text": "I AM A TEACHER", "label": "disclosure", "regex_label": "general"}
+{"text": "good morning thanks", "label": "smalltalk", "regex_label": "general"}
+{"text": "HI THERE", "label": "smalltalk", "regex_label": "general"}
+{"text": "wow!!", "label": "lightweight", "regex_label": "general"}
+{"text": "what do you know about me?", "label": "memory_recall", "regex_label": "general"}
+{"text": "what did i tell you about my project for me", "label": "memory_recall", "regex_label": "general"}
+{"text": "I'd like you to use a concise tone", "label": "preference", "regex_label": "general"}
+{"text": "describe the water cycle thanks", "label": "general", "regex_label": "general"}
+{"text": "long time no see?", "label": "smalltalk", "regex_label": "general"}
+{"text": "I'd like you to good evening", "label": "smalltalk", "regex_label": "general"}
+{"text": "Cheers", "label": "smalltalk", "regex_label": "general"}
+{"text": "yes right now", "label": "lightweight", "regex_label": "general"}
+{"text": "hey can you my name is Kevin", "label": "disclosure", "regex_label": "general"}
+{"text": "like got it", "label": "lightweight", "regex_label": "general"}
+{"text": "what is the difference between TCP and UDP", "label": "general", "regex_label": "general"}
+{"text": "describe how a compiler works.", "label": "general", "regex_label": "general"}
+{"text": "My name is actually different from what i told you before", "label": "disclosure", "regex_label": "general"}
+{"text": "I Live In New York", "label": "disclosure", "regex_label": "general"}
+{"text": "be more verbose", "label": "preference", "regex_label": "general"}
+{"text": "how would youimplement pagination", "label": "code", "regex_label": "general"}
+{"text": "so implement a queue in go", "label": "code", "regex_label": "general"}
+{"text": "what's my name thanks", "label": "memory_recall", "regex_label": "general"}
+{"text": "do you remember my name thanks", "label": "memory_recall", "regex_label": "general"}
+{"text": "No", "label": "lightweight", "regex_label": "general"}
+{"text": "do you recall what we discussed yesterday.", "label": "memory_recall", "regex_label": "general"}
+{"text": "like I hiking", "label": "disclosure", "regex_label": "general"}
+{"text": "i work at google", "label": "disclosure", "regex_label": "general"}
+{"text": "Long time no see", "label": "smalltalk", "regex_label": "general"}
+{"text": "like tell me about me", "label": "memory_recall", "regex_label": "general"}
+{"text": "ok when you get a chance", "label": "lightweight", "regex_label": "general"}
+{"text": "Yo", "label": "smalltalk", "regex_label": "general"}
+{"text": "I work at Google??", "label": "disclosure", "regex_label": "general"}
+{"text": "my rle is CTO", "label": "disclosure", "regex_label": "general"}
+{"text": "What Are The Pros And Cons Of Microservices", "label": "general", "regex_label": "general"}
+{"text": "change yur wording", "label": "preference", "regex_label": "general"}
+{"text": "How goes it", "label": "smalltalk", "regex_label": "general"}
+{"text": "HOWDY", "label": "smalltalk", "regex_label": "general"}
+{"text": "yo what's good", "label": "smalltalk", "regex_label": "general"}
+{"text": "ahoy", "label": "smalltalk", "regex_label": "general"}
+{"text": "thx quickly", "label": "smalltalk", "regex_label": "general"}
+{"text": "use a tone concise", "label": "preference", "regex_label": "general"}
+{"text": "the what's word", "label": "smalltalk", "regex_label": "general"}
+{"text": "g'day", "label": "smalltalk", "regex_label": "general"}
+{"text": "help me I enjoy reading", "label": "disclosure", "regex_label": "general"}
+{"text": "I preferdark mode in everything", "label": "disclosure", "regex_label": "general"}
+{"text": "what are design patterns in software engineering?", "label": "general", "regex_label": "general"}
+{"text": "MY NAME IS ACTUALLY DIFFERENT FROM WHAT I TOLD YOU BEFORE", "label": "disclosure", "regex_label": "general"}
+{"text": "understood", "label": "lightweight", "regex_label": "general"}
+{"text": "IMPLEMENT A QUEUE IN GO", "label": "code", "regex_label": "general"}
+{"text": "I'd like you to I prefer concise responses", "label": "disclosure", "regex_label": "general"}
+{"text": "Heya", "label": "smalltalk", "regex_label": "general"}
+{"text": "i study computer science", "label": "disclosure", "regex_label": "general"}
+{"text": "yo", "label": "smalltalk", "regex_label": "general"}
+{"text": "please reply with more detail", "label": "preference", "regex_label": "general"}
+{"text": "I work in fintech?", "label": "disclosure", "regex_label": "general"}
+{"text": "HOW DOES PHOTOSYNTHESIS WORK", "label": "general", "regex_label": "general"}
+{"text": "my hobby is photoggraphy", "label": "disclosure", "regex_label": "general"}
+{"text": "what's my role", "label": "memory_recall", "regex_label": "general"}
+{"text": "g'ay", "label": "smalltalk", "regex_label": "general"}
+{"text": "my name is Kevin", "label": "disclosure", "regex_label": "general"}
+{"text": "my name is Kevin!!", "label": "disclosure", "regex_label": "general"}
+{"text": "I need a function that calculates fibonacci numbers?", "label": "code", "regex_label": "general"}
+{"text": "yo thanks", "label": "smalltalk", "regex_label": "general"}
+{"text": "build a typescriipt interface for user auth", "label": "code", "regex_label": "general"}
+{"text": "what my is job", "label": "memory_recall", "regex_label": "general"}
+{"text": "what i my job", "label": "memory_recall", "regex_label": "general"}
+{"text": "my project is about AI?", "label": "disclosure", "regex_label": "general"}
+{"text": "eening", "label": "smalltalk", "regex_label": "general"}
+{"text": "create a sql query to find duplicate records!!", "label": "code", "regex_label": "general"}
+{"text": "my favorite color is blue", "label": "disclosure", "regex_label": "general"}
+{"text": "Why Is The Sky Blue", "label": "general", "regex_label": "general"}
+{"text": "I Study Computer Science", "label": "disclosure", "regex_label": "general"}
+{"text": "a I'm software engineer", "label": "disclosure", "regex_label": "general"}
+{"text": "well describe how a compiler works", "label": "general", "regex_label": "general"}
+{"text": "what are design patterns iin software engineering", "label": "general", "regex_label": "general"}
+{"text": "hey there when you get a chance", "label": "smalltalk", "regex_label": "general"}
+{"text": "evning", "label": "smalltalk", "regex_label": "general"}
+{"text": "hey format your replies differently", "label": "preference", "regex_label": "general"}
+{"text": "HIYA", "label": "smalltalk", "regex_label": "general"}
+{"text": "what's new if you can", "label": "smalltalk", "regex_label": "general"}
+{"text": "My Project Is About Ai", "label": "disclosure", "regex_label": "general"}
+{"text": "how does enryption work", "label": "general", "regex_label": "general"}
+{"text": "Hiya", "label": "smalltalk", "regex_label": "general"}
+{"text": "I study computer science for me", "label": "disclosure", "regex_label": "general"}
+{"text": "I enjoy reading", "label": "disclosure", "regex_label": "general"}
+{"text": "Hola", "label": "smalltalk", "regex_label": "general"}
+{"text": "Thank You", "label": "smalltalk", "regex_label": "general"}
+{"text": "WHAT'S MY ROLE", "label": "memory_recall", "regex_label": "general"}
+{"text": "would you please use green for code", "label": "preference", "regex_label": "general"}
+{"text": "make a python class for database connections right now", "label": "code", "regex_label": "general"}
+{"text": "how goes it thanks", "label": "smalltalk", "regex_label": "general"}
+{"text": "like explain CAP theorem", "label": "general", "regex_label": "general"}
+{"text": "REPLY WITH MORE DETAIL", "label": "preference", "regex_label": "general"}
+{"text": "sup?", "label": "smalltalk", "regex_label": "general"}
+{"text": "Give Me A Code Example For Async Await", "label": "code", "regex_label": "general"}
+{"text": "reply with more detail?", "label": "preference", "regex_label": "general"}
+{"text": "generate a  bash script to backup files", "label": "code", "regex_label": "general"}
+{"text": "me tell about the history of the internet", "label": "general", "regex_label": "general"}
+{"text": "change your wording", "label": "preference", "regex_label": "general"}
+{"text": "enjoy I reading", "label": "disclosure", "regex_label": "general"}
+{"text": "GOOD AFTERNOON", "label": "smalltalk", "regex_label": "general"}
+{"text": "I am a teacher when you get a chance", "label": "disclosure", "regex_label": "general"}
+{"text": "create a javascript function that validates emails for me", "label": "code", "regex_label": "general"}
+{"text": "wheree do i live", "label": "memory_recall", "regex_label": "general"}
+{"text": "CAN YOU EXPLAIN GRADIENT DESCENT", "label": "general", "regex_label": "general"}
+{"text": "could you good evening", "label": "smalltalk", "regex_label": "general"}
+{"text": "Hey", "label": "smalltalk", "regex_label": "general"}
+{"text": "do remember you where I work", "label": "memory_recall", "regex_label": "general"}
+{"text": "AHOY", "label": "smalltalk", "regex_label": "general"}
+{"text": "can you make something that parses json", "label": "code", "regex_label": "general"}
+{"text": "format your replies dfferently", "label": "preference", "regex_label": "general"}
+{"text": "how doees encryption work", "label": "general", "regex_label": "general"}
+{"text": "so my team uses React", "label": "disclosure", "regex_label": "general"}
+{"text": "great", "label": "lightweight", "regex_label": "general"}
+{"text": "can you make something that parses JSON??", "label": "code", "regex_label": "general"}
+{"text": "I am a teachher", "label": "disclosure", "regex_label": "general"}
+{"text": "hey my project is about AI", "label": "disclosure", "regex_label": "general"}
+{"text": "Hello there", "label": "smalltalk", "regex_label": "general"}
+{"text": "what is the difference between TCP and UDP!", "label": "general", "regex_label": "general"}
+{"text": "explain machine learning", "label": "general", "regex_label": "general"}
+{"text": "hey hey.", "label": "smalltalk", "regex_label": "general"}
+{"text": "so how do vaccines work", "label": "general", "regex_label": "general"}
+{"text": "explain computing quantum", "label": "general", "regex_label": "general"}
+{"text": "yo!", "label": "smalltalk", "regex_label": "general"}
+{"text": "How Are You", "label": "smalltalk", "regex_label": "general"}
+{"text": "make a python class for daabase connections", "label": "code", "regex_label": "general"}
+{"text": "cool?", "label": "lightweight", "regex_label": "general"}
+{"text": "can you make something that parses JSON.", "label": "code", "regex_label": "general"}
+{"text": "my favorite is color blue", "label": "disclosure", "regex_label": "general"}
+{"text": "sup right now", "label": "smalltalk", "regex_label": "general"}
+{"text": "long time no see", "label": "smalltalk", "regex_label": "general"}
+{"text": "use a friendly style", "label": "preference", "regex_label": "general"}
+{"text": "What Up", "label": "smalltalk", "regex_label": "general"}
+{"text": "I love cooking!", "label": "disclosure", "regex_label": "general"}
+{"text": "like my goal is to build a startup", "label": "disclosure", "regex_label": "general"}
+{"text": "what is the capital of France?", "label": "general", "regex_label": "general"}
+{"text": "Explain Machine Learning", "label": "general", "regex_label": "general"}
+{"text": "my role is CTO", "label": "disclosure", "regex_label": "general"}
+{"text": "I'm a software engineer...", "label": "disclosure", "regex_label": "general"}
+{"text": "Make a python class for database connections", "label": "code", "regex_label": "general"}
+{"text": "could you morning", "label": "smalltalk", "regex_label": "general"}
+{"text": "well I'm building a decentralized AI app", "label": "disclosure", "regex_label": "general"}
+{"text": "implement a queue in ggo", "label": "code", "regex_label": "general"}
+{"text": "heya", "label": "smalltalk", "regex_label": "general"}
+{"text": "Salutations", "label": "smalltalk", "regex_label": "general"}
+{"text": "I live in new york", "label": "disclosure", "regex_label": "general"}
+{"text": "change your wording right now", "label": "preference", "regex_label": "general"}
+{"text": "a use friendly style", "label": "preference", "regex_label": "general"}
+{"text": "peerfect", "label": "lightweight", "regex_label": "general"}
+{"text": "I ike hiking", "label": "disclosure", "regex_label": "general"}
+{"text": "buiild a typescript interface for user auth", "label": "code", "regex_label": "general"}
+{"text": "good afternoon?", "label": "smalltalk", "regex_label": "general"}
+{"text": "create a sql query to find duplicate records", "label": "code", "regex_label": "general"}
+{"text": "what's crackin.", "label": "smalltalk", "regex_label": "general"}
+{"text": "What is the capital of france", "label": "general", "regex_label": "general"}
+{"text": "what is the halting problem right now", "label": "general", "regex_label": "general"}
+{"text": "righht", "label": "lightweight", "regex_label": "general"}
+{"text": "how's it going", "label": "smalltalk", "regex_label": "general"}
+{"text": "i like hiking", "label": "disclosure", "regex_label": "general"}
+{"text": "do you remember my name?", "label": "memory_recall", "regex_label": "general"}
+{"text": "chane your wording", "label": "preference", "regex_label": "general"}
+{"text": "hey  hey", "label": "smalltalk", "regex_label": "general"}
+{"text": "do you remember where I work??", "label": "memory_recall", "regex_label": "general"}
+{"text": "my role is cto", "label": "disclosure", "regex_label": "general"}
+{"text": "create a sql query to find duplicate records?", "label": "code", "regex_label": "general"}
+{"text": "what did i tell you about my project?", "label": "memory_recall", "regex_label": "general"}
+{"text": "thx.", "label": "smalltalk", "regex_label": "general"}
+{"text": "my prooject is about AI", "label": "disclosure", "regex_label": "general"}
+{"text": "why is the sky blue", "label": "general", "regex_label": "general"}
+{"text": "how does encryption work?", "label": "general", "regex_label": "general"}
+{"text": "do youu remember my name", "label": "memory_recall", "regex_label": "general"}
+{"text": "respond in bullet ppoints", "label": "preference", "regex_label": "general"}
+{"text": "thx", "label": "smalltalk", "regex_label": "general"}
+{"text": "describe thewater cycle", "label": "general", "regex_label": "general"}
+{"text": "what's the word!!", "label": "smalltalk", "regex_label": "general"}
+{"text": "tell me about the history of the internet", "label": "general", "regex_label": "general"}
+{"text": "I need you to what's crackin", "label": "smalltalk", "regex_label": "general"}
+{"text": "tell me about the Renaissance!!", "label": "general", "regex_label": "general"}
+{"text": "well use a friendly style", "label": "preference", "regex_label": "general"}
+{"text": "what is the difference between TCP and UDP when you get a chance", "label": "general", "regex_label": "general"}
+{"text": "I cooking love", "label": "disclosure", "regex_label": "general"}
+{"text": "Do You Recall What We Discussed Yesterday", "label": "memory_recall", "regex_label": "general"}
+{"text": "explain CAP theoorem", "label": "general", "regex_label": "general"}
+{"text": "inteeresting", "label": "lightweight", "regex_label": "general"}
+{"text": "Greetings", "label": "smalltalk", "regex_label": "general"}
+{"text": "my prroject is about AI", "label": "disclosure", "regex_label": "general"}
+{"text": "Use A Friendly Style", "label": "preference", "regex_label": "general"}
+{"text": "how are you doing", "label": "smalltalk", "regex_label": "general"}
+{"text": "what is a neural network?", "label": "general", "regex_label": "general"}
+{"text": "show me the code for binary search for me", "label": "code", "regex_label": "general"}
+{"text": "I am 30 years old?", "label": "disclosure", "regex_label": "general"}
+{"text": "I need you to what do you know about me", "label": "memory_recall", "regex_label": "general"}
+{"text": "g'day?", "label": "smalltalk", "regex_label": "general"}
+{"text": "implement a queue in go?", "label": "code", "regex_label": "general"}
+{"text": "what's the word", "label": "smalltalk", "regex_label": "general"}
+{"text": "HEYA", "label": "smalltalk", "regex_label": "general"}
+{"text": "pace", "label": "smalltalk", "regex_label": "general"}
+{"text": "my name is actually different from what I told you before!!", "label": "disclosure", "regex_label": "general"}
+{"text": "FORMAT YOUR REPLIES DIFFERENTLY", "label": "preference", "regex_label": "general"}
+{"text": "what do you know about me", "label": "memory_recall", "regex_label": "general"}
+{"text": "salutations", "label": "smalltalk", "regex_label": "general"}
+{"text": "hey there please", "label": "smalltalk", "regex_label": "general"}
+{"text": "can you I love cooking", "label": "disclosure", "regex_label": "general"}
+{"text": "I'd like you to explain quantum computing", "label": "general", "regex_label": "general"}
+{"text": "how are you doing?", "label": "smalltalk", "regex_label": "general"}
+{"text": "please what's happening", "label": "smalltalk", "regex_label": "general"}
+{"text": "Wow", "label": "lightweight", "regex_label": "general"}
+{"text": "um change your wording", "label": "preference", "regex_label": "general"}
+{"text": "use a friiendly style", "label": "preference", "regex_label": "general"}
+{"text": "would you please my favorite color is blue", "label": "disclosure", "regex_label": "general"}
+{"text": "Create A Javascript Function That Validates Emails", "label": "code", "regex_label": "general"}
+{"text": "respond in bullet pints", "label": "preference", "regex_label": "general"}
+{"text": "LONG TIME NO SEE", "label": "smalltalk", "regex_label": "general"}
+{"text": "I prefer concise responses!", "label": "disclosure", "regex_label": "general"}
+{"text": "explain  CAP theorem", "label": "general", "regex_label": "general"}
+{"text": "wassup", "label": "smalltalk", "regex_label": "general"}
+{"text": "long time no see!", "label": "smalltalk", "regex_label": "general"}
+{"text": "helo", "label": "smalltalk", "regex_label": "general"}
+{"text": "make a python class for database  connections", "label": "code", "regex_label": "general"}
+{"text": "I need you to why is the sky blue", "label": "general", "regex_label": "general"}
+{"text": "What'S Up", "label": "smalltalk", "regex_label": "general"}
+{"text": "what's my name", "label": "memory_recall", "regex_label": "general"}
+{"text": "why iss the sky blue", "label": "general", "regex_label": "general"}
+{"text": "I need you to how are you doing", "label": "smalltalk", "regex_label": "general"}
+{"text": "build a typescript interface for auth user", "label": "code", "regex_label": "general"}
+{"text": "change your wording when you get a chance", "label": "preference", "regex_label": "general"}
+{"text": "my name is actually different from what i told you before", "label": "disclosure", "regex_label": "general"}
+{"text": "thx??", "label": "smalltalk", "regex_label": "general"}
+{"text": "explain machine  learning", "label": "general", "regex_label": "general"}
+{"text": "hey can you tell me about me", "label": "memory_recall", "regex_label": "general"}
+{"text": "evening...", "label": "smalltalk", "regex_label": "general"}
+{"text": "g'day.", "label": "smalltalk", "regex_label": "general"}
+{"text": "hi quickly", "label": "smalltalk", "regex_label": "general"}
+{"text": "I'd like you to what's up", "label": "smalltalk", "regex_label": "general"}
+{"text": "help me create a REST API endpoint when you get a chance", "label": "code", "regex_label": "general"}
+{"text": "give me  a code example for async await", "label": "code", "regex_label": "general"}
+{"text": "ok so use a concise tone", "label": "preference", "regex_label": "general"}
+{"text": "respond in bullet points", "label": "preference", "regex_label": "general"}
+{"text": "ok so do you remember my name", "label": "memory_recall", "regex_label": "general"}
+{"text": "what is blockchain!", "label": "general", "regex_label": "general"}
+{"text": "I from am Brazil", "label": "disclosure", "regex_label": "general"}
+{"text": "ahhoy", "label": "smalltalk", "regex_label": "general"}
+{"text": "I need you to hello", "label": "smalltalk", "regex_label": "general"}
+{"text": "who am i...", "label": "memory_recall", "regex_label": "general"}
+{"text": "sue", "label": "lightweight", "regex_label": "general"}
+{"text": "build a typescript interface for user auth!!", "label": "code", "regex_label": "general"}
+{"text": "how do vacccines work", "label": "general", "regex_label": "general"}
+{"text": "Ilike hiking", "label": "disclosure", "regex_label": "general"}
+{"text": "Write me a rust implementation of a linked list", "label": "code", "regex_label": "general"}
+{"text": "What Are Design Patterns In Software Engineering", "label": "general", "regex_label": "general"}
+{"text": "my goal is to a build startup", "label": "disclosure", "regex_label": "general"}
+{"text": "why is the blue sky", "label": "general", "regex_label": "general"}
+{"text": "what do you remember about me", "label": "memory_recall", "regex_label": "general"}
+{"text": "tell me abbout me", "label": "memory_recall", "regex_label": "general"}
+{"text": "what do you know about me asap", "label": "memory_recall", "regex_label": "general"}
+{"text": "My hobby is photography", "label": "disclosure", "regex_label": "general"}
+{"text": "descrie the water cycle", "label": "general", "regex_label": "general"}
+{"text": "peace", "label": "smalltalk", "regex_label": "general"}
+{"text": "where do i live?", "label": "memory_recall", "regex_label": "general"}
+{"text": "g'day please", "label": "smalltalk", "regex_label": "general"}
+{"text": "yo quickly", "label": "smalltalk", "regex_label": "general"}
+{"text": "show me the code for binary search!!", "label": "code", "regex_label": "general"}
+{"text": "sup", "label": "smalltalk", "regex_label": "general"}
+{"text": "I work in fintech!", "label": "disclosure", "regex_label": "general"}
+{"text": "good evening", "label": "smalltalk", "regex_label": "general"}
+{"text": "salutatons", "label": "smalltalk", "regex_label": "general"}
+{"text": "use green for cde", "label": "preference", "regex_label": "general"}
+{"text": "what's crckin", "label": "smalltalk", "regex_label": "general"}
+{"text": "exactly", "label": "lightweight", "regex_label": "general"}
+{"text": "what's myy name", "label": "memory_recall", "regex_label": "general"}
+{"text": "Use A Concise Tone", "label": "preference", "regex_label": "general"}
+{"text": "um great", "label": "lightweight", "regex_label": "general"}
+{"text": "cn you make something that parses JSON", "label": "code", "regex_label": "general"}
+{"text": "hey hey for me", "label": "smalltalk", "regex_label": "general"}
+{"text": "WHAT IS THE DIFFERENCE BETWEEN TCP AND UDP", "label": "general", "regex_label": "general"}
+{"text": "What is my job", "label": "memory_recall", "regex_label": "general"}
+{"text": "can you ok", "label": "lightweight", "regex_label": "general"}
+{"text": "afternoon when you get a chance", "label": "smalltalk", "regex_label": "general"}
+{"text": "I'd like you to howdy", "label": "smalltalk", "regex_label": "general"}
+{"text": "greetings right now", "label": "smalltalk", "regex_label": "general"}
+{"text": "my favorite color is blue if you can", "label": "disclosure", "regex_label": "general"}
+{"text": "what's my role when you get a chance", "label": "memory_recall", "regex_label": "general"}
+{"text": "please my favorite color is blue", "label": "disclosure", "regex_label": "general"}
+{"text": "I prefer concise responses?", "label": "disclosure", "regex_label": "general"}
+{"text": "hi", "label": "smalltalk", "regex_label": "general"}
+{"text": "what are design patterns in software engineering??", "label": "general", "regex_label": "general"}
+{"text": "I am 30 years old", "label": "disclosure", "regex_label": "general"}
+{"text": "what is the difference between CP and UDP", "label": "general", "regex_label": "general"}
+{"text": "who am i for me", "label": "memory_recall", "regex_label": "general"}
+{"text": "got it", "label": "lightweight", "regex_label": "general"}
+{"text": "COOL", "label": "lightweight", "regex_label": "general"}
+{"text": "I work in  fintech", "label": "disclosure", "regex_label": "general"}
+{"text": "what's y name", "label": "memory_recall", "regex_label": "general"}
+{"text": "HOW DO VACCINES WORK", "label": "general", "regex_label": "general"}
+{"text": "show me the code for binary  search", "label": "code", "regex_label": "general"}
+{"text": "how does photosynthesis work?", "label": "general", "regex_label": "general"}
+{"text": "wow", "label": "lightweight", "regex_label": "general"}
+{"text": "Explain the theory of relativity", "label": "general", "regex_label": "general"}
+{"text": "do you recall what we discussed yesterday", "label": "memory_recall", "regex_label": "general"}
+{"text": "so hi", "label": "smalltalk", "regex_label": "general"}
+{"text": "I moved to San Franisco last year", "label": "disclosure", "regex_label": "general"}
+{"text": "help me interesting", "label": "lightweight", "regex_label": "general"}
+{"text": "my name is Kvin", "label": "disclosure", "regex_label": "general"}
+{"text": "cheers", "label": "smalltalk", "regex_label": "general"}
+{"text": "Got It", "label": "lightweight", "regex_label": "general"}
+{"text": "good morning!!", "label": "smalltalk", "regex_label": "general"}
+{"text": "Describe the water cycle", "label": "general", "regex_label": "general"}
+{"text": "got it please", "label": "lightweight", "regex_label": "general"}
+{"text": "can you make something that parses JSON when you get a chance", "label": "code", "regex_label": "general"}
+{"text": "be more verbose!!", "label": "preference", "regex_label": "general"}
+{"text": "How Goes It", "label": "smalltalk", "regex_label": "general"}
+{"text": "my company is called trinity", "label": "disclosure", "regex_label": "general"}
+{"text": "chheers", "label": "smalltalk", "regex_label": "general"}
+{"text": "What's up", "label": "smalltalk", "regex_label": "general"}
+{"text": "perfect", "label": "lightweight", "regex_label": "general"}
+{"text": "I'M A SOFTWARE ENGINEER", "label": "disclosure", "regex_label": "general"}
+{"text": "be more verbose?", "label": "preference", "regex_label": "general"}
+{"text": "my company is called Trinity?", "label": "disclosure", "regex_label": "general"}
+{"text": "can you explain gradint descent", "label": "general", "regex_label": "general"}
+{"text": "tell me about me", "label": "memory_recall", "regex_label": "general"}
+{"text": "Respond In Bullet Points", "label": "preference", "regex_label": "general"}
+{"text": "hey thhere", "label": "smalltalk", "regex_label": "general"}
+{"text": "tell me about the history of the internet??", "label": "general", "regex_label": "general"}
+{"text": "yo?", "label": "smalltalk", "regex_label": "general"}
+{"text": "Can You Make Something That Parses Json", "label": "code", "regex_label": "general"}
+{"text": "What up", "label": "smalltalk", "regex_label": "general"}
+{"text": "surre", "label": "lightweight", "regex_label": "general"}
+{"text": "ahoy for me", "label": "smalltalk", "regex_label": "general"}
+{"text": "yo what' good", "label": "smalltalk", "regex_label": "general"}
+{"text": "I work at Google", "label": "disclosure", "regex_label": "general"}
+{"text": "morning?", "label": "smalltalk", "regex_label": "general"}
+{"text": "I am from brazil", "label": "disclosure", "regex_label": "general"}
+{"text": "how do work vaccines", "label": "general", "regex_label": "general"}
+{"text": "coool", "label": "lightweight", "regex_label": "general"}
+{"text": "write a python function to sort a list...", "label": "code", "regex_label": "general"}
+{"text": "implement a queue in go", "label": "code", "regex_label": "general"}
+{"text": "WHAT'S NEW", "label": "smalltalk", "regex_label": "general"}
+{"text": "my hobby is photography asap", "label": "disclosure", "regex_label": "general"}
+{"text": "what's word the", "label": "smalltalk", "regex_label": "general"}
+{"text": "yes?", "label": "lightweight", "regex_label": "general"}
+{"text": "MY NAME IS SARAH", "label": "disclosure", "regex_label": "general"}
+{"text": "help me createe a REST API endpoint", "label": "code", "regex_label": "general"}
+{"text": "reply with moe detail", "label": "preference", "regex_label": "general"}
+{"text": "what is m job", "label": "memory_recall", "regex_label": "general"}
+{"text": "perfecct", "label": "lightweight", "regex_label": "general"}
+{"text": "I workk at Google", "label": "disclosure", "regex_label": "general"}
+{"text": "use green for code", "label": "preference", "regex_label": "general"}
+{"text": "heyhey", "label": "smalltalk", "regex_label": "general"}
+{"text": "how goes it...", "label": "smalltalk", "regex_label": "general"}
+{"text": "yo what's good when you get a chance", "label": "smalltalk", "regex_label": "general"}
+{"text": "implemen a queue in go", "label": "code", "regex_label": "general"}
+{"text": "I am a teacher", "label": "disclosure", "regex_label": "general"}
+{"text": "Explain Quantum Computing", "label": "general", "regex_label": "general"}
+{"text": "my company is called Trinity.", "label": "disclosure", "regex_label": "general"}
+{"text": "explain CAP theorem if you can", "label": "general", "regex_label": "general"}
+{"text": "interesting??", "label": "lightweight", "regex_label": "general"}
+{"text": "Why is the sky blue", "label": "general", "regex_label": "general"}
+{"text": "tell me about the history of the interrnet", "label": "general", "regex_label": "general"}
+{"text": "format you replies differently", "label": "preference", "regex_label": "general"}
+{"text": "how's it ging", "label": "smalltalk", "regex_label": "general"}
+{"text": "show me the code for binary search quickly", "label": "code", "regex_label": "general"}
+{"text": "i am from brazil", "label": "disclosure", "regex_label": "general"}
+{"text": "can you explain gradient descent", "label": "general", "regex_label": "general"}
+{"text": "morning", "label": "smalltalk", "regex_label": "general"}
+{"text": "could you how does photosynthesis work", "label": "general", "regex_label": "general"}
+{"text": "Create a sql query to find duplicate records", "label": "code", "regex_label": "general"}
+{"text": "create a javascript function that validates emails", "label": "code", "regex_label": "general"}
+{"text": "Tell me about me", "label": "memory_recall", "regex_label": "general"}
+{"text": "I'm a engineer software", "label": "disclosure", "regex_label": "general"}
+{"text": "thx?", "label": "smalltalk", "regex_label": "general"}
+{"text": "make a python class for database connections if you can", "label": "code", "regex_label": "general"}
+{"text": "hola", "label": "smalltalk", "regex_label": "general"}
+{"text": "create a sql query to find duplicate records.", "label": "code", "regex_label": "general"}
+{"text": "CREATE A SQL QUERY TO FIND DUPLICATE RECORDS", "label": "code", "regex_label": "general"}
+{"text": "how does photosynthesis work!", "label": "general", "regex_label": "general"}
+{"text": "be more verbose if you can", "label": "preference", "regex_label": "general"}
+{"text": "hi?", "label": "smalltalk", "regex_label": "general"}
+{"text": "hey I enjoy reading", "label": "disclosure", "regex_label": "general"}
+{"text": "Thx", "label": "smalltalk", "regex_label": "general"}
+{"text": "are how you doing", "label": "smalltalk", "regex_label": "general"}
+{"text": "what' up", "label": "smalltalk", "regex_label": "general"}
+{"text": "my favorite color is blue?", "label": "disclosure", "regex_label": "general"}
+{"text": "what are the pros cons and of microservices", "label": "general", "regex_label": "general"}
+{"text": "can you where do i live", "label": "memory_recall", "regex_label": "general"}
+{"text": "good mmorning", "label": "smalltalk", "regex_label": "general"}
+{"text": "right?", "label": "lightweight", "regex_label": "general"}
+{"text": "please I work in fintech", "label": "disclosure", "regex_label": "general"}
+{"text": "reply with more detail", "label": "preference", "regex_label": "general"}
+{"text": "give me a code exaple for async await", "label": "code", "regex_label": "general"}
+{"text": "what is my job!!", "label": "memory_recall", "regex_label": "general"}
+{"text": "um wow", "label": "lightweight", "regex_label": "general"}
+{"text": "Ahoy", "label": "smalltalk", "regex_label": "general"}
+{"text": "my name is Sarah", "label": "disclosure", "regex_label": "general"}
+{"text": "UNDERSTOOD", "label": "lightweight", "regex_label": "general"}
+{"text": "howdy??", "label": "smalltalk", "regex_label": "general"}
+{"text": "how oes photosynthesis work", "label": "general", "regex_label": "general"}
+{"text": "HOW ARE YOU", "label": "smalltalk", "regex_label": "general"}
+{"text": "explain quantum computing?", "label": "general", "regex_label": "general"}
+{"text": "I need you to yo what's good", "label": "smalltalk", "regex_label": "general"}
+{"text": "what are the ros and cons of microservices", "label": "general", "regex_label": "general"}
+{"text": "I study science computer", "label": "disclosure", "regex_label": "general"}
+{"text": "my team uses React", "label": "disclosure", "regex_label": "general"}
+{"text": "what's new?", "label": "smalltalk", "regex_label": "general"}
+{"text": "what up?", "label": "smalltalk", "regex_label": "general"}
+{"text": "Sup", "label": "smalltalk", "regex_label": "general"}
+{"text": "WHO AM I", "label": "memory_recall", "regex_label": "general"}
+{"text": "what do you remember about me?", "label": "memory_recall", "regex_label": "general"}
+{"text": "howw are you", "label": "smalltalk", "regex_label": "general"}
+{"text": "what is the capittal of France", "label": "general", "regex_label": "general"}
+{"text": "describe a how compiler works", "label": "general", "regex_label": "general"}
+{"text": "what do you know me about", "label": "memory_recall", "regex_label": "general"}
+{"text": "Explain The Theory Of Relativity", "label": "general", "regex_label": "general"}
+{"text": "generatea css grid layout", "label": "code", "regex_label": "general"}
+{"text": "What's my name", "label": "memory_recall", "regex_label": "general"}
+{"text": "Can You Explain Gradient Descent", "label": "general", "regex_label": "general"}
+{"text": "Generate a css grid layout", "label": "code", "regex_label": "general"}
+{"text": "I reading enjoy", "label": "disclosure", "regex_label": "general"}
+{"text": "good evening??", "label": "smalltalk", "regex_label": "general"}
+{"text": "I moved San to Francisco last year", "label": "disclosure", "regex_label": "general"}
+{"text": "yo what's good please", "label": "smalltalk", "regex_label": "general"}
+{"text": "GOT IT", "label": "lightweight", "regex_label": "general"}
+{"text": "do you remember my name when you get a chance", "label": "memory_recall", "regex_label": "general"}
+{"text": "Explain cap theorem", "label": "general", "regex_label": "general"}
+{"text": "m team uses React", "label": "disclosure", "regex_label": "general"}
+{"text": "Generate a bash script to backup files", "label": "code", "regex_label": "general"}
+{"text": "greetigs", "label": "smalltalk", "regex_label": "general"}
+{"text": "nie", "label": "lightweight", "regex_label": "general"}
+{"text": "format your replies differently", "label": "preference", "regex_label": "general"}
+{"text": "I am  30 years old", "label": "disclosure", "regex_label": "general"}
+{"text": "what are the pros and cons of microservices for me", "label": "general", "regex_label": "general"}
+{"text": "I am from Brazil", "label": "disclosure", "regex_label": "general"}
+{"text": "I need you to I work in fintech", "label": "disclosure", "regex_label": "general"}
+{"text": "I enjoy reading right now", "label": "disclosure", "regex_label": "general"}
+{"text": "What's happening", "label": "smalltalk", "regex_label": "general"}
+{"text": "describe the water cycle", "label": "general", "regex_label": "general"}
+{"text": "how are you doing.", "label": "smalltalk", "regex_label": "general"}
+{"text": "I study computer science", "label": "disclosure", "regex_label": "general"}
+{"text": "WHAT ARE THE PROS AND CONS OF MICROSERVICES", "label": "general", "regex_label": "general"}
+{"text": "whhat up", "label": "smalltalk", "regex_label": "general"}
+{"text": "How'S It Going", "label": "smalltalk", "regex_label": "general"}
+{"text": "Hello There", "label": "smalltalk", "regex_label": "general"}
+{"text": "is what my job", "label": "memory_recall", "regex_label": "general"}
+{"text": "dscribe the water cycle", "label": "general", "regex_label": "general"}
+{"text": "ahy", "label": "smalltalk", "regex_label": "general"}
+{"text": "I Work At Google", "label": "disclosure", "regex_label": "general"}
+{"text": "what's happening", "label": "smalltalk", "regex_label": "general"}
+{"text": "I  work in fintech", "label": "disclosure", "regex_label": "general"}
+{"text": "I'd like you to I work in fintech", "label": "disclosure", "regex_label": "general"}
+{"text": "Do You Remember Where I Work", "label": "memory_recall", "regex_label": "general"}
+{"text": "how are you?", "label": "smalltalk", "regex_label": "general"}
+{"text": "intereting", "label": "lightweight", "regex_label": "general"}
+{"text": "greetings?", "label": "smalltalk", "regex_label": "general"}
+{"text": "hey there", "label": "smalltalk", "regex_label": "general"}
+{"text": "can you make something tthat parses JSON", "label": "code", "regex_label": "general"}
+{"text": "WHAT ARE DESIGN PATTERNS IN SOFTWARE ENGINEERING", "label": "general", "regex_label": "general"}
+{"text": "respond in bullet points?", "label": "preference", "regex_label": "general"}
+{"text": "how are youu doing", "label": "smalltalk", "regex_label": "general"}
+{"text": "yo wht's good", "label": "smalltalk", "regex_label": "general"}
+{"text": "I need you to how's it going", "label": "smalltalk", "regex_label": "general"}
+{"text": "I live in New York?", "label": "disclosure", "regex_label": "general"}
+{"text": "suure", "label": "lightweight", "regex_label": "general"}
+{"text": "I'd like you to perfect", "label": "lightweight", "regex_label": "general"}
+{"text": "interesting?", "label": "lightweight", "regex_label": "general"}
+{"text": "I prefer dark mode in everything quickly", "label": "disclosure", "regex_label": "general"}
+{"text": "I moved to San Francisco last year", "label": "disclosure", "regex_label": "general"}
+{"text": "What Is Blockchain", "label": "general", "regex_label": "general"}
+{"text": "greetings", "label": "smalltalk", "regex_label": "general"}
+{"text": "do you recall what we discussed yesterday when you get a chance", "label": "memory_recall", "regex_label": "general"}
+{"text": "tell me the about history of the internet", "label": "general", "regex_label": "general"}
+{"text": "i am a teacher", "label": "disclosure", "regex_label": "general"}
+{"text": "do you recall what we discused yesterday", "label": "memory_recall", "regex_label": "general"}
+{"text": "create a sql query to find duplicate reords", "label": "code", "regex_label": "general"}
+{"text": "right", "label": "lightweight", "regex_label": "general"}
+{"text": "I prefer dark mode in everything", "label": "disclosure", "regex_label": "general"}
+{"text": "what's new", "label": "smalltalk", "regex_label": "general"}
+{"text": "nice.", "label": "lightweight", "regex_label": "general"}
+{"text": "I am a teacher?", "label": "disclosure", "regex_label": "general"}
+{"text": "describe how a compilr works", "label": "general", "regex_label": "general"}
+{"text": "I Am A Teacher", "label": "disclosure", "regex_label": "general"}
+{"text": "Help me create a rest api endpoint", "label": "code", "regex_label": "general"}
+{"text": "I prefer dark mode in everything?", "label": "disclosure", "regex_label": "general"}
+{"text": "Wassup", "label": "smalltalk", "regex_label": "general"}
+{"text": "THANK YOU", "label": "smalltalk", "regex_label": "general"}
+{"text": "help me what is the difference between TCP and UDP", "label": "general", "regex_label": "general"}
+{"text": "be verbose more", "label": "preference", "regex_label": "general"}
+{"text": "I need a function that calculates fibonacci numbers", "label": "code", "regex_label": "general"}
+{"text": "perfect?", "label": "lightweight", "regex_label": "general"}
+{"text": "my team uses React??", "label": "disclosure", "regex_label": "general"}
+{"text": "G'Day", "label": "smalltalk", "regex_label": "general"}
+{"text": "hello there thanks", "label": "smalltalk", "regex_label": "general"}
+{"text": "do you remember my name", "label": "memory_recall", "regex_label": "general"}
+{"text": "greetings for me", "label": "smalltalk", "regex_label": "general"}
+{"text": "heya?", "label": "smalltalk", "regex_label": "general"}
+{"text": "what are the pros and cons microservices of", "label": "general", "regex_label": "general"}
+{"text": "What Is The Halting Problem", "label": "general", "regex_label": "general"}
+{"text": "please how are you", "label": "smalltalk", "regex_label": "general"}
+{"text": "My Company Is Called Trinity", "label": "disclosure", "regex_label": "general"}
+{"text": "Where do i live", "label": "memory_recall", "regex_label": "general"}
+{"text": "where do i live", "label": "memory_recall", "regex_label": "general"}
+{"text": "I'm a software engineer", "label": "disclosure", "regex_label": "general"}
+{"text": "what is blockchain", "label": "general", "regex_label": "general"}
+{"text": "hey hi", "label": "smalltalk", "regex_label": "general"}
+{"text": "hey", "label": "smalltalk", "regex_label": "general"}
+{"text": "long tme no see", "label": "smalltalk", "regex_label": "general"}
+{"text": "so what do you remember about me", "label": "memory_recall", "regex_label": "general"}
+{"text": "evening?", "label": "smalltalk", "regex_label": "general"}
+{"text": "perfect.", "label": "lightweight", "regex_label": "general"}
+{"text": "afternoon", "label": "smalltalk", "regex_label": "general"}
+{"text": "great?", "label": "lightweight", "regex_label": "general"}
+{"text": "respond i bullet points", "label": "preference", "regex_label": "general"}
+{"text": "I to moved San Francisco last year", "label": "disclosure", "regex_label": "general"}
+{"text": "explain CAP theorem", "label": "general", "regex_label": "general"}
+{"text": "what is a neural network", "label": "general", "regex_label": "general"}
+{"text": "write me a rust implementation of a linked list", "label": "code", "regex_label": "general"}
+{"text": "howare you doing", "label": "smalltalk", "regex_label": "general"}
+{"text": "help me evening", "label": "smalltalk", "regex_label": "general"}
+{"text": "create a javascript function that validates emails?", "label": "code", "regex_label": "general"}
+{"text": "hey I prefer dark mode in everything", "label": "disclosure", "regex_label": "general"}
+{"text": "hello??", "label": "smalltalk", "regex_label": "general"}
+{"text": "right thanks", "label": "lightweight", "regex_label": "general"}
+{"text": "explain quantum computing asap", "label": "general", "regex_label": "general"}
+{"text": "great...", "label": "lightweight", "regex_label": "general"}
+{"text": "make a python class for database connections!", "label": "code", "regex_label": "general"}
+{"text": "what's crackin??", "label": "smalltalk", "regex_label": "general"}
+{"text": "give me a code example for async await please", "label": "code", "regex_label": "general"}
+{"text": "can you make something that parses JSON", "label": "code", "regex_label": "general"}
+{"text": "reply with more detail.", "label": "preference", "regex_label": "general"}
+{"text": "my roole is CTO", "label": "disclosure", "regex_label": "general"}
+{"text": "how do vacines work", "label": "general", "regex_label": "general"}
+{"text": "I am from Brazil when you get a chance", "label": "disclosure", "regex_label": "general"}
+{"text": "peae", "label": "smalltalk", "regex_label": "general"}
+{"text": "Yo What'S Good", "label": "smalltalk", "regex_label": "general"}
+{"text": "explain machine learning?", "label": "general", "regex_label": "general"}
+{"text": "format your differently replies", "label": "preference", "regex_label": "general"}
+{"text": "help me ccreate a REST API endpoint", "label": "code", "regex_label": "general"}
+{"text": "HOW WOULD YOU IMPLEMENT PAGINATION", "label": "code", "regex_label": "general"}
+{"text": "how does photosynthesis work", "label": "general", "regex_label": "general"}
+{"text": "write a pytthon function to sort a list", "label": "code", "regex_label": "general"}
+{"text": "I am 30 years old thanks", "label": "disclosure", "regex_label": "general"}
+{"text": "Cool", "label": "lightweight", "regex_label": "general"}
+{"text": "describe the water cyle", "label": "general", "regex_label": "general"}
+{"text": "what are design patterns in software engineering", "label": "general", "regex_label": "general"}
+{"text": "ok so reply with more detail", "label": "preference", "regex_label": "general"}
+{"text": "maybe", "label": "lightweight", "regex_label": "general"}
+{"text": "h there", "label": "smalltalk", "regex_label": "general"}
+{"text": "How would you implement pagination", "label": "code", "regex_label": "general"}
+{"text": "ok asap", "label": "lightweight", "regex_label": "general"}
+{"text": "peace if you can", "label": "smalltalk", "regex_label": "general"}
+{"text": "so wow", "label": "lightweight", "regex_label": "general"}
+{"text": "format your replies differently!", "label": "preference", "regex_label": "general"}
+{"text": "tell me about me?", "label": "memory_recall", "regex_label": "general"}
+{"text": "Change Your Wording", "label": "preference", "regex_label": "general"}
+{"text": "mybe", "label": "lightweight", "regex_label": "general"}
+{"text": "why is the sky blue?", "label": "general", "regex_label": "general"}
+{"text": "how would you implement pagination", "label": "code", "regex_label": "general"}
+{"text": "what is blockchain?", "label": "general", "regex_label": "general"}
+{"text": "I Need A Function That Calculates Fibonacci Numbers", "label": "code", "regex_label": "general"}
+{"text": "exatly", "label": "lightweight", "regex_label": "general"}
+{"text": "please format your replies differently", "label": "preference", "regex_label": "general"}
+{"text": "write me a rust iplementation of a linked list", "label": "code", "regex_label": "general"}
+{"text": "generate a bash to script backup files", "label": "code", "regex_label": "general"}
+{"text": "I like hiking", "label": "disclosure", "regex_label": "general"}
+{"text": "cheers when you get a chance", "label": "smalltalk", "regex_label": "general"}
+{"text": "my name is Sarah asap", "label": "disclosure", "regex_label": "general"}
+{"text": "whhat do you know about me", "label": "memory_recall", "regex_label": "general"}
+{"text": "MY PROJECT IS ABOUT AI", "label": "disclosure", "regex_label": "general"}
+{"text": "ok so use green for code", "label": "preference", "regex_label": "general"}
+{"text": "what's  my role", "label": "memory_recall", "regex_label": "general"}
+{"text": "what are design patterns in software ngineering", "label": "general", "regex_label": "general"}
+{"text": "how goes it?", "label": "smalltalk", "regex_label": "general"}
+{"text": "hi there??", "label": "smalltalk", "regex_label": "general"}
+{"text": "what do you remember me about", "label": "memory_recall", "regex_label": "general"}
+{"text": "what's up", "label": "smalltalk", "regex_label": "general"}
+{"text": "could you how does encryption work", "label": "general", "regex_label": "general"}
+{"text": "do you recall we what discussed yesterday", "label": "memory_recall", "regex_label": "general"}
+{"text": "I am from Brazil?", "label": "disclosure", "regex_label": "general"}
+{"text": "I'M Building A Decentralized Ai App", "label": "disclosure", "regex_label": "general"}
+{"text": "hello", "label": "smalltalk", "regex_label": "general"}
+{"text": "my company is called Trinity for me", "label": "disclosure", "regex_label": "general"}
+{"text": "i prefer dark mode in everything", "label": "disclosure", "regex_label": "general"}
+{"text": "My name is sarah", "label": "disclosure", "regex_label": "general"}
+{"text": "tell me about the Renaissance?", "label": "general", "regex_label": "general"}
+{"text": "explain the theory of relativity", "label": "general", "regex_label": "general"}
+{"text": "make a python class for database connections!!", "label": "code", "regex_label": "general"}
+{"text": "I'm building a decentralized AI app?", "label": "disclosure", "regex_label": "general"}
+{"text": "who am i?", "label": "memory_recall", "regex_label": "general"}
+{"text": "hey can you where do i live", "label": "memory_recall", "regex_label": "general"}
+{"text": "hoola", "label": "smalltalk", "regex_label": "general"}
+{"text": "um sup", "label": "smalltalk", "regex_label": "general"}
+{"text": "I need you to write a python function to sort a list", "label": "code", "regex_label": "general"}
+{"text": "give me a code example for async await", "label": "code", "regex_label": "general"}
+{"text": "generate a css grid layout", "label": "code", "regex_label": "general"}
+{"text": "EXPLAIN THE THEORY OF RELATIVITY", "label": "general", "regex_label": "general"}
+{"text": "would you please tell me about the history of the internet", "label": "general", "regex_label": "general"}
+{"text": "what's my role?", "label": "memory_recall", "regex_label": "general"}
+{"text": "how are you", "label": "smalltalk", "regex_label": "general"}
+{"text": "What'S The Word", "label": "smalltalk", "regex_label": "general"}
+{"text": "respond in ullet points", "label": "preference", "regex_label": "general"}
+{"text": "thaanks", "label": "smalltalk", "regex_label": "general"}
+{"text": "generatte a bash script to backup files", "label": "code", "regex_label": "general"}
+{"text": "whatt do you remember about me", "label": "memory_recall", "regex_label": "general"}
+{"text": "hya", "label": "smalltalk", "regex_label": "general"}
+{"text": "my favoritecolor is blue", "label": "disclosure", "regex_label": "general"}
+{"text": "what's ccrackin", "label": "smalltalk", "regex_label": "general"}
+{"text": "my name is actually different from what I told you before", "label": "disclosure", "regex_label": "general"}
+{"text": "hello for me", "label": "smalltalk", "regex_label": "general"}
+{"text": "I need you to describe how a compiler works", "label": "general", "regex_label": "general"}
+{"text": "my goal is to build a startup...", "label": "disclosure", "regex_label": "general"}
+{"text": "hi theere", "label": "smalltalk", "regex_label": "general"}
+{"text": "please use green for code", "label": "preference", "regex_label": "general"}
+{"text": "Who Am I", "label": "memory_recall", "regex_label": "general"}
+{"text": "do remember you my name", "label": "memory_recall", "regex_label": "general"}
+{"text": "would you please tell me about the Renaissance", "label": "general", "regex_label": "general"}
+{"text": "how do vaccines work", "label": "general", "regex_label": "general"}
+{"text": "explaiin machine learning", "label": "general", "regex_label": "general"}
+{"text": "my goal is to build a startup", "label": "disclosure", "regex_label": "general"}
+{"text": "make a python class for database connections", "label": "code", "regex_label": "general"}
+{"text": "what is my company", "label": "memory_recall", "regex_label": "general"}
+{"text": "I love cooking", "label": "disclosure", "regex_label": "general"}
+{"text": "generate a bash script to backup files??", "label": "code", "regex_label": "general"}
+{"text": "hellothere", "label": "smalltalk", "regex_label": "general"}
+{"text": "heya right now", "label": "smalltalk", "regex_label": "general"}
+{"text": "sre", "label": "lightweight", "regex_label": "general"}
+{"text": "Implement A Queue In Go", "label": "code", "regex_label": "general"}
+{"text": "tell me about the Renaissance", "label": "general", "regex_label": "general"}
+{"text": "my company is  called Trinity", "label": "disclosure", "regex_label": "general"}
+{"text": "exactly?", "label": "lightweight", "regex_label": "general"}
+{"text": "What Is The Difference Between Tcp And Udp", "label": "general", "regex_label": "general"}
+{"text": "what is the capital of france", "label": "general", "regex_label": "general"}
+{"text": "I like  hiking", "label": "disclosure", "regex_label": "general"}
+{"text": "i am 30 years old", "label": "disclosure", "regex_label": "general"}
+{"text": "my hobby is photography?", "label": "disclosure", "regex_label": "general"}
+{"text": "thanks", "label": "smalltalk", "regex_label": "general"}
+{"text": "what's new quickly", "label": "smalltalk", "regex_label": "general"}
+{"text": "how would you implement paginaton", "label": "code", "regex_label": "general"}
+{"text": "mrning", "label": "smalltalk", "regex_label": "general"}
+{"text": "can you explain gradient descent please", "label": "general", "regex_label": "general"}
+{"text": "explain quanum computing", "label": "general", "regex_label": "general"}
+{"text": "Peace", "label": "smalltalk", "regex_label": "general"}
+{"text": "I live in York New", "label": "disclosure", "regex_label": "general"}
+{"text": "whatt's my role", "label": "memory_recall", "regex_label": "general"}
+{"text": "I am a teacher for me", "label": "disclosure", "regex_label": "general"}
+{"text": "My company is called trinity", "label": "disclosure", "regex_label": "general"}
+{"text": "g'day asap", "label": "smalltalk", "regex_label": "general"}
+{"text": "wow!", "label": "lightweight", "regex_label": "general"}
+{"text": "please my goal is to build a startup", "label": "disclosure", "regex_label": "general"}
+{"text": "who am i", "label": "memory_recall", "regex_label": "general"}
+{"text": "sure", "label": "lightweight", "regex_label": "general"}
+{"text": "THX", "label": "smalltalk", "regex_label": "general"}
+{"text": "myy hobby is photography", "label": "disclosure", "regex_label": "general"}
+{"text": "good morning for me", "label": "smalltalk", "regex_label": "general"}
+{"text": "build a typescript interface for user auth please", "label": "code", "regex_label": "general"}
+{"text": "I need you to explain the theory of relativity", "label": "general", "regex_label": "general"}
+{"text": "tell me about the Renaissance if you can", "label": "general", "regex_label": "general"}
+{"text": "my goal is to builld a startup", "label": "disclosure", "regex_label": "general"}
+{"text": "what is my job", "label": "memory_recall", "regex_label": "general"}
+{"text": "What Is My Job", "label": "memory_recall", "regex_label": "general"}
+{"text": "WHAT IS THE CAPITAL OF FRANCE", "label": "general", "regex_label": "general"}
+{"text": "maybbe", "label": "lightweight", "regex_label": "general"}
+{"text": "use a friendly style?", "label": "preference", "regex_label": "general"}
+{"text": "SALUTATIONS", "label": "smalltalk", "regex_label": "general"}
+{"text": "what is the halting problem?", "label": "general", "regex_label": "general"}
+{"text": "morning please", "label": "smalltalk", "regex_label": "general"}
+{"text": "what up", "label": "smalltalk", "regex_label": "general"}
+{"text": "can you explain gradient descent??", "label": "general", "regex_label": "general"}
+{"text": "how does photosynthess work", "label": "general", "regex_label": "general"}
+{"text": "I like hiking if you can", "label": "disclosure", "regex_label": "general"}
+{"text": "howdy", "label": "smalltalk", "regex_label": "general"}
+{"text": "HOLA", "label": "smalltalk", "regex_label": "general"}
+{"text": "gretings", "label": "smalltalk", "regex_label": "general"}
+{"text": "well I moved to San Francisco last year", "label": "disclosure", "regex_label": "general"}
+{"text": "hiya", "label": "smalltalk", "regex_label": "general"}
+{"text": "Thank you", "label": "smalltalk", "regex_label": "general"}
+{"text": "no??", "label": "lightweight", "regex_label": "general"}
+{"text": "Show me the code for binary search", "label": "code", "regex_label": "general"}
+{"text": "how goes it", "label": "smalltalk", "regex_label": "general"}
+{"text": "like tell me about the Renaissance", "label": "general", "regex_label": "general"}
+{"text": "hiyya", "label": "smalltalk", "regex_label": "general"}
+{"text": "what is the halting problem when you get a chance", "label": "general", "regex_label": "general"}
+{"text": "write html for a login form", "label": "code", "regex_label": "general"}
+{"text": "I enjoy reading?", "label": "disclosure", "regex_label": "general"}
+{"text": "yes please", "label": "lightweight", "regex_label": "general"}
+{"text": "please can you make something that parses JSON", "label": "code", "regex_label": "general"}
+{"text": "WHAT'S MY NAME", "label": "memory_recall", "regex_label": "general"}
+{"text": "hey yes", "label": "lightweight", "regex_label": "general"}
+{"text": "create ajavascript function that validates emails", "label": "code", "regex_label": "general"}
+{"text": "with reply more detail", "label": "preference", "regex_label": "general"}
+{"text": "hello?", "label": "smalltalk", "regex_label": "general"}
+{"text": "do you remember where i work", "label": "memory_recall", "regex_label": "general"}
+{"text": "thank you", "label": "smalltalk", "regex_label": "general"}
+{"text": "YES", "label": "lightweight", "regex_label": "general"}
+{"text": "hi there", "label": "smalltalk", "regex_label": "general"}
+{"text": "write me a rust implementation of a liinked list", "label": "code", "regex_label": "general"}
+{"text": "I am Brazil from", "label": "disclosure", "regex_label": "general"}
+{"text": "hello there asap", "label": "smalltalk", "regex_label": "general"}
+{"text": "so I love cooking", "label": "disclosure", "regex_label": "general"}
+{"text": "I'm building a decentralized AI app when you get a chance", "label": "disclosure", "regex_label": "general"}
+{"text": "peace?", "label": "smalltalk", "regex_label": "general"}
+{"text": "salutations?", "label": "smalltalk", "regex_label": "general"}
+{"text": "are what design patterns in software engineering", "label": "general", "regex_label": "general"}
+{"text": "I need you to what up", "label": "smalltalk", "regex_label": "general"}
+{"text": "I ENJOY READING", "label": "disclosure", "regex_label": "general"}
+{"text": "my nameis Sarah", "label": "disclosure", "regex_label": "general"}
+{"text": "help me I moved to San Francisco last year", "label": "disclosure", "regex_label": "general"}
+{"text": "write tml for a login form", "label": "code", "regex_label": "general"}
+{"text": "describe how a compiler works", "label": "general", "regex_label": "general"}
+{"text": "thx...", "label": "smalltalk", "regex_label": "general"}
+{"text": "What did i tell you about my project", "label": "memory_recall", "regex_label": "general"}
+{"text": "Explain Cap Theorem", "label": "general", "regex_label": "general"}
+{"text": "my team uses React?", "label": "disclosure", "regex_label": "general"}
+{"text": "hia", "label": "smalltalk", "regex_label": "general"}
+{"text": "Hey There", "label": "smalltalk", "regex_label": "general"}
+{"text": "what's the word?", "label": "smalltalk", "regex_label": "general"}
+{"text": "what is the capital of Fance", "label": "general", "regex_label": "general"}
+{"text": "afternoon?", "label": "smalltalk", "regex_label": "general"}
+{"text": "create javascript a function that validates emails", "label": "code", "regex_label": "general"}
+{"text": "I live in New York!!", "label": "disclosure", "regex_label": "general"}
+{"text": "I live i New York", "label": "disclosure", "regex_label": "general"}
+{"text": "well I enjoy reading", "label": "disclosure", "regex_label": "general"}
+{"text": "how are yu", "label": "smalltalk", "regex_label": "general"}
+{"text": "would you please do you remember where I work", "label": "memory_recall", "regex_label": "general"}
+{"text": "well cheers", "label": "smalltalk", "regex_label": "general"}
+{"text": "I'm building a decentralized  AI app", "label": "disclosure", "regex_label": "general"}
+{"text": "um do you recall what we discussed yesterday", "label": "memory_recall", "regex_label": "general"}
+{"text": "I work at google", "label": "disclosure", "regex_label": "general"}
+{"text": "hey can you my favorite color is blue", "label": "disclosure", "regex_label": "general"}
+{"text": "what is the halting problem", "label": "general", "regex_label": "general"}
+{"text": "hi there quickly", "label": "smalltalk", "regex_label": "general"}
+{"text": "be more vebose", "label": "preference", "regex_label": "general"}
+{"text": "can you explain grradient descent", "label": "general", "regex_label": "general"}
+{"text": "Good Afternoon", "label": "smalltalk", "regex_label": "general"}
+{"text": "build a typescript interface for user auth", "label": "code", "regex_label": "general"}
+{"text": "HOW'S IT GOING", "label": "smalltalk", "regex_label": "general"}
+{"text": "so ahoy", "label": "smalltalk", "regex_label": "general"}
+{"text": "yo what's good right now", "label": "smalltalk", "regex_label": "general"}
+{"text": "how does photosynthesis work asap", "label": "general", "regex_label": "general"}
+{"text": "WRITE ME A RUST IMPLEMENTATION OF A LINKED LIST", "label": "code", "regex_label": "general"}
+{"text": "hey I work at Google", "label": "disclosure", "regex_label": "general"}
+{"text": "what's my name??", "label": "memory_recall", "regex_label": "general"}
+{"text": "love I cooking", "label": "disclosure", "regex_label": "general"}
+{"text": "can you hi there", "label": "smalltalk", "regex_label": "general"}
+{"text": "my project is about AI", "label": "disclosure", "regex_label": "general"}
+{"text": "teell me about the Renaissance", "label": "general", "regex_label": "general"}
+{"text": "could you thank you", "label": "smalltalk", "regex_label": "general"}
+{"text": "Use a friendly style", "label": "preference", "regex_label": "general"}
+{"text": "generate a bash script to backup files", "label": "code", "regex_label": "general"}
+{"text": "can you respond in bullet points", "label": "preference", "regex_label": "general"}
+{"text": "long time no  see", "label": "smalltalk", "regex_label": "general"}
+{"text": "use a friendly style when you get a chance", "label": "preference", "regex_label": "general"}
+{"text": "explain cap theorem", "label": "general", "regex_label": "general"}
+{"text": "My Role Is Cto", "label": "disclosure", "regex_label": "general"}
+{"text": "How Would You Implement Pagination", "label": "code", "regex_label": "general"}
+{"text": "I'd like you to what is my company", "label": "memory_recall", "regex_label": "general"}
+{"text": "how goes it quickly", "label": "smalltalk", "regex_label": "general"}
+{"text": "what did i tell you about my project!", "label": "memory_recall", "regex_label": "general"}
+{"text": "maybe?", "label": "lightweight", "regex_label": "general"}
+{"text": "help me hiya", "label": "smalltalk", "regex_label": "general"}
+{"text": "evening??", "label": "smalltalk", "regex_label": "general"}
+{"text": "what's up!", "label": "smalltalk", "regex_label": "general"}
+{"text": "What'S Happening", "label": "smalltalk", "regex_label": "general"}
+{"text": "well what's my role", "label": "memory_recall", "regex_label": "general"}
+{"text": "well build a typescript interface for user auth", "label": "code", "regex_label": "general"}
+{"text": "Do You Remember My Name", "label": "memory_recall", "regex_label": "general"}
+{"text": "sure?", "label": "lightweight", "regex_label": "general"}
+{"text": "how does encryption work", "label": "general", "regex_label": "general"}
+{"text": "Be More Verbose", "label": "preference", "regex_label": "general"}
+{"text": "what is the capital of France", "label": "general", "regex_label": "general"}
+{"text": "how are doing you", "label": "smalltalk", "regex_label": "general"}
+{"text": "well help me create a REST API endpoint", "label": "code", "regex_label": "general"}
+{"text": "my goal is to build a startup?", "label": "disclosure", "regex_label": "general"}
+{"text": "create a sql queryto find duplicate records", "label": "code", "regex_label": "general"}
+{"text": "Good Morning", "label": "smalltalk", "regex_label": "general"}
+{"text": "describe the water cyccle", "label": "general", "regex_label": "general"}
+{"text": "what my is company", "label": "memory_recall", "regex_label": "general"}
+{"text": "hey can you I prefer dark mode in everything", "label": "disclosure", "regex_label": "general"}
+{"text": "long timeno see", "label": "smalltalk", "regex_label": "general"}
+{"text": "I 30 am years old", "label": "disclosure", "regex_label": "general"}
+{"text": "what is my company asap", "label": "memory_recall", "regex_label": "general"}
+{"text": "Describe how a compiler works", "label": "general", "regex_label": "general"}
+{"text": "What are the pros and cons of microservices", "label": "general", "regex_label": "general"}
+{"text": "I'm a softwar engineer", "label": "disclosure", "regex_label": "general"}
+{"text": "Hey there", "label": "smalltalk", "regex_label": "general"}
+{"text": "what is the difference between TCP and UDP please", "label": "general", "regex_label": "general"}
+{"text": "who  am i", "label": "memory_recall", "regex_label": "general"}
+{"text": "need I a function that calculates fibonacci numbers", "label": "code", "regex_label": "general"}
+{"text": "would you please I work in fintech", "label": "disclosure", "regex_label": "general"}
+{"text": "cool asap", "label": "lightweight", "regex_label": "general"}
+{"text": "tell me about the history of the internet for me", "label": "general", "regex_label": "general"}
+{"text": "I'd like you to use a friendly style", "label": "preference", "regex_label": "general"}
+{"text": "ok so no", "label": "lightweight", "regex_label": "general"}
+{"text": "hey what is the halting problem", "label": "general", "regex_label": "general"}
+{"text": "I'M A Software Engineer", "label": "disclosure", "regex_label": "general"}
+{"text": "no", "label": "lightweight", "regex_label": "general"}
+{"text": "I Love Cooking", "label": "disclosure", "regex_label": "general"}
+{"text": "I am 30 yars old", "label": "disclosure", "regex_label": "general"}
+{"text": "rspond in bullet points", "label": "preference", "regex_label": "general"}
+{"text": "use a concise tone", "label": "preference", "regex_label": "general"}
+{"text": "salutatins", "label": "smalltalk", "regex_label": "general"}
+{"text": "ok so my role is CTO", "label": "disclosure", "regex_label": "general"}
+{"text": "what's crackin", "label": "smalltalk", "regex_label": "general"}
+{"text": "so nice", "label": "lightweight", "regex_label": "general"}
+{"text": "I'd like you to evening", "label": "smalltalk", "regex_label": "general"}
+{"text": "tell me abou the Renaissance", "label": "general", "regex_label": "general"}
+{"text": "thankks", "label": "smalltalk", "regex_label": "general"}
+{"text": "My Name Is Sarah", "label": "disclosure", "regex_label": "general"}
+{"text": "explain quantum compting", "label": "general", "regex_label": "general"}
+{"text": "hellp me create a REST API endpoint", "label": "code", "regex_label": "general"}
+{"text": "well I study computer science", "label": "disclosure", "regex_label": "general"}
+{"text": "what do you  know about me", "label": "memory_recall", "regex_label": "general"}
+{"text": "What'S My Name", "label": "memory_recall", "regex_label": "general"}
+{"text": "help me understood", "label": "lightweight", "regex_label": "general"}
+{"text": "I need a function that calculates fibonacci numbers asap", "label": "code", "regex_label": "general"}
+{"text": "I'm building a decentralized AI app for me", "label": "disclosure", "regex_label": "general"}
+{"text": "so my name is Kevin", "label": "disclosure", "regex_label": "general"}
+{"text": "I study computer science...", "label": "disclosure", "regex_label": "general"}
+{"text": "mornng", "label": "smalltalk", "regex_label": "general"}
+{"text": "Nice", "label": "lightweight", "regex_label": "general"}
+{"text": "understod", "label": "lightweight", "regex_label": "general"}
+{"text": "What is my company", "label": "memory_recall", "regex_label": "general"}
+{"text": "would you please good evening", "label": "smalltalk", "regex_label": "general"}
+{"text": "EXACTLY", "label": "lightweight", "regex_label": "general"}
+{"text": "Exactly", "label": "lightweight", "regex_label": "general"}
+{"text": "hello there?", "label": "smalltalk", "regex_label": "general"}
+{"text": "use green for code?", "label": "preference", "regex_label": "general"}
+{"text": "understood?", "label": "lightweight", "regex_label": "general"}
+{"text": "I MOVED TO SAN FRANCISCO LAST YEAR", "label": "disclosure", "regex_label": "general"}
+{"text": "I'm building a decentralized AI app", "label": "disclosure", "regex_label": "general"}
+{"text": "Understood", "label": "lightweight", "regex_label": "general"}
+{"text": "my company is called Trinity", "label": "disclosure", "regex_label": "general"}
+{"text": "I need you to what do you remember about me", "label": "memory_recall", "regex_label": "general"}
+{"text": "WHAT IS MY COMPANY", "label": "memory_recall", "regex_label": "general"}
+{"text": "generate a css grid layout right now", "label": "code", "regex_label": "general"}
+{"text": "yes", "label": "lightweight", "regex_label": "general"}
+{"text": "ok", "label": "lightweight", "regex_label": "general"}
+{"text": "explain machine learning.", "label": "general", "regex_label": "general"}
+{"text": "I am a teacher!", "label": "disclosure", "regex_label": "general"}
+{"text": "generate a css grid layout asap", "label": "code", "regex_label": "general"}
+{"text": "what's happening?", "label": "smalltalk", "regex_label": "general"}
+{"text": "my hobby is photography", "label": "disclosure", "regex_label": "general"}
+{"text": "format your replies differently??", "label": "preference", "regex_label": "general"}
+{"text": "hey my name is Kevin", "label": "disclosure", "regex_label": "general"}
+{"text": "thanks when you get a chance", "label": "smalltalk", "regex_label": "general"}
+{"text": "like what's my name", "label": "memory_recall", "regex_label": "general"}
+{"text": "what did i tell you my about project", "label": "memory_recall", "regex_label": "general"}
+{"text": "nice", "label": "lightweight", "regex_label": "general"}
+{"text": "wassup??", "label": "smalltalk", "regex_label": "general"}
+{"text": "thanks.", "label": "smalltalk", "regex_label": "general"}
+{"text": "your change wording", "label": "preference", "regex_label": "general"}
+{"text": "tell me about me for me", "label": "memory_recall", "regex_label": "general"}
+{"text": "Right", "label": "lightweight", "regex_label": "general"}
+{"text": "long tiime no see", "label": "smalltalk", "regex_label": "general"}
+{"text": "How's it going", "label": "smalltalk", "regex_label": "general"}
+{"text": "I PREFER CONCISE RESPONSES", "label": "disclosure", "regex_label": "general"}
+{"text": "write a python function to sort a list", "label": "code", "regex_label": "general"}
+{"text": "hey how does encryption work", "label": "general", "regex_label": "general"}
+{"text": "peace??", "label": "smalltalk", "regex_label": "general"}
+{"text": "WHAT'S UP", "label": "smalltalk", "regex_label": "general"}
+{"text": "ahoy?", "label": "smalltalk", "regex_label": "general"}
+{"text": "my role is CTO?", "label": "disclosure", "regex_label": "general"}
+{"text": "could you what do you remember about me", "label": "memory_recall", "regex_label": "general"}
+{"text": "hey?", "label": "smalltalk", "regex_label": "general"}
+{"text": "good evenng", "label": "smalltalk", "regex_label": "general"}
+{"text": "tell me about me...", "label": "memory_recall", "regex_label": "general"}
+{"text": "yo.", "label": "smalltalk", "regex_label": "general"}
+{"text": "write a function python to sort a list", "label": "code", "regex_label": "general"}

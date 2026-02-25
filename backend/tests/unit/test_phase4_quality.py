@@ -86,11 +86,11 @@ class TestNamedConstants:
 
     # --- Timeout constants ---
 
-    def test_ollama_timeout_exists(self):
-        assert "OLLAMA_TIMEOUT" in self.config_content
+    def test_llm_timeout_exists(self):
+        assert "LLM_TIMEOUT" in self.config_content
 
-    def test_ollama_timeout_tools_exists(self):
-        assert "OLLAMA_TIMEOUT_TOOLS" in self.config_content
+    def test_llm_timeout_tools_exists(self):
+        assert "LLM_TIMEOUT_TOOLS" in self.config_content
 
     # --- Document limits ---
 
@@ -135,8 +135,8 @@ class TestNamedConstants:
         from config import (
             DEFAULT_MAX_TOKENS,
             DEFAULT_TEMPERATURE,
-            OLLAMA_TIMEOUT,
-            OLLAMA_TIMEOUT_TOOLS,
+            LLM_TIMEOUT,
+            LLM_TIMEOUT_TOOLS,
             MAX_DOCUMENT_CONTEXT_CHARS,
             MAX_WEB_SCRAPE_CHARS,
             MAX_ARCHIVED_CHATS,
@@ -147,9 +147,9 @@ class TestNamedConstants:
             MAX_SESSION_HOURS,
         )
         # Spot-check values
-        assert DEFAULT_MAX_TOKENS == 8000
+        assert DEFAULT_MAX_TOKENS == 16384
         assert DEFAULT_TEMPERATURE == 0.7
-        assert OLLAMA_TIMEOUT == 600
+        assert LLM_TIMEOUT == 600
         assert MAX_ARCHIVED_CHATS == 20
         assert PRINCIPAL_DISPLAY_LENGTH == 16
         assert MIN_SESSION_HOURS == 1
@@ -163,7 +163,7 @@ class TestNamedConstants:
 
     def test_tools_route_uses_constants(self):
         content = _read(ROUTES_DIR / "tools.py")
-        assert "OLLAMA_TIMEOUT_TOOLS" in content or "WEB_FETCH_TIMEOUT" in content
+        assert "LLM_TIMEOUT_TOOLS" in content or "WEB_FETCH_TIMEOUT" in content
 
     def test_chat_route_uses_constants(self):
         content = _read(ROUTES_DIR / "chat.py")
@@ -286,9 +286,9 @@ class TestIntegrationScaffold:
     def test_test_inference_exists(self):
         assert (self.INTEGRATION_DIR / "test_inference.py").exists()
 
-    def test_conftest_has_ollama_fixture(self):
+    def test_conftest_has_llm_fixture(self):
         content = _read(self.INTEGRATION_DIR / "conftest.py")
-        assert "ollama_available" in content, "conftest.py missing ollama_available fixture"
+        assert "llm_available" in content, "conftest.py missing llm_available fixture"
         assert "@pytest.fixture" in content
 
     def test_conftest_has_app_fixture(self):
@@ -428,7 +428,7 @@ class TestCrossCuttingQuality:
             # Skip __init__.py and shared.py (utility modules)
             if name in ("__init__.py", "shared.py"):
                 continue
-            # Check for bare timeout=600 (should be OLLAMA_TIMEOUT)
+            # Check for bare timeout=600 (should be LLM_TIMEOUT)
             bare_600 = re.findall(r'timeout\s*=\s*600\b', content)
             assert not bare_600, f"{name} still has bare timeout=600"
 

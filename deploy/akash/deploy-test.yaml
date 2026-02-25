@@ -17,18 +17,19 @@ version: "2.0"
 
 services:
   trinity:
-    image: gdubx/trinity-inference:v2-20260219-004747
+    image: gdubx/trinity-inference:v2-20260224-225400
     env:
       - PROVIDER_ID=trinity-test-qwen3-8b
       - MODEL_NAME=qwen3:8b
-      - OLLAMA_CHAT_HOST=http://localhost:11434
-      - OLLAMA_CHAT_MODEL=qwen3:8b
-      - OLLAMA_INGEST_HOST=http://localhost:11434
-      - OLLAMA_INGEST_MODEL=qwen3:8b
-      - MODEL_BACKEND=ollama
-      - GPU_TYPE=NVIDIA-GPU
+      - MODEL_BACKEND=llama-server
+      - LLAMA_SERVER_CHAT_PORT=8081
+      - LLAMA_SERVER_INGEST_PORT=8082
+      - CHAT_MODEL=qwen3:8b
+      - INGEST_MODEL=qwen3:8b
+      - GPU_TYPE=auto
+      - CHATS_DIR=/data/chats
+      - TZ=UTC
       - MAX_QUEUE_SIZE=10
-      - OLLAMA_HOST=http://localhost:11434
       # RAG & Semantic Memory
       - EMBEDDING_MODEL=BAAI/bge-small-en-v1.5
       - RAG_TOP_K=5
@@ -45,7 +46,9 @@ services:
       # API Keys - Injected from .env at deployment time
       - LIGHTHOUSE_API_KEY=${LIGHTHOUSE_API_KEY}
       - BRAVE_SEARCH_API_KEY=${BRAVE_SEARCH_API_KEY}
+      - HF_TOKEN=${HF_TOKEN}
       # Deployment tracking
+      - DIAGNOSTIC_ENABLED=true
       - DEPLOYMENT_TIER=test
       - DEPLOYMENT_TIER_NAME=Test
       - HOURLY_COST_AKT=0.15
@@ -54,7 +57,7 @@ services:
     params:
       storage:
         models:
-          mount: /home/trinity/.ollama
+          mount: /home/trinity/.models
           readMode: false
     expose:
       - port: 8000

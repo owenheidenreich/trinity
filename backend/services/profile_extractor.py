@@ -1,8 +1,11 @@
 """
 LLM-based profile and graph extraction.
 
-This module replaces regex extraction with a single local Ollama call per
+This module replaces regex extraction with a single LLM call per
 message and returns both profile facts and graph triples.
+
+Uses the LLMProvider abstraction (via provider_factory) so the
+underlying backend (Ollama or llama-server) is transparent.
 """
 
 import json
@@ -14,14 +17,9 @@ from typing import Dict, List
 
 from config import (
     MEMORY_INGEST_STRICT_ISOLATION,
-    OLLAMA_INGEST_HOST,
-    OLLAMA_INGEST_MODEL,
-    http_session,
 )
 
 logger = logging.getLogger(__name__)
-
-EXTRACTION_MODEL = OLLAMA_INGEST_MODEL
 EXTRACTION_TIMEOUT_SECONDS = 30
 EXTRACTION_MAX_TOKENS = 500
 ALLOWED_CATEGORIES = {"identity", "work", "interests", "preferences", "relationships", "general"}
@@ -174,35 +172,33 @@ def _triples_to_facts(triples: List[Dict]) -> List[Dict]:
     return synthesized
 
 
-def _candidate_targets() -> List[tuple]:
+def _candidate_providers() -> list:
     """
-    Ordered extraction targets.
+    Ordered extraction providers.
     In strict-isolation mode, extraction only uses ingestion capacity.
+    Returns a list of LLMProvider instances.
     """
-    targets = [(OLLAMA_INGEST_HOST, EXTRACTION_MODEL)]
-    if not MEMORY_INGEST_STRICT_ISOLATION:
-        from config import MODEL_NAME, OLLAMA_CHAT_HOST, OLLAMA_CHAT_MODEL
+    from .provider_factory import get_ingest_provider, get_provider
 
-        targets.extend(
-            [
-                (OLLAMA_CHAT_HOST, OLLAMA_CHAT_MODEL),
-                (OLLAMA_CHAT_HOST, MODEL_NAME),
-            ]
-        )
-    unique: List[tuple] = []
-    seen = set()
-    for host, model in targets:
-        key = (host or "", model or "")
-        if not host or not model or key in seen:
+    providers = [get_ingest_provider()]
+    if not MEMORY_INGEST_STRICT_ISOLATION:
+        chat = get_provider()
+        if (chat.host, chat.model) != (providers[0].host, providers[0].model):
+            providers.append(chat)
+
+    # Filter out providers currently in backoff
+    result = []
+    now = time.time()
+    for p in providers:
+        key = (p.host or "", p.model or "")
+        if not key[0] or not key[1]:
             continue
-        now = time.time()
         with _BACKOFF_LOCK:
             blocked_until = float(_BACKOFF_UNTIL.get(key, 0.0) or 0.0)
         if blocked_until > now:
             continue
-        seen.add(key)
-        unique.append((host, model))
-    return unique
+        result.append(p)
+    return result
 
 
 def _set_target_backoff(host: str, model: str, seconds: int, reason: str):
@@ -223,39 +219,20 @@ def _set_target_backoff(host: str, model: str, seconds: int, reason: str):
     )
 
 
-def _call_model_once(message: str, source: str, host: str, model: str) -> Dict:
-    payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": _EXTRACTION_SYSTEM_PROMPT},
-            {
-                "role": "user",
-                "content": f"source={source}\nmessage={message}",
-            },
-        ],
-        "stream": False,
-        "format": "json",
-        "think": False,
-        "options": {
-            "temperature": 0.1,
-            "num_predict": EXTRACTION_MAX_TOKENS,
+def _call_model_once(message: str, source: str, provider) -> Dict:
+    messages = [
+        {"role": "system", "content": _EXTRACTION_SYSTEM_PROMPT},
+        {
+            "role": "user",
+            "content": f"source={source}\nmessage={message}",
         },
-    }
-    response = http_session.post(
-        f"{host}/api/chat",
-        json=payload,
+    ]
+    raw = provider.chat(
+        messages,
+        max_tokens=EXTRACTION_MAX_TOKENS,
+        temperature=0.1,
         timeout=EXTRACTION_TIMEOUT_SECONDS,
     )
-    if response.status_code != 200:
-        error_text = ""
-        try:
-            error_text = str(response.json().get("error", ""))
-        except Exception:
-            error_text = response.text or ""
-        raise ValueError(f"Ollama status {response.status_code}: {error_text}")
-
-    body = response.json()
-    raw = body.get("message", {}).get("content", "")
     if not raw:
         return {"facts": [], "triples": []}
 
@@ -314,14 +291,15 @@ def _call_extraction_model(message: str, source: str) -> Dict:
 
     In strict isolation mode this uses ingestion endpoint only.
     """
-    targets = _candidate_targets()
-    if not targets:
+    providers = _candidate_providers()
+    if not providers:
         raise RuntimeError("Extraction targets are temporarily in backoff")
 
     last_error = None
-    for host, model in targets:
+    for provider in providers:
+        host, model = provider.host, provider.model
         try:
-            return _call_model_once(message, source, host, model)
+            return _call_model_once(message, source, provider)
         except Exception as e:
             last_error = e
             err = str(e).lower()

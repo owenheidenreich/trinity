@@ -11,17 +11,16 @@
 import { useRef, useEffect, useCallback } from 'react';
 import { Message } from './Message';
 import { StreamingMessage } from './StreamingMessage';
-import { ContinueButton } from './ContinueButton';
-import type { ChatMessage, AgentPhase, AgentResponse } from '../../types';
+import type { ChatMessage, AgentPhase } from '../../types';
 
 interface MessageListProps {
   messages: ChatMessage[];
   streamingTokens: string;
   isStreaming: boolean;
   phase: AgentPhase | null;
-  agentResponse: AgentResponse | null;
   onEdit?: (messageIndex: number, content: string) => void;
-  onContinue?: () => void;
+  hasMoreMessages?: boolean;
+  onLoadMore?: () => void;
 }
 
 export function MessageList({
@@ -29,15 +28,17 @@ export function MessageList({
   streamingTokens,
   isStreaming,
   phase,
-  agentResponse,
   onEdit,
-  onContinue,
+  hasMoreMessages,
+  onLoadMore,
 }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const shouldAutoScrollRef = useRef(true);
   const prevMessageCountRef = useRef(messages.length);
   const wasStreamingRef = useRef(false);
+  const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
+  const isLoadingMoreRef = useRef(false);
   // Track whether a programmatic scroll is in progress so the onScroll
   // handler doesn't accidentally disable auto-scroll.
   const programmaticScrollRef = useRef(false);
@@ -120,11 +121,72 @@ export function MessageList({
     return () => document.removeEventListener('visibilitychange', handleVisibility);
   }, [scrollToBottom]);
 
-  const showContinue =
-    !isStreaming && agentResponse?.done_reason === 'length' && onContinue;
+  // ---- IntersectionObserver for "load more" sentinel at top ----
+  useEffect(() => {
+    const sentinel = loadMoreSentinelRef.current;
+    const container = containerRef.current;
+    if (!sentinel || !container || !hasMoreMessages || !onLoadMore) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting && !isLoadingMoreRef.current) {
+          isLoadingMoreRef.current = true;
+          // Capture scroll position from bottom to restore after prepend
+          const scrollBottom = container.scrollHeight - container.scrollTop;
+          void Promise.resolve(onLoadMore()).then(() => {
+            requestAnimationFrame(() => {
+              // Restore scroll position so the view doesn't jump
+              container.scrollTop = container.scrollHeight - scrollBottom;
+              isLoadingMoreRef.current = false;
+            });
+          });
+        }
+      },
+      { root: container, rootMargin: '200px 0px 0px 0px', threshold: 0 }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMoreMessages, onLoadMore]);
 
   return (
     <div ref={containerRef} style={{ overflow: 'auto', flex: 1, padding: '24px' }}>
+      {/* Sentinel + manual button for loading earlier messages */}
+      {hasMoreMessages && (
+        <div
+          ref={loadMoreSentinelRef}
+          style={{ textAlign: 'center', padding: '8px 0 16px' }}
+        >
+          <button
+            onClick={() => {
+              if (isLoadingMoreRef.current || !onLoadMore) return;
+              isLoadingMoreRef.current = true;
+              const container = containerRef.current;
+              const scrollBottom = container
+                ? container.scrollHeight - container.scrollTop
+                : 0;
+              void Promise.resolve(onLoadMore()).then(() => {
+                requestAnimationFrame(() => {
+                  if (container) {
+                    container.scrollTop = container.scrollHeight - scrollBottom;
+                  }
+                  isLoadingMoreRef.current = false;
+                });
+              });
+            }}
+            style={{
+              background: 'var(--color-bg-secondary)',
+              border: '1px solid var(--color-border)',
+              color: 'var(--color-text-muted)',
+              padding: '4px 12px',
+              borderRadius: 'var(--radius-sm)',
+              cursor: 'pointer',
+              fontSize: '0.8rem',
+            }}
+          >
+            Load earlier messages
+          </button>
+        </div>
+      )}
       {messages.map((msg, index) => (
         <Message
           key={msg.id}
@@ -147,11 +209,6 @@ export function MessageList({
             phase={phase}
           />
         )}
-      {showContinue && (
-        <div style={{ maxWidth: 'var(--chat-max-width)', margin: '0 auto' }}>
-          <ContinueButton onContinue={onContinue} />
-        </div>
-      )}
       <div ref={bottomRef} />
     </div>
   );

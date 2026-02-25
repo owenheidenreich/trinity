@@ -6,7 +6,7 @@ Handles: tier selection, provider discovery, lease creation, manifest sending
 Usage:
   python3 akash_deploy.py <deploy_dir> <image_tag> [tier]
   
-  tier: production (Qwen3 32B), test (Qwen3 8B)
+  tier: test (Qwen3 8B), production (Qwen3 32B), tier3 (Qwen3-Coder-Next 80B MoE)
         If not specified, prompts for selection
 """
 
@@ -55,19 +55,22 @@ AKASH_NODE = "https://rpc.akashnet.net:443"
 AKASH_CHAIN_ID = "akashnet-2"
 WALLET_NAME = "trinity-wallet"
 
-# Tier definitions: production (32B) + test (7B)
+# Tier definitions: test (8B), production (32B), tier3 (80B MoE)
 TIERS = {
-    "production": {"yaml": "deploy-production.yaml", "desc": "Qwen3 32B (Production)", "cost": "~$600-1000/mo"},
     "test": {"yaml": "deploy-test.yaml", "desc": "Qwen3 8B (Test)", "cost": "~$40-100/mo"},
+    "production": {"yaml": "deploy-production.yaml", "desc": "Qwen3 32B (Production)", "cost": "~$600-1000/mo"},
+    "tier3": {"yaml": "deploy-tier3.yaml", "desc": "Qwen3-Coder-Next 80B MoE (High Perf)", "cost": "~$1200-2500/mo"},
 }
 
 # Minimum price thresholds per tier (below this = hardware too weak)
 # Production needs 40GB+ VRAM GPUs (A100, A6000, H100, L40S, A40, RTX 4090).
+# Tier 3 needs 80GB VRAM GPUs (A100-80GB, H100-80GB).
 # Cheap providers (~$300-400/mo) often have RTX 3090 (24GB) which can't fit
 # the full qwen3:32b model in VRAM, causing >60s time-to-first-token.
 MIN_PRICE_MONTHLY = {
-    "production": 400,  # 32B needs 40GB+ VRAM GPU (A100/A6000/H100)
-    "test": 5,          # 7B runs on anything with a GPU
+    "test": 5,           # 8B runs on anything with a GPU
+    "production": 400,   # 32B needs 40GB+ VRAM GPU (A100/A6000/H100)
+    "tier3": 800,        # 80B MoE needs 80GB VRAM GPU (A100-80GB/H100-80GB only)
 }
 
 # Providers to AVOID - known issues with timeouts, SSL, or reliability
@@ -240,6 +243,15 @@ def inject_env_values(yaml_content):
         yaml_content = yaml_content.replace(
             '${BRAVE_SEARCH_API_KEY}',
             ENV_VALUES['BRAVE_SEARCH_API_KEY']
+        )
+    if 'HF_TOKEN' in ENV_VALUES:
+        yaml_content = yaml_content.replace(
+            '- HF_TOKEN=\n',
+            f'- HF_TOKEN={ENV_VALUES["HF_TOKEN"]}\n'
+        )
+        yaml_content = yaml_content.replace(
+            '${HF_TOKEN}',
+            ENV_VALUES['HF_TOKEN']
         )
     return yaml_content
 
@@ -452,18 +464,21 @@ def select_tier():
     print("\n┌─────────────────────────────────────────────────────────────┐")
     print("│                    SELECT DEPLOYMENT TIER                    │")
     print("├─────────────────────────────────────────────────────────────┤")
-    print("│  1) production  — Qwen3 32B (~$600-1000/mo)              │")
-    print("│  2) test        — Qwen3 8B  (~$40-100/mo)                │")
+    print("│  1) test        — Qwen3 8B    (~$40-100/mo)               │")
+    print("│  2) production  — Qwen3 32B   (~$600-1000/mo)            │")
+    print("│  3) tier3       — Coder-Next 80B MoE (~$1200-2500/mo)    │")
     print("└─────────────────────────────────────────────────────────────┘")
     
     while True:
         try:
-            choice = input("\nSelect tier [1=production / 2=test]: ").strip()
-            if choice in ['1', 'production']:
-                return 'production'
-            if choice in ['2', 'test']:
+            choice = input("\nSelect tier [1=test / 2=production / 3=tier3]: ").strip()
+            if choice in ['1', 'test']:
                 return 'test'
-            print("Please enter 1/production or 2/test")
+            if choice in ['2', 'production']:
+                return 'production'
+            if choice in ['3', 'tier3']:
+                return 'tier3'
+            print("Please enter 1/test, 2/production, or 3/tier3")
         except (EOFError, KeyboardInterrupt):
             print("\nCancelled.")
             sys.exit(1)
@@ -482,7 +497,7 @@ def main():
     image_tag = sys.argv[2]
     
     # Get tier from argument or prompt
-    if len(sys.argv) >= 4 and sys.argv[3] in ['production', 'test']:
+    if len(sys.argv) >= 4 and sys.argv[3] in TIERS:
         selected_tier = sys.argv[3]
         print(f"\n✅ Using {selected_tier}: {TIERS[selected_tier]['desc']}")
     else:
@@ -627,9 +642,11 @@ def main():
             continue
         print("OK")
         
-        # Wait for container - production tier (32B) needs longer to pull model
+        # Wait for container - larger models need longer to pull/load
         if selected_tier == "test":
             max_wait = 420   # 7 min for Qwen3 8B
+        elif selected_tier == "tier3":
+            max_wait = 1800  # 30 min for Qwen3-Coder-Next 80B (48GB split GGUF download + load)
         else:
             max_wait = 1200  # 20 min for Qwen3 32B
         

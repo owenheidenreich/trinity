@@ -1,7 +1,7 @@
 # Trinity Conventions
 
 > Machine-readable rules for AI coding assistants. One rule per line, grep-friendly.
-> **Last Updated:** February 19, 2026
+> **Last Updated:** February 20, 2026
 
 ## State Management
 DO: Use Zustand setter methods — `State.setAuthenticated()`, `State.setChatHistory()`
@@ -17,17 +17,23 @@ DON'T: Panic on 20-30s first-request delay after deploy — model loading is nor
 DO: Use `@require_auth` decorator for protected endpoints
 DO: Register new blueprints in `routes/__init__.py` ALL_BLUEPRINTS list
 DO: Add new services to `services/__init__.py` exports
-DO: Pass `think=False` on all Ollama LLM calls (suppresses Qwen3 `<think>` blocks that cause empty responses)
+DON'T: Pass `think=False` to llama-server — that was Ollama-specific. `think_filter.py` strips `<think>` blocks from the stream instead.
 PATTERN: New API route → blueprint in `routes/` → register in `routes/__init__.py`
 PATTERN: New tool → define in `tools.py` TOOL_DEFINITIONS → dispatch in `code_executor.py`
 PATTERN: New middleware → add to `middleware/__init__.py` exports
 DON'T: Import from `database.py` — it's unused dead code (future feature)
-DON'T: Omit `think=False` from Ollama calls — Qwen3 `<think>` blocks consume tokens and cause timeouts
+DON'T: Delete regex fallback patterns — they are the permanent safety net for low-confidence classifier results. See [MICROGPT.md](MICROGPT.md)
+PATTERN: Classification order → classifier first (tiny_classifier.py), regex fallback if confidence < threshold, safe default if neither matches
+DON'T: Reference `ollama_provider.py` or `ollama.py` — these files are deleted. Use `llama_server_provider.py`.
 PATTERN: Context loading → `context_loader.load_context()` (single function, not scattered paths)
 PATTERN: Prompt building → `prompt_assembler.assemble()` (token-budgeted, auto-generated tool sections)
 PATTERN: Streaming → `pipeline.StreamingPipeline` (not agent.py directly)
 PATTERN: Memory retrieval → `knowledge_store.search()` (unified ANN/brute-force)
 PATTERN: Background ingestion → `ingestion_worker.enqueue_ingestion()` (event-driven daemon)
+PATTERN: Query classification → `tiny_classifier.classify_query()` (ByteTransformer, pure numpy)
+PATTERN: Tool detection → `tiny_classifier.detect_tools()` (ByteTransformer, pure numpy)
+PATTERN: Temperature routing → `query_classifier.classify_temperature()` (code→0.1, factual→0.3, conversational→0.7)
+PATTERN: LLM provider → `provider_factory.get_provider()` → `LlamaServerProvider` (OpenAI-compatible API)
 
 ## Frontend Patterns (React 19 — `src-react/`)
 DO: Use hooks (`useAuth`, `useChat`, `useAutosave`, `useConnection`) not raw store access

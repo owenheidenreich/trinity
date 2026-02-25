@@ -203,12 +203,13 @@ class TestAuthentication:
     """Test authentication flow end-to-end."""
 
     def test_auth_required_endpoint_without_headers(self, client):
-        """Protected endpoints should reject unauthenticated requests."""
+        """Endpoints with require_auth_or_anonymous allow anonymous access."""
         response = client.post(
             "/chat/start", json={"chat_id": "test", "title": "Test"}, content_type="application/json"
         )
 
-        assert response.status_code == 401
+        # /chat/start now allows anonymous access (require_auth_or_anonymous)
+        assert response.status_code == 200
 
     def test_auth_required_endpoint_with_mock_auth(self, client, mock_auth):
         """Protected endpoints should accept valid auth when mocked."""

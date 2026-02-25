@@ -2,9 +2,9 @@
 Tests for LLM Provider Abstraction Layer
 
 Validates that:
-1. OllamaProvider implements the LLMProvider interface
-2. NDJSON parsing (Ollama) produces correct output contracts
-3. Provider factory creates OllamaProvider correctly
+1. LlamaServerProvider implements the LLMProvider interface
+2. SSE parsing (llama-server) produces correct output contracts
+3. Provider factory creates LlamaServerProvider correctly
 4. All intelligence checks (tool detection, think-block filtering, structured output)
    work correctly
 5. End-to-end pipeline: same input → same processing → correct output format
@@ -42,18 +42,18 @@ class TestLLMProviderABC:
 
 
 # ============================================================================
-# OllamaProvider Tests
+# LlamaServerProvider Tests
 # ============================================================================
 
 
-class TestOllamaProvider:
-    """Test OllamaProvider implements LLMProvider correctly."""
+class TestLlamaServerProvider:
+    """Test LlamaServerProvider implements LLMProvider correctly."""
 
     def _make_provider(self):
-        from services.ollama_provider import OllamaProvider
-        return OllamaProvider(
-            host="http://localhost:11434",
-            model="qwen2.5-coder:32b",
+        from services.llama_server_provider import LlamaServerProvider
+        return LlamaServerProvider(
+            host="http://localhost:8081",
+            model="qwen3-32b",
             num_ctx=32768,
         )
 
@@ -64,38 +64,38 @@ class TestOllamaProvider:
 
     def test_backend_name(self):
         provider = self._make_provider()
-        assert provider.backend_name == "ollama"
+        assert provider.backend_name == "llamaserver"
 
     def test_repr(self):
         provider = self._make_provider()
-        assert "OllamaProvider" in repr(provider)
-        assert "11434" in repr(provider)
+        assert "LlamaServerProvider" in repr(provider)
+        assert "8081" in repr(provider)
 
     def test_generate_success(self):
         provider = self._make_provider()
-        with patch("services.ollama_provider.requests.post") as mock_post:
+        with patch("services.llama_server_provider.requests.post") as mock_post:
             mock_resp = MagicMock()
             mock_resp.status_code = 200
-            mock_resp.json.return_value = {"response": "Hello world"}
+            mock_resp.json.return_value = {"choices": [{"text": "Hello world"}]}
             mock_post.return_value = mock_resp
 
             result = provider.generate("Say hello", max_tokens=100)
             assert result == "Hello world"
             mock_post.assert_called_once()
             call_args = mock_post.call_args
-            assert "/api/generate" in call_args[0][0]
+            assert "/v1/completions" in call_args[0][0]
 
     def test_generate_timeout(self):
         import requests
         provider = self._make_provider()
-        with patch("services.ollama_provider.requests.post",
+        with patch("services.llama_server_provider.requests.post",
                     side_effect=requests.Timeout):
             result = provider.generate("test", timeout=1)
             assert result == ""
 
     def test_generate_error_status(self):
         provider = self._make_provider()
-        with patch("services.ollama_provider.requests.post") as mock_post:
+        with patch("services.llama_server_provider.requests.post") as mock_post:
             mock_resp = MagicMock()
             mock_resp.status_code = 500
             mock_post.return_value = mock_resp
@@ -104,19 +104,18 @@ class TestOllamaProvider:
 
     def test_generate_stream_yields_tokens_and_done(self):
         provider = self._make_provider()
-        chunks = [
-            json.dumps({"response": "Hello", "done": False}).encode(),
-            json.dumps({"response": " world", "done": False}).encode(),
-            json.dumps({"response": "", "done": True, "done_reason": "stop"}).encode(),
+        lines = [
+            b'data: {"choices": [{"text": "Hello"}]}',
+            b'data: {"choices": [{"text": " world"}]}',
+            b'data: {"choices": [{"text": "", "finish_reason": "stop"}]}',
         ]
-        with patch("services.ollama_provider.requests.post") as mock_post:
+        with patch("services.llama_server_provider.requests.post") as mock_post:
             mock_resp = MagicMock()
             mock_resp.status_code = 200
-            mock_resp.iter_lines.return_value = chunks
+            mock_resp.iter_lines.return_value = lines
             mock_post.return_value = mock_resp
 
             tokens = list(provider.generate_stream("test"))
-            # Should have 2 content tokens + 1 done signal
             content = [t for t in tokens if isinstance(t, str)]
             done_signals = [t for t in tokens if isinstance(t, dict)]
 
@@ -126,11 +125,11 @@ class TestOllamaProvider:
 
     def test_chat_success(self):
         provider = self._make_provider()
-        with patch("services.ollama_provider.requests.post") as mock_post:
+        with patch("services.llama_server_provider.requests.post") as mock_post:
             mock_resp = MagicMock()
             mock_resp.status_code = 200
             mock_resp.json.return_value = {
-                "message": {"role": "assistant", "content": "Hi there!"}
+                "choices": [{"message": {"role": "assistant", "content": "Hi there!"}}]
             }
             mock_post.return_value = mock_resp
 
@@ -140,15 +139,15 @@ class TestOllamaProvider:
             )
             assert result == "Hi there!"
             call_args = mock_post.call_args
-            assert "/api/chat" in call_args[0][0]
+            assert "/v1/chat/completions" in call_args[0][0]
 
     def test_chat_raw_message(self):
         provider = self._make_provider()
-        with patch("services.ollama_provider.requests.post") as mock_post:
+        with patch("services.llama_server_provider.requests.post") as mock_post:
             mock_resp = MagicMock()
             mock_resp.status_code = 200
             mock_resp.json.return_value = {
-                "message": {"role": "assistant", "content": "Hi", "tool_calls": []}
+                "choices": [{"message": {"role": "assistant", "content": "Hi", "tool_calls": []}}]
             }
             mock_post.return_value = mock_resp
 
@@ -159,38 +158,34 @@ class TestOllamaProvider:
             assert isinstance(result, dict)
             assert result["content"] == "Hi"
 
-    def test_check_connection_with_matching_model(self):
+    def test_check_connection_healthy(self):
         provider = self._make_provider()
-        with patch("services.ollama_provider.requests.get") as mock_get:
+        with patch("services.llama_server_provider.requests.get") as mock_get:
             mock_resp = MagicMock()
             mock_resp.status_code = 200
-            mock_resp.json.return_value = {
-                "models": [{"name": "qwen2.5-coder:32b", "size": 1000}]
-            }
+            mock_resp.json.return_value = {"status": "ok"}
             mock_get.return_value = mock_resp
             assert provider.check_connection() is True
 
-    def test_check_connection_no_matching_model(self):
+    def test_check_connection_no_slot(self):
         provider = self._make_provider()
-        with patch("services.ollama_provider.requests.get") as mock_get:
+        with patch("services.llama_server_provider.requests.get") as mock_get:
             mock_resp = MagicMock()
             mock_resp.status_code = 200
-            mock_resp.json.return_value = {
-                "models": [{"name": "llama3:8b", "size": 500}]
-            }
+            mock_resp.json.return_value = {"status": "no slot available"}
             mock_get.return_value = mock_resp
-            assert provider.check_connection() is False
+            assert provider.check_connection() is True
 
     def test_check_connection_failure(self):
         import requests
         provider = self._make_provider()
-        with patch("services.ollama_provider.requests.get",
+        with patch("services.llama_server_provider.requests.get",
                     side_effect=requests.ConnectionError):
             assert provider.check_connection() is False
 
     def test_warmup_success(self):
         provider = self._make_provider()
-        with patch("services.ollama_provider.requests.post") as mock_post:
+        with patch("services.llama_server_provider.requests.post") as mock_post:
             mock_resp = MagicMock()
             mock_resp.status_code = 200
             mock_post.return_value = mock_resp
@@ -199,7 +194,7 @@ class TestOllamaProvider:
     def test_warmup_timeout(self):
         import requests
         provider = self._make_provider()
-        with patch("services.ollama_provider.requests.post",
+        with patch("services.llama_server_provider.requests.post",
                     side_effect=requests.Timeout):
             assert provider.warmup() is False
 
@@ -220,18 +215,14 @@ class TestProviderFactory:
         from services.provider_factory import reset_provider
         reset_provider()
 
-    @patch("config.OLLAMA_HOST", "http://localhost:11434")
-    @patch("config.MODEL_NAME", "qwen2.5-coder:32b")
     @patch("config.NUM_CTX", 32768)
-    def test_create_ollama_provider(self):
+    def test_create_llama_server_provider(self):
         from services.provider_factory import create_provider
-        from services.ollama_provider import OllamaProvider
+        from services.llama_server_provider import LlamaServerProvider
         provider = create_provider()
-        assert isinstance(provider, OllamaProvider)
-        assert provider.backend_name == "ollama"
+        assert isinstance(provider, LlamaServerProvider)
+        assert provider.backend_name == "llamaserver"
 
-    @patch("config.OLLAMA_HOST", "http://localhost:11434")
-    @patch("config.MODEL_NAME", "qwen2.5-coder:32b")
     @patch("config.NUM_CTX", 32768)
     def test_singleton_returns_same_instance(self):
         from services.provider_factory import get_provider
@@ -239,8 +230,6 @@ class TestProviderFactory:
         p2 = get_provider()
         assert p1 is p2
 
-    @patch("config.OLLAMA_HOST", "http://localhost:11434")
-    @patch("config.MODEL_NAME", "qwen2.5-coder:32b")
     @patch("config.NUM_CTX", 32768)
     def test_reset_clears_singleton(self):
         from services.provider_factory import get_provider, reset_provider
@@ -269,16 +258,14 @@ class TestPipelineIntegration:
 
     def test_agent_pipeline_falls_back_to_factory(self):
         """AgentPipeline uses provider factory when no provider given."""
-        with patch("config.MODEL_BACKEND", "ollama"), \
-             patch("config.OLLAMA_HOST", "http://localhost:11434"), \
-             patch("config.MODEL_NAME", "test:8b"), \
+        with patch("config.MODEL_BACKEND", "llama-server"), \
              patch("config.NUM_CTX", 32768):
             from services.provider_factory import reset_provider
             reset_provider()
             from services.agent import AgentPipeline
-            from services.ollama_provider import OllamaProvider
+            from services.llama_server_provider import LlamaServerProvider
             pipeline = AgentPipeline()
-            assert isinstance(pipeline.client, OllamaProvider)
+            assert isinstance(pipeline.client, LlamaServerProvider)
             reset_provider()
 
     def test_think_block_filter(self):
@@ -309,19 +296,22 @@ class TestPipelineIntegration:
         assert len(done_signals) == 1
         assert done_signals[0]["__done_reason"] == "stop"
 
-    def test_smalltalk_detection_is_conservative(self):
-        """Only truly trivial phatic messages should use the fast path."""
-        from services.agent import is_trivial_smalltalk
+    def test_smalltalk_detection_is_deprecated(self):
+        """is_trivial_smalltalk is deprecated — always returns False."""
+        from services.query_classifier import is_trivial_smalltalk
 
-        assert is_trivial_smalltalk("hello")
-        assert is_trivial_smalltalk("thanks!")
+        assert not is_trivial_smalltalk("hello")
+        assert not is_trivial_smalltalk("thanks!")
         assert not is_trivial_smalltalk("hello can you summarize this file")
 
-    def test_smalltalk_fast_path_skips_llm_call(self):
-        """Fast-path greetings should not call the LLM at all."""
+    def test_smalltalk_goes_through_llm(self):
+        """All queries go through the LLM — no fast-path."""
         from services.agent import AgentPipeline
 
         mock_provider = MagicMock()
+        mock_provider.chat_stream.return_value = iter(
+            ["Hey there! ", {"__done_reason": "stop"}]
+        )
         pipeline = AgentPipeline(provider=mock_provider)
 
         events = list(
@@ -329,18 +319,13 @@ class TestPipelineIntegration:
                 question="hello",
                 context_messages=[],
                 user_memory={},
-                fast_path=True,
             )
         )
 
-        mock_provider.chat_stream.assert_not_called()
-        mock_provider.generate_stream.assert_not_called()
+        # LLM SHOULD be called for all queries, including greetings
+        mock_provider.chat_stream.assert_called_once()
         tokens = [e["token"] for e in events if isinstance(e, dict) and "token" in e]
-        done_events = [e for e in events if isinstance(e, dict) and e.get("done")]
-
-        assert len(tokens) == 1
-        assert "ready" in tokens[0].lower()
-        assert len(done_events) == 1
+        assert len(tokens) >= 1
 
     def test_non_personal_query_omits_identity_prompt_memory(self):
         """Neutral factual prompts should not inject identity/style memory into chat messages."""
@@ -457,12 +442,9 @@ class TestPipelineIntegration:
 class TestStructuredOutputDispatch:
     """Verify structured output correctly dispatches to Ollama."""
 
-    @patch("config.MODEL_BACKEND", "ollama")
-    @patch("config.OLLAMA_HOST", "http://localhost:11434")
+    @patch("config.MODEL_BACKEND", "llama-server")
     def test_structured_fallback_uses_provider(self):
         """safe_structured_generate fallback path should use get_provider()."""
-        # The fallback in safe_structured_generate calls get_provider().generate()
-        # get_provider is imported inside the function, so patch at factory level
         with patch("services.structured.generate_structured", return_value=None):
             with patch("services.provider_factory.get_provider") as mock_factory:
                 mock_provider = MagicMock()
@@ -474,5 +456,4 @@ class TestStructuredOutputDispatch:
                     "test prompt",
                     {"type": "object", "properties": {"tool": {"type": "string"}}},
                 )
-                # Verify fallback used the provider
                 mock_provider.generate.assert_called_once()

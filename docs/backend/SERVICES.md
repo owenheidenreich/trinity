@@ -62,7 +62,7 @@ backend/
     ├── ollama.py            # Ollama HTTP client
     ├── ollama_provider.py   # Ollama provider implementation
     ├── llm_provider.py      # Abstract LLM provider interface
-    ├── provider_factory.py  # Provider factory (Ollama, vLLM)
+    ├── provider_factory.py  # Provider factory (Ollama)
     ├── model_router.py      # Model routing logic
     │
     │   # ── Search & RAG ──
@@ -308,7 +308,7 @@ MemGPT pattern: `save_memory`, `recall_memory`, `search_memory`, `update_memory`
 
 Cached singleton providers keyed by `(backend, host, model, num_ctx)`:
 - Model routing based on complexity (Tier 1/2/3 Qwen3 family)
-- Supports Ollama and vLLM backends
+- Supports Ollama backend
 
 ---
 

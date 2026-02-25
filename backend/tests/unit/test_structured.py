@@ -281,11 +281,10 @@ class TestSafeStructuredGenerate:
         schema = {"type": "object", "required": ["x"], "properties": {"x": {"type": "integer"}}}
 
         with patch("services.structured.generate_structured", return_value=None):
-            with patch("requests.post") as mock_post:
-                mock_resp = MagicMock()
-                mock_resp.status_code = 200
-                mock_resp.json.return_value = {"response": 'Here is the JSON: {"x": 99}'}
-                mock_post.return_value = mock_resp
+            with patch("services.provider_factory.get_provider") as mock_factory:
+                mock_provider = MagicMock()
+                mock_provider.generate.return_value = 'Here is the JSON: {"x": 99}'
+                mock_factory.return_value = mock_provider
 
                 result = safe_structured_generate("test", schema)
 
@@ -317,11 +316,10 @@ class TestSafeStructuredGenerate:
             return {"x": int(text.strip())}
 
         with patch("services.structured.generate_structured", return_value=None):
-            with patch("requests.post") as mock_post:
-                mock_resp = MagicMock()
-                mock_resp.status_code = 200
-                mock_resp.json.return_value = {"response": "42"}
-                mock_post.return_value = mock_resp
+            with patch("services.provider_factory.get_provider") as mock_factory:
+                mock_provider = MagicMock()
+                mock_provider.generate.return_value = "42"
+                mock_factory.return_value = mock_provider
 
                 result = safe_structured_generate("test", schema, fallback_parser=custom_parser)
 
@@ -334,7 +332,10 @@ class TestSafeStructuredGenerate:
         schema = {"type": "object", "required": ["x"]}
 
         with patch("services.structured.generate_structured", return_value=None):
-            with patch("requests.post", side_effect=req_lib.ConnectionError):
+            with patch("services.provider_factory.get_provider") as mock_factory:
+                mock_provider = MagicMock()
+                mock_provider.generate.side_effect = req_lib.ConnectionError
+                mock_factory.return_value = mock_provider
                 result = safe_structured_generate("test", schema)
 
         assert result is None

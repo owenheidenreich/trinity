@@ -5,10 +5,10 @@ Extracts the core streaming logic from the former 1086-line ``agent.py``
 god module into a focused, composable pipeline.
 
 The pipeline follows one path for every query:
-  1. Fast-path smalltalk → instant response (no LLM)
-  2. Detect tools needed
-  3. If tools → ReAct loop (streaming)
-     Else → direct chat_stream with think-block filtering
+  1. If tools needed → ReAct loop (streaming)
+  2. Else → direct chat_stream with think-block filtering
+
+All queries go through the LLM. There are no hardcoded responses.
 
 Public API
 ----------
@@ -19,6 +19,7 @@ Public API
 from __future__ import annotations
 
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Dict, Generator, List, Optional
@@ -30,19 +31,19 @@ from .loading_messages import format_phase_update
 from .search import format_search_context, is_search_available, search_web
 from .think_filter import (
     contains_fenced_code,
+    detect_prompt_leakage,
     filter_think_blocks,
+    looks_like_code,
+    wrap_code_block,
 )
-from .query_classifier import (
-    smalltalk_fast_response,
-)
-
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 
-MAX_TOKENS = 16384
+from config import DEFAULT_MAX_TOKENS as MAX_TOKENS  # noqa: E402 — synced with prompt assembler
+
 TIMEOUT = 300
 SEARCH_TIMEOUT = 30
 
@@ -53,6 +54,58 @@ _SEARCH_KEYWORDS = frozenset([
     "search", "look up", "find out", "how much", "what day",
     "what time", "right now", "bitcoin", "stock", "crypto",
 ])
+
+# ---------------------------------------------------------------------------
+# Tool-call rescue: catches tool-call JSON/XML on the direct-chat path
+# ---------------------------------------------------------------------------
+
+# Characters that could start a tool-call response (JSON, XML, markdown bold, code fence)
+_TOOL_CALL_START_CHARS = frozenset('{<*`')
+# Buffer threshold: accumulate this many chars before deciding tool-call vs normal
+_TOOL_RESCUE_BUFFER_CHARS = 50
+
+_KNOWN_TOOL_NAMES_RE = re.compile(
+    r'\b(calculator|code_display|document_search|web_search|fact_check|'
+    r'save_memory|recall_memory|search_memory|update_memory|forget_memory|'
+    r'read_file|write_file|list_directory|search_codebase|run_command|'
+    r'current_datetime)\b',
+    re.IGNORECASE,
+)
+
+
+def _is_tool_call_output(text: str) -> bool:
+    """Check if LLM output looks like a raw tool call rather than a natural response.
+
+    Detects JSON, XML, and markdown-bold tool-call formats that Qwen3 emits
+    when it wants to call a tool but the pipeline is on the direct-chat path.
+    """
+    stripped = text.strip()
+    if not stripped:
+        return False
+
+    # Strip code fences for normalisation
+    clean = re.sub(r'^```(?:json)?\s*', '', stripped)
+    clean = re.sub(r'```\s*$', '', clean).strip()
+
+    # JSON tool call: {"tool": "..."} or {"name": "..."}
+    if clean.startswith('{') and re.search(r'"(tool|name)"\s*:', clean):
+        return True
+
+    # XML tool call: <tool_call ...>
+    if re.match(r'<tool_call', stripped, re.IGNORECASE):
+        return True
+
+    # Markdown bold tool name: **save_memory**
+    bold_match = re.match(r'\*\*(\w+)\*\*', stripped)
+    if bold_match and _KNOWN_TOOL_NAMES_RE.match(bold_match.group(1)):
+        return True
+
+    # Bare tool name followed by newline + JSON/XML
+    bare_match = re.match(r'^(\w+)\s*\n\s*[<{]', stripped)
+    if bare_match and _KNOWN_TOOL_NAMES_RE.match(bare_match.group(1)):
+        return True
+
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -157,12 +210,11 @@ class StreamingPipeline:
         *,
         search_context: str = "",
         principal_id: str = None,
-        fast_path: bool = False,
-        disclosure_path: bool = False,
         tools_needed: Optional[List[str]] = None,
         chat_id: str = None,
         max_tokens: int = MAX_TOKENS,
         timeout: int = TIMEOUT,
+        temperature: float = 0.7,
         **kwargs,
     ) -> Generator[Dict, None, None]:
         """Stream a response for a single user turn.
@@ -186,22 +238,12 @@ class StreamingPipeline:
         record_complexity("single_pass")
         record_routing("agent")
 
-        # ----- Fast-path: trivial smalltalk -----
-        if fast_path:
-            logger.info("⚡ Pipeline fast-path: trivial smalltalk")
-            yield format_phase_update("executing")
-            full_response = smalltalk_fast_response(question)
-            yield {"token": full_response}
-            yield self._done_event(full_response, False, start_time)
-            return
-
         # ----- Tool decision (trusted from context_loader) -----
         use_tools = bool(tools_needed)
 
         logger.info(
-            "🧠 Pipeline: single-pass, tools=%s, disclosure=%s",
+            "🧠 Pipeline: single-pass, tools=%s",
             use_tools,
-            disclosure_path,
         )
 
         # ----- Web search (non-tool path only) -----
@@ -230,18 +272,28 @@ class StreamingPipeline:
                     search_context=search_context,
                     max_tokens=max_tokens,
                     timeout=timeout,
+                    temperature=temperature,
                 ):
                     if "token" in event:
                         full_response += event["token"]
                     yield event
 
             else:
-                # ------ Direct streaming generation ------
+                # ------ Direct streaming with tool-call rescue ------
+                # Buffer initial tokens to detect if the model is outputting
+                # a raw tool-call (JSON/XML) instead of a natural answer.
+                # If detected, execute the tool and re-prompt for a real answer.
                 filtered_parts: list[str] = []
+                _buf: list[str] = []
+                _buf_n = 0
+                _decided = False
+                _rescue = False
+
                 for token in filter_think_blocks(
                     self.client.chat_stream(
                         messages,
                         max_tokens,
+                        temperature=temperature,
                         timeout=timeout,
                         think=False,
                     ),
@@ -250,12 +302,152 @@ class StreamingPipeline:
                     if isinstance(token, dict) and "__done_reason" in token:
                         last_done_reason = token["__done_reason"]
                         continue
-                    yield {"token": token}
+
+                    # Non-string metadata tokens: yield immediately, don't buffer
+                    if not isinstance(token, str):
+                        if not (_decided and _rescue):
+                            yield {"token": token}
+                        continue
+
+                    if _decided:
+                        if not _rescue:
+                            yield {"token": token}
+                        # else: consume silently (filtered_parts still captures it)
+                    else:
+                        _buf.append(token)
+                        _buf_n += len(token)
+
+                        # Fast exit: first real char is not a tool-call starter
+                        buf_text = "".join(_buf).lstrip()
+                        if buf_text and buf_text[0] not in _TOOL_CALL_START_CHARS:
+                            _decided = True
+                            for bt in _buf:
+                                yield {"token": bt}
+                        elif _buf_n >= _TOOL_RESCUE_BUFFER_CHARS:
+                            if _is_tool_call_output(buf_text):
+                                _decided = True
+                                _rescue = True
+                                logger.info(
+                                    "🔧 Tool rescue: detected tool-call in direct-chat output"
+                                )
+                            else:
+                                _decided = True
+                                for bt in _buf:
+                                    yield {"token": bt}
+
+                # Handle short responses that ended before buffer threshold
+                if not _decided:
+                    buf_text = "".join(_buf)
+                    if _is_tool_call_output(buf_text):
+                        _rescue = True
+                        logger.info(
+                            "🔧 Tool rescue: detected tool-call in short direct-chat output"
+                        )
+                    else:
+                        for bt in _buf:
+                            yield {"token": bt}
+
                 full_response = "".join(filtered_parts)
+
+                # --- Tool-call rescue execution ---
+                if _rescue:
+                    from .code_executor import execute_tool
+                    from .tools import parse_tool_calls
+
+                    tool_calls = parse_tool_calls(full_response)
+                    if tool_calls:
+                        tc = tool_calls[0]
+                        logger.info("🔧 Tool rescue: executing %s", tc.name)
+
+                        yield format_phase_update(
+                            "tool_execution", f"Using {tc.name}..."
+                        )
+
+                        context = {}
+                        if principal_id:
+                            context["principal_id"] = principal_id
+                        try:
+                            success, output = execute_tool(
+                                tc.name, tc.params, context=context
+                            )
+                        except Exception as exc:
+                            logger.error("Tool rescue exec error: %s", exc)
+                            success, output = False, str(exc)
+
+                        status = "done" if success else "error"
+                        yield format_phase_update(
+                            "tool_result", f"{tc.name}: {status}"
+                        )
+
+                        # Re-prompt with tool result for a natural answer
+                        result_text = (
+                            output if success else f"Error: {output}"
+                        )
+                        rescue_msgs = list(messages) + [
+                            {
+                                "role": "assistant",
+                                "content": f"I'll use the {tc.name} tool.",
+                            },
+                            {
+                                "role": "user",
+                                "content": (
+                                    f"[Tool Result: {tc.name}]\n{result_text}\n\n"
+                                    f"Now give your final answer based on this result."
+                                ),
+                            },
+                        ]
+
+                        rescue_parts: list[str] = []
+                        for rescue_tok in filter_think_blocks(
+                            self.client.chat_stream(
+                                rescue_msgs,
+                                max_tokens,
+                                temperature=temperature,
+                                timeout=timeout,
+                                think=False,
+                            ),
+                            rescue_parts,
+                        ):
+                            if isinstance(rescue_tok, dict) and "__done_reason" in rescue_tok:
+                                last_done_reason = rescue_tok["__done_reason"]
+                                continue
+                            yield {"token": rescue_tok}
+
+                        full_response = "".join(rescue_parts)
+                    else:
+                        # Detection triggered but parse failed — emit raw output
+                        logger.warning(
+                            "🔧 Tool rescue: parse returned empty, emitting raw"
+                        )
+                        yield {"token": full_response}
 
         except Exception as e:
             logger.error("Pipeline streaming error: %s", e)
             yield {"error": str(e)}
+
+        # Auto-fence unfenced code blocks (deterministic post-processor)
+        if looks_like_code(full_response) and not contains_fenced_code(full_response):
+            full_response = wrap_code_block(full_response, "")
+
+        # --- Prompt leakage detection (canary + n-gram) ---
+        system_content = ""
+        canaries: list[str] = []
+        if messages:
+            system_content = messages[0].get("content", "")
+            # Extract canary tokens embedded during assembly
+            import re as _re
+
+            canary_match = _re.search(
+                r"\[Internal reference: (CANARY_\w+(?: CANARY_\w+)*)\]",
+                system_content,
+            )
+            if canary_match:
+                canaries = canary_match.group(1).split()
+        if canaries and detect_prompt_leakage(full_response, canaries, system_content):
+            full_response = (
+                "I'm not able to share that information. "
+                "How can I help you with something else?"
+            )
 
         if response_mode == "normal" and contains_fenced_code(full_response):
             response_mode = "inline_code"

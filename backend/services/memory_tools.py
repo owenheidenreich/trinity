@@ -260,7 +260,7 @@ def tool_forget_memory(params: Dict, principal_id: str) -> Tuple[bool, str]:
             return False, "Failed to generate query embedding"
 
         from services.knowledge_store import ItemType
-        results = ks.search(query_emb, top_k=1, item_types=[ItemType.FACT])
+        results = ks.search(query_emb, top_k=1, item_types=[ItemType.FACT, ItemType.RELATIONSHIP])
         if not results or results[0].similarity_score < 0.3:
             return False, f'No memory found matching: "{query}"'
 
@@ -322,76 +322,10 @@ def _search_with_exact(
     category_filter: str | None,
     principal_id: str,
 ) -> Tuple[bool, str]:
-    """Search with exact substring matching, optionally combined with semantic."""
-    try:
-        ks = _get_knowledge_store(principal_id)
+    """Search memories using semantic search.
 
-        # Try exact match via SQL LIKE
-        exact_results: List[Dict] = []
-        try:
-            store = ks.store
-            with store._lock:
-                sql = "SELECT * FROM facts WHERE deleted_at IS NULL AND LOWER(text) LIKE ?"
-                params_sql = [f"%{query.lower()}%"]
-                if category_filter:
-                    sql += " AND category = ?"
-                    params_sql.append(category_filter)
-                sql += " ORDER BY importance DESC LIMIT ?"
-                params_sql.append(limit)
-                rows = store.conn.execute(sql, params_sql).fetchall()
-                exact_results = [dict(r) for r in rows]
-        except Exception:
-            pass  # Table may not exist yet; fall through to semantic
-
-        # For hybrid mode, also do semantic search
-        semantic_results = []
-        if search_type == "hybrid":
-            query_emb = _embed(query)
-            if query_emb is not None:
-                from services.knowledge_store import ItemType
-                semantic_results = ks.search(
-                    query_emb,
-                    top_k=limit,
-                    item_types=[ItemType.FACT, ItemType.RELATIONSHIP],
-                    category_filter=category_filter,
-                )
-
-        # Merge results, exact matches first
-        seen_ids = set()
-        lines = []
-        count = 0
-
-        for r in exact_results:
-            if count >= limit:
-                break
-            fid = r.get("fact_id") or r.get("id")
-            if fid in seen_ids:
-                continue
-            seen_ids.add(fid)
-            count += 1
-            lines.append(f'\n{count}. "{r["text"]}"')
-            lines.append(
-                f"   Match: exact | Category: {r.get('category', 'general')}"
-            )
-
-        for item in semantic_results:
-            if count >= limit:
-                break
-            if item.item_id in seen_ids:
-                continue
-            seen_ids.add(item.item_id)
-            count += 1
-            lines.append(f'\n{count}. "{item.text}"')
-            lines.append(
-                f"   Match: semantic | Score: {item.similarity_score:.2f} | "
-                f"Category: {item.category}"
-            )
-
-        if not lines:
-            return True, f"No memories match '{query}'"
-
-        header = f"Found {count} memories ({search_type} search):"
-        return True, header + "".join(lines)
-    except Exception as e:
-        logger.error("search_memory error: %s", e, exc_info=True)
-        return False, f"Failed to search memory: {e}"
+    Previously attempted SQL LIKE exact-match, but fact text is stored
+    encrypted (text_enc) so plaintext LIKE never worked.  Now delegates
+    entirely to the semantic search path which handles all modes.
+    """
+    return _search_common(query, limit, category_filter, principal_id)

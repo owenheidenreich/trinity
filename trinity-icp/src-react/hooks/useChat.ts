@@ -3,14 +3,14 @@
  * Replaces ~300 lines across api.js + generate.js.
  *
  * Handles: token buffering, phase updates, abort via AbortController,
- * error handling, continuation (done_reason === 'length').
+ * error handling.
  */
 import { useState, useCallback, useRef } from 'react';
 import { useStore } from '../store';
 import { streamSSE } from '../utils/sse';
 import CONFIG from '../config';
 import Logger from '../utils/logger';
-import type { AgentResponse, AgentPhase, AuthHeaders } from '../types';
+import type { AgentResponse, AgentPhase, RequestHeaders } from '../types';
 
 export interface UseChatReturn {
   /** Accumulated tokens from current stream */
@@ -28,16 +28,7 @@ export interface UseChatReturn {
   /** Send a prompt to the backend. Returns success/error to avoid stale closure issues. */
   send: (
     prompt: string,
-    buildAuthHeaders: (endpoint: string) => Promise<AuthHeaders | null>
-  ) => Promise<{
-    success: boolean;
-    error?: string;
-    chatId?: string;
-    assistantMessageId?: number | null;
-  }>;
-  /** Continue a truncated response */
-  continueGeneration: (
-    buildAuthHeaders: (endpoint: string) => Promise<AuthHeaders | null>
+    buildAuthHeaders: (endpoint: string) => Promise<RequestHeaders | null>
   ) => Promise<{
     success: boolean;
     error?: string;
@@ -120,7 +111,7 @@ export function useChat(): UseChatReturn {
   const send = useCallback(
     async (
       prompt: string,
-      buildAuthHeaders: (endpoint: string) => Promise<AuthHeaders | null>
+      buildAuthHeaders: (endpoint: string) => Promise<RequestHeaders | null>
     ): Promise<{
       success: boolean;
       error?: string;
@@ -158,6 +149,9 @@ export function useChat(): UseChatReturn {
         });
 
         if (!response.ok) {
+          if (response.status === 401) {
+            throw new Error('Authentication required');
+          }
           // Handle rate limiting
           if (response.status === 429) {
             const data = await response.json().catch(() => ({}));
@@ -196,98 +190,6 @@ export function useChat(): UseChatReturn {
     [setGenerating, processEvents]
   );
 
-  /** Continue from a truncated response (done_reason === 'length') */
-  const continueGeneration = useCallback(
-    async (
-      buildAuthHeaders: (endpoint: string) => Promise<AuthHeaders | null>
-    ): Promise<{
-      success: boolean;
-      error?: string;
-      chatId?: string;
-      assistantMessageId?: number | null;
-    }> => {
-      const previousText = tokensRef.current;
-      if (!previousText) return { success: false, error: 'No previous text' };
-
-      // Continue with a prompt that includes the previous text
-      const continuePrompt = `Continue from where you left off. Your previous response ended with: "${previousText.slice(-200)}"`;
-
-      abortRef.current = new AbortController();
-      setIsStreaming(true);
-      setPhase(null);
-      setError(null);
-      setAgentResponse(null);
-      sessionChatIdRef.current = null;
-      assistantMessageIdRef.current = null;
-      setGenerating(true);
-
-      try {
-        const headers = await buildAuthHeaders('/generate/agent');
-        if (!headers) throw new Error('Authentication required');
-
-        const state = useStore.getState();
-
-        const body = {
-          prompt: continuePrompt,
-          chat_id: state.currentChatId ?? undefined,
-        };
-
-        const response = await fetch(`${CONFIG.API_URL}/generate/agent`, {
-          method: 'POST',
-          signal: abortRef.current.signal,
-          headers,
-          body: JSON.stringify(body),
-        });
-
-        if (!response.ok) {
-          throw new Error(`Request failed: ${response.status}`);
-        }
-
-        // Merge with previous output
-        for await (const event of streamSSE(response, abortRef.current.signal)) {
-          if (event.type === 'session' && event.chat_id) {
-            sessionChatIdRef.current = event.chat_id;
-            useStore.getState().setCurrentChatId(event.chat_id);
-          }
-          if (event.token) {
-            tokensRef.current += event.token;
-            setTokens(tokensRef.current);
-          }
-          if (event.done) {
-            assistantMessageIdRef.current = event.assistant_message_id ?? null;
-            setAgentResponse({
-              done_reason: event.done_reason ?? 'stop',
-              ...(event.response ?? {}),
-            });
-            // Same immediate unlock behavior as send().
-            setIsStreaming(false);
-            setGenerating(false);
-            break;
-          }
-          if (event.error) setError(new Error(event.error));
-        }
-
-        return {
-          success: true,
-          chatId: sessionChatIdRef.current ?? (useStore.getState().currentChatId ?? undefined),
-          assistantMessageId: assistantMessageIdRef.current,
-        };
-      } catch (e) {
-        const err = e as Error;
-        if (err.name !== 'AbortError') {
-          setError(err);
-          return { success: false, error: err.message };
-        }
-        return { success: false, error: 'Aborted' };
-      } finally {
-        setIsStreaming(false);
-        setGenerating(false);
-        abortRef.current = null;
-      }
-    },
-    [setGenerating]
-  );
-
   /** Abort current stream */
   const stop = useCallback(() => {
     abortRef.current?.abort();
@@ -304,7 +206,6 @@ export function useChat(): UseChatReturn {
     agentResponse,
     getTokens,
     send,
-    continueGeneration,
     stop,
     clearError,
   };

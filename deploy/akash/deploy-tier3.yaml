@@ -1,0 +1,133 @@
+version: "2.0"
+
+# ============================================================================
+# Trinity Tier 3: Qwen3-Coder-Next (80B MoE, 3B activated)
+# ============================================================================
+#
+# High-performance tier running Qwen3-Coder-Next — an 80B-parameter
+# Mixture-of-Experts model with only 3B activated per token.
+# Optimized for coding agents, tool calling, and long-context tasks.
+#
+# Model: Qwen3-Coder-Next Q4_K_M (~48.4GB, split GGUF)
+# Ingest: Qwen3-8B Q4_K_M (~5GB, unchanged)
+# Context: 32K active (262K native, expandable)
+# Cost: ~$1.50-3.00/hour (~$1200-2500/month)
+# Response Time: 3-15 seconds (3B activated = faster than 32B dense)
+# GPU: Requires 80GB VRAM — A100-80GB or H100-80GB ONLY
+#
+# VRAM budget (A100-80GB, 32K context):
+#   Chat model weights:    ~48.4 GB
+#   Chat KV cache (q8_0):  ~4-6 GB
+#   Ingest model weights:  ~5 GB
+#   Ingest KV cache:       ~0.5 GB
+#   CUDA overhead:         ~1-2 GB
+#   Total:                 ~59-62 GB (fits 80GB with comfortable headroom)
+#
+# Deploy:
+#   ./scripts/trinity-deploy-production.sh tier3
+# ============================================================================
+
+services:
+  trinity:
+    image: gdubx/trinity-inference:v2-20260224-225400
+    env:
+      - PROVIDER_ID=trinity-tier3-coder-next
+      - MODEL_NAME=qwen3-coder-next
+      - MODEL_BACKEND=llama-server
+      - LLAMA_SERVER_CHAT_PORT=8081
+      - LLAMA_SERVER_INGEST_PORT=8082
+      - CHAT_MODEL=qwen3-coder-next
+      - INGEST_MODEL=qwen3:8b
+      - GPU_TYPE=auto
+      - CHATS_DIR=/data/chats
+      - TZ=UTC
+      - MAX_QUEUE_SIZE=5
+      # Context window — reduced from 65K default to 32K to fit 80GB VRAM
+      # (48.4GB weights + ~4-6GB KV cache + 5GB ingest + 2GB CUDA = ~60-62GB)
+      - LLAMA_SERVER_CHAT_CTX=32768
+      - LLAMA_SERVER_INGEST_CTX=8192
+      # Python-side context budget must match llama-server ctx
+      - NUM_CTX=32768
+      - REACT_TOKEN_BUDGET=24000
+      # Sampling params — Qwen3-Coder-Next recommended values
+      - TEMPERATURE_CONVERSATIONAL=1.0
+      - TEMPERATURE_CODE=0.3
+      - TEMPERATURE_FACTUAL=0.3
+      - DEFAULT_TOP_P=0.95
+      - DEFAULT_TOP_K=40
+      - DEFAULT_MIN_P=0
+      # RAG & Semantic Memory
+      - EMBEDDING_MODEL=BAAI/bge-small-en-v1.5
+      - RAG_TOP_K=5
+      - RAG_CHUNK_SIZE=512
+      - RAG_CHUNK_OVERLAP=50
+      - WORKING_MEMORY_SIZE=5
+      - SEMANTIC_MEMORY_SIZE=8
+      - PROFILE_TOKEN_BUDGET=2500
+      - PROFILE_MAX_FACTS=15
+      - RECENCY_WEIGHT=0.3
+      # Tool Use & Code Execution
+      - CODE_EXECUTION_ENABLED=false
+      - CODE_EXECUTION_TIMEOUT=5
+      # API Keys - Injected from .env at deployment time
+      - LIGHTHOUSE_API_KEY=${LIGHTHOUSE_API_KEY}
+      - BRAVE_SEARCH_API_KEY=${BRAVE_SEARCH_API_KEY}
+      - HF_TOKEN=${HF_TOKEN}
+      # Deployment tracking
+      - DEPLOYMENT_TIER=tier3
+      - DEPLOYMENT_TIER_NAME=Tier 3 (Coder Next)
+      - HOURLY_COST_AKT=2.50
+      - DAILY_COST_AKT=60.0
+      - SESSION_TYPE=community
+    params:
+      storage:
+        models:
+          mount: /home/trinity/.models
+          readMode: false
+    expose:
+      - port: 8000
+        as: 80
+        to:
+          - global: true
+        http_options:
+          read_timeout: 60000
+          send_timeout: 60000
+          max_body_size: 52428800
+
+profiles:
+  compute:
+    trinity:
+      resources:
+        cpu:
+          units: 8
+        memory:
+          size: 64Gi
+        storage:
+          - size: 10Gi
+          - name: models
+            size: 120Gi
+            attributes:
+              persistent: true
+              class: beta3
+        gpu:
+          units: 1
+          attributes:
+            vendor:
+              nvidia:
+                - model: a100
+                  ram: 80Gi
+                - model: h100
+                  ram: 80Gi
+
+  placement:
+    akash:
+      pricing:
+        trinity:
+          denom: uakt
+          amount: 200000
+
+deployment:
+  trinity:
+    akash:
+      profile: trinity
+      count: 1

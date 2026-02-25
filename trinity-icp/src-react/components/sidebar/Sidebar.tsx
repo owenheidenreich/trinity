@@ -1,7 +1,9 @@
 /**
  * Sidebar — collapsible sidebar with chat list, status, and identity management.
+ * Uses @tanstack/react-virtual for virtualized rendering and tier-grouped display.
  */
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import type { ChatListItem } from '../../types';
 import type { ConnectionStatus } from '../../hooks/useConnection';
 import type { InfoVariant } from '../modals/InfoModal';
@@ -15,6 +17,7 @@ interface SidebarProps {
   isLoadingChats?: boolean;
   isBusy?: boolean;
   memoryData: unknown;
+  isGuest?: boolean;
   onNewChat: () => void;
   onLoadChat: (chatId: string) => void;
   onDeleteChat: (chatId: string) => void;
@@ -22,10 +25,12 @@ interface SidebarProps {
   onExportChat?: (chatId: string) => void;
   onExportKey?: () => void;
   onLogout: () => void;
+  onSignIn?: () => void;
   onShowInfo?: (variant: InfoVariant) => void;
 }
 
 const MAX_CHATS = 20;
+const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
 export function Sidebar({
   chats,
@@ -34,6 +39,7 @@ export function Sidebar({
   isLoadingChats,
   isBusy,
   memoryData,
+  isGuest,
   onNewChat,
   onLoadChat,
   onDeleteChat,
@@ -41,8 +47,11 @@ export function Sidebar({
   onExportChat,
   onExportKey,
   onLogout,
+  onSignIn,
   onShowInfo,
 }: SidebarProps) {
+  const [archivedExpanded, setArchivedExpanded] = useState(false);
+
   // Sort: pinned first, then by lastUpdated descending
   const sortedChats = useMemo(() => {
     return [...chats].sort((a, b) => {
@@ -57,6 +66,57 @@ export function Sidebar({
       return String(b.chatId).localeCompare(String(a.chatId));
     });
   }, [chats]);
+
+  // Split into Recent / Archived tiers
+  const { recentChats, archivedChats } = useMemo(() => {
+    const now = Date.now();
+    const recent: ChatListItem[] = [];
+    const archived: ChatListItem[] = [];
+    for (const c of sortedChats) {
+      const isRecent =
+        c.pinned ||
+        (!c.archived && Number(c.lastUpdated ?? 0) > now - SEVEN_DAYS_MS);
+      if (isRecent) {
+        recent.push(c);
+      } else {
+        archived.push(c);
+      }
+    }
+    return { recentChats: recent, archivedChats: archived };
+  }, [sortedChats]);
+
+  // Build a flat virtual list: [recent items] + optional [archived header + archived items]
+  type VirtualRow =
+    | { type: 'chat'; chat: ChatListItem }
+    | { type: 'header'; label: string; count: number };
+
+  const rows = useMemo<VirtualRow[]>(() => {
+    const result: VirtualRow[] = recentChats.map((c) => ({
+      type: 'chat' as const,
+      chat: c,
+    }));
+    if (archivedChats.length > 0) {
+      result.push({
+        type: 'header' as const,
+        label: 'Archived',
+        count: archivedChats.length,
+      });
+      if (archivedExpanded) {
+        for (const c of archivedChats) {
+          result.push({ type: 'chat' as const, chat: c });
+        }
+      }
+    }
+    return result;
+  }, [recentChats, archivedChats, archivedExpanded]);
+
+  const parentRef = useRef<HTMLDivElement>(null);
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: (index) => (rows[index]?.type === 'header' ? 32 : 56),
+    overscan: 5,
+  });
 
   return (
     <div className={styles.sidebar}>
@@ -79,34 +139,115 @@ export function Sidebar({
         </div>
       </div>
 
-      <div className={styles.chatList}>
+      <div className={styles.chatList} ref={parentRef}>
+        {isGuest ? (
+          <div style={{
+            padding: '20px 16px',
+            color: 'var(--color-text-muted)',
+            fontSize: '0.875rem',
+            lineHeight: 1.5,
+            textAlign: 'center',
+          }}>
+            <p style={{ marginBottom: '12px' }}>Sign in to save your chat history and unlock memory features.</p>
+            {onSignIn && (
+              <button
+                onClick={onSignIn}
+                style={{
+                  background: 'var(--color-accent)',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 'var(--radius-sm)',
+                  padding: '8px 20px',
+                  cursor: 'pointer',
+                  fontSize: '0.85rem',
+                  fontWeight: 500,
+                }}
+              >
+                Sign In / Create Account
+              </button>
+            )}
+          </div>
+        ) : (
+          <>
         {isLoadingChats && (
           <div className={styles.loadingBar}>
             <div className={styles.loadingBarFill} />
           </div>
         )}
-        {sortedChats.map((chat) => (
-          <ChatItem
-            key={chat.chatId}
-            chat={chat}
-            isActive={chat.chatId === currentChatId}
-            disabled={!!isBusy}
-            onLoad={onLoadChat}
-            onDelete={onDeleteChat}
-            onPin={onPinChat}
-            onExport={onExportChat}
-          />
-        ))}
+        <div
+          style={{
+            height: `${virtualizer.getTotalSize()}px`,
+            width: '100%',
+            position: 'relative',
+          }}
+        >
+          {virtualizer.getVirtualItems().map((virtualRow) => {
+            const row = rows[virtualRow.index];
+            if (!row) return null;
+
+            if (row.type === 'header') {
+              return (
+                <div
+                  key="archived-header"
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    height: `${virtualRow.size}px`,
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
+                >
+                  <button
+                    className={styles.sectionHeader}
+                    onClick={() => setArchivedExpanded((prev) => !prev)}
+                  >
+                    <span>{archivedExpanded ? '\u25BC' : '\u25B6'}</span>
+                    <span>Archived ({row.count})</span>
+                  </button>
+                </div>
+              );
+            }
+
+            return (
+              <div
+                key={row.chat.chatId}
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  height: `${virtualRow.size}px`,
+                  transform: `translateY(${virtualRow.start}px)`,
+                }}
+              >
+                <ChatItem
+                  chat={row.chat}
+                  isActive={row.chat.chatId === currentChatId}
+                  disabled={!!isBusy}
+                  onLoad={onLoadChat}
+                  onDelete={onDeleteChat}
+                  onPin={onPinChat}
+                  onExport={onExportChat}
+                />
+              </div>
+            );
+          })}
+        </div>
         {!isLoadingChats && chats.length === 0 && (
           <div style={{ padding: '16px', color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>
             No chats yet
           </div>
         )}
+          </>
+        )}
       </div>
 
-      <MemoryPanel
-        memoryData={memoryData}
-      />
+      {!isGuest && (
+        <MemoryPanel
+          memoryData={memoryData}
+        />
+      )}
 
       <div className={styles.statusPanel}>
         <div className={styles.statusRow}>
@@ -166,18 +307,28 @@ export function Sidebar({
         )}
 
         <div className={styles.chatCount}>
-          {chats.length}/{MAX_CHATS} chats
+          {isGuest ? 'Guest mode' : `${chats.length}/${MAX_CHATS} chats`}
         </div>
 
         <div className={styles.statusActions}>
-          {onExportKey && (
-            <button className={styles.chatActionBtn} onClick={onExportKey}>
-              Export Key
-            </button>
+          {isGuest ? (
+            onSignIn && (
+              <button className={styles.chatActionBtn} onClick={onSignIn}>
+                Sign In
+              </button>
+            )
+          ) : (
+            <>
+              {onExportKey && (
+                <button className={styles.chatActionBtn} onClick={onExportKey}>
+                  Export Key
+                </button>
+              )}
+              <button className={styles.chatActionBtn} onClick={onLogout}>
+                Logout
+              </button>
+            </>
           )}
-          <button className={styles.chatActionBtn} onClick={onLogout}>
-            Logout
-          </button>
         </div>
       </div>
     </div>

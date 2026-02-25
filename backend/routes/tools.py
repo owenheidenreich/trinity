@@ -16,7 +16,7 @@ from config import (
     MAX_WEB_SCRAPE_CHARS,
     MAX_WEB_SCRAPE_CHARS_CAP,
     MODEL_NAME,
-    OLLAMA_TIMEOUT_TOOLS,
+    LLM_TIMEOUT_TOOLS,
     SEARCH_SUMMARIZE_CHARS_PER_SOURCE,
     SEARCH_SUMMARIZE_MAX_SOURCES,
     WEB_FETCH_TIMEOUT,
@@ -49,7 +49,7 @@ def call_ollama_for_tools(prompt, temperature=0.3):
             prompt=prompt,
             max_tokens=1000,
             temperature=temperature,
-            timeout=OLLAMA_TIMEOUT_TOOLS,
+            timeout=LLM_TIMEOUT_TOOLS,
         )
         if not result:
             raise Exception("Provider returned empty response")

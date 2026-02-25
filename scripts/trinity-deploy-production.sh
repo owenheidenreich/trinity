@@ -10,6 +10,7 @@
 #   ./scripts/trinity-deploy-production.sh             # Interactive tier selection
 #   ./scripts/trinity-deploy-production.sh production  # Qwen3 32B (~$600-1000/mo)
 #   ./scripts/trinity-deploy-production.sh test        # Qwen3 8B (~$40-100/mo)
+#   ./scripts/trinity-deploy-production.sh tier3       # Qwen3-Coder-Next 80B MoE (~$1200-2500/mo)
 #
 # =============================================================================
 
@@ -41,14 +42,16 @@ API_PROXY_URL="https://api.dubya.ai"  # Custom domain (once DNS configured)
 ICP_FRONTEND_URL="https://zc67k-kiaaa-aaaal-qtmiq-cai.icp0.io"
 CUSTOM_FRONTEND_URL="https://dubya.ai"
 
-# Tier configurations: production (32B) and test (7B)
+# Tier configurations: production (32B), test (8B), and tier3 (80B MoE)
 typeset -A TIER_YAML
 TIER_YAML[production]="deploy-production.yaml"
 TIER_YAML[test]="deploy-test.yaml"
+TIER_YAML[tier3]="deploy-tier3.yaml"
 
 typeset -A TIER_DESC
 TIER_DESC[production]="Qwen3 32B — Production (~\$600-1000/mo)"
 TIER_DESC[test]="Qwen3 8B — Test/Smoke (~\$40-100/mo)"
+TIER_DESC[tier3]="Qwen3-Coder-Next 80B MoE — High Perf (~\$1200-2500/mo)"
 
 # =============================================================================
 # HELPER FUNCTIONS
@@ -179,7 +182,7 @@ select_tier() {
     log_step "Select Deployment Tier"
     
     # Check if tier was passed as argument
-    if [[ "$TIER_ARG" == "production" || "$TIER_ARG" == "test" ]]; then
+    if [[ "$TIER_ARG" == "production" || "$TIER_ARG" == "test" || "$TIER_ARG" == "tier3" ]]; then
         SELECTED_TIER="$TIER_ARG"
         log_success "Using $SELECTED_TIER: ${TIER_DESC[$SELECTED_TIER]}"
         return
@@ -189,16 +192,18 @@ select_tier() {
     echo "┌─────────────────────────────────────────────────────────────┐"
     echo "│                    SELECT DEPLOYMENT TIER                    │"
     echo "├─────────────────────────────────────────────────────────────┤"
-    echo "│  1) production  — Qwen3 32B (~\$600-1000/mo)              │"
-    echo "│  2) test        — Qwen3 8B  (~\$40-100/mo)                │"
+    echo "│  1) test        — Qwen3 8B    (~\$40-100/mo)               │"
+    echo "│  2) production  — Qwen3 32B   (~\$600-1000/mo)            │"
+    echo "│  3) tier3       — Coder-Next 80B MoE (~\$1200-2500/mo)    │"
     echo "└─────────────────────────────────────────────────────────────┘"
     echo ""
     
-    echo -n "Select tier [1=production / 2=test] (default: production): "
+    echo -n "Select tier [1=test / 2=production / 3=tier3] (default: production): "
     read -r TIER_CHOICE </dev/tty
     
     case "$TIER_CHOICE" in
-        2|test)  SELECTED_TIER="test" ;;
+        1|test)  SELECTED_TIER="test" ;;
+        3|tier3) SELECTED_TIER="tier3" ;;
         *)       SELECTED_TIER="production" ;;
     esac
     log_success "Selected: $SELECTED_TIER — ${TIER_DESC[$SELECTED_TIER]}"

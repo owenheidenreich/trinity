@@ -52,7 +52,7 @@ def health():
         "model": MODEL_NAME,
         "backend": provider.backend_name,
         "gpu_type": GPU_TYPE,
-        "ollama_connected": provider_healthy,  # backwards compat key
+        "llm_connected": provider_healthy,
         "timestamp": datetime.utcnow().isoformat(),
         "build_timestamp": BUILD_TIMESTAMP,
         "system": system_info,
@@ -84,7 +84,7 @@ def health_icp():
         "provider_id": PROVIDER_ID,
         "model": MODEL_NAME,
         "gpu_type": GPU_TYPE,
-        "ollama_connected": provider_healthy,  # backwards compat key
+        "llm_connected": provider_healthy,
         "build_timestamp": BUILD_TIMESTAMP,
         "version": "2.1.0",
         "icp_compatible": True,

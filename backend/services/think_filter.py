@@ -182,3 +182,73 @@ def wrap_code_block(text: str, language: str) -> str:
 def estimate_tokens(text: str) -> int:
     """Rough token estimate: ~4 chars per token for English text."""
     return max(1, len(text) // 4)
+
+
+# ---------------------------------------------------------------------------
+# Prompt leakage detection (canary tokens + n-gram overlap)
+# ---------------------------------------------------------------------------
+
+def generate_canaries(n: int = 3) -> list[str]:
+    """Generate *n* random canary strings for system prompt tripwire detection."""
+    import secrets
+    return [f"CANARY_{secrets.token_hex(8)}" for _ in range(n)]
+
+
+def _extract_ngrams(text: str, n: int = 5) -> set[tuple[str, ...]]:
+    """Extract word-level n-grams from *text*, lowercased."""
+    words = text.lower().split()
+    if len(words) < n:
+        return {tuple(words)} if words else set()
+    return {tuple(words[i : i + n]) for i in range(len(words) - n + 1)}
+
+
+# Minimum fraction of system prompt n-grams found in output to trigger alarm
+_NGRAM_LEAK_THRESHOLD = 0.15
+
+
+def detect_prompt_leakage(
+    output: str,
+    canaries: list[str],
+    system_prompt: str,
+) -> bool:
+    """Detect if the LLM output leaks system prompt content.
+
+    Uses two complementary methods:
+    1. **Canary tokens** — random strings embedded in the prompt; if any
+       appear in the output, the model is disclosing its instructions.
+    2. **N-gram overlap** — if a significant fraction of the system prompt's
+       5-word n-grams appear verbatim in the output, the model is
+       paraphrasing its instructions.
+
+    Returns True if leakage is detected.
+    """
+    if not output:
+        return False
+
+    output_lower = output.lower()
+
+    # --- Canary check (exact match, fast) ---
+    for canary in canaries:
+        if canary.lower() in output_lower:
+            logger.warning("Prompt leakage detected: canary token found in output")
+            return True
+
+    # --- N-gram overlap check ---
+    prompt_ngrams = _extract_ngrams(system_prompt)
+    if not prompt_ngrams:
+        return False
+
+    output_ngrams = _extract_ngrams(output)
+    overlap = prompt_ngrams & output_ngrams
+    ratio = len(overlap) / len(prompt_ngrams) if prompt_ngrams else 0.0
+
+    if ratio >= _NGRAM_LEAK_THRESHOLD:
+        logger.warning(
+            "Prompt leakage detected: %.1f%% n-gram overlap (%d/%d)",
+            ratio * 100,
+            len(overlap),
+            len(prompt_ngrams),
+        )
+        return True
+
+    return False

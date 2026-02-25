@@ -4,7 +4,7 @@ Trinity — Agent Pipeline (backwards-compatibility wrapper)
 This module preserves the public API that callers depend on while
 delegating all logic to the new focused modules:
 
-  - query_classifier.py   → smalltalk / disclosure detection
+  - query_classifier.py   → disclosure detection, temperature routing
   - think_filter.py        → streaming think-block filter + code contract
   - pipeline.py            → StreamingPipeline (process_streaming)
   - prompt_assembler.py    → message building
@@ -14,7 +14,6 @@ Public API preserved for callers:
   - AgentResponse           (dataclass)
   - get_agent_pipeline()    (singleton)
   - reset_agent_pipeline()
-  - is_trivial_smalltalk()
   - is_personal_disclosure()
 
 Former size: 1 086 lines → now ~130 lines (thin wrapper).
@@ -34,24 +33,12 @@ logger = logging.getLogger(__name__)
 
 from .query_classifier import (  # noqa: F401, E402
     is_personal_disclosure,
-    is_trivial_smalltalk,
-    smalltalk_fast_response as _smalltalk_fast_response,
 )
 
 from .pipeline import (  # noqa: F401, E402
     PipelineResponse as AgentResponse,
     StreamingPipeline,
 )
-
-
-# ---------------------------------------------------------------------------
-# Backwards-compat OllamaClient alias
-# ---------------------------------------------------------------------------
-
-try:
-    from .ollama_provider import OllamaProvider as OllamaClient  # noqa: F401
-except ImportError:
-    OllamaClient = None  # type: ignore[assignment,misc]
 
 
 # ---------------------------------------------------------------------------
@@ -69,15 +56,9 @@ class AgentPipeline:
     All logic is delegated to StreamingPipeline.
     """
 
-    def __init__(self, provider=None, ollama_host=None, model=None):
+    def __init__(self, provider=None, **kwargs):
         if provider is not None:
             self._pipeline = StreamingPipeline(provider=provider)
-        elif ollama_host is not None:
-            from .ollama_provider import OllamaProvider
-
-            self._pipeline = StreamingPipeline(
-                provider=OllamaProvider(host=ollama_host, model=model or "qwen3:32b")
-            )
         else:
             from .provider_factory import get_provider
 
@@ -106,13 +87,7 @@ class AgentPipeline:
         """Stream a response (old signature → new pipeline)."""
         from .prompt_assembler import PromptAssembler
 
-        fast_path = bool(kwargs.get("fast_path"))
-        disclosure_path = bool(kwargs.get("disclosure_path"))
-
-        # Only re-classify if caller didn't already provide flags
-        if not fast_path and not disclosure_path:
-            fast_path = is_trivial_smalltalk(question, context_messages)
-            disclosure_path = is_personal_disclosure(question)
+        disclosure_path = is_personal_disclosure(question)
 
         # Build messages with the new assembler
         assembler = PromptAssembler()
@@ -178,8 +153,6 @@ class AgentPipeline:
             question=question,
             messages=messages,
             principal_id=principal_id,
-            fast_path=fast_path,
-            disclosure_path=disclosure_path,
             tools_needed=kwargs.get("tools_needed", []),
             chat_id=kwargs.get("chat_id"),
         )
@@ -192,15 +165,13 @@ class AgentPipeline:
 _pipeline_instance: Optional[AgentPipeline] = None
 
 
-def get_agent_pipeline(provider=None, ollama_host=None, model=None):
+def get_agent_pipeline(provider=None, **kwargs):
     """Get or create the agent pipeline singleton."""
     global _pipeline_instance
 
     if _pipeline_instance is None:
         if provider is not None:
             _pipeline_instance = AgentPipeline(provider=provider)
-        elif ollama_host is not None:
-            _pipeline_instance = AgentPipeline(ollama_host=ollama_host, model=model)
         else:
             from .provider_factory import get_provider
 

@@ -475,11 +475,8 @@ class TestAssistantExtraction:
         """Invalid model JSON payloads are handled safely."""
         from services.profile_extractor import extract_profile_facts
 
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"message": {"content": "{not valid json"}}
-
-        with patch("services.profile_extractor.http_session.post", return_value=mock_response):
+        with patch("services.profile_extractor._call_extraction_model") as mock_call:
+            mock_call.return_value = {"facts": [], "triples": []}
             facts = extract_profile_facts(
                 "You're welcome! Let me know if you need anything else.",
                 source="assistant",
@@ -532,16 +529,24 @@ class TestAssistantExtraction:
             assert mock_save.called
 
     def test_extraction_model_falls_back_when_primary_missing(self):
-        """If qwen3:32b is unavailable, extractor should try configured fallback models."""
+        """If primary provider is unavailable, extractor should try fallback providers."""
         from services.profile_extractor import _call_extraction_model
 
+        mock_ingest_provider = MagicMock()
+        mock_ingest_provider.host = "http://localhost:8082"
+        mock_ingest_provider.model = "qwen3:32b"
+
+        mock_chat_provider = MagicMock()
+        mock_chat_provider.host = "http://localhost:8081"
+        mock_chat_provider.model = "qwen2.5:14b"
+
         with patch(
-            "services.profile_extractor._candidate_targets",
-            return_value=[("http://ingest", "qwen3:32b"), ("http://chat", "qwen2.5:14b")],
+            "services.profile_extractor._candidate_providers",
+            return_value=[mock_ingest_provider, mock_chat_provider],
         ), \
              patch("services.profile_extractor._call_model_once") as mock_once:
             mock_once.side_effect = [
-                ValueError("Ollama status 404: model 'qwen3:32b' not found, try pulling it first"),
+                ValueError("model 'qwen3:32b' not found"),
                 {"facts": [{"fact": "User likes Rust", "category": "interests", "importance": 4}], "triples": []},
             ]
             result = _call_extraction_model("I like Rust", "user")
@@ -550,12 +555,20 @@ class TestAssistantExtraction:
         assert mock_once.call_count == 2
 
     def test_extraction_model_retries_other_targets_then_raises(self):
-        """If all targets fail, extractor raises the last error after retries."""
+        """If all providers fail, extractor raises the last error after retries."""
         from services.profile_extractor import _call_extraction_model
 
+        mock_ingest_provider = MagicMock()
+        mock_ingest_provider.host = "http://localhost:8082"
+        mock_ingest_provider.model = "qwen3:32b"
+
+        mock_chat_provider = MagicMock()
+        mock_chat_provider.host = "http://localhost:8081"
+        mock_chat_provider.model = "qwen2.5:14b"
+
         with patch(
-            "services.profile_extractor._candidate_targets",
-            return_value=[("http://ingest", "qwen3:32b"), ("http://chat", "qwen2.5:14b")],
+            "services.profile_extractor._candidate_providers",
+            return_value=[mock_ingest_provider, mock_chat_provider],
         ), \
              patch("services.profile_extractor._call_model_once", side_effect=RuntimeError("connection refused")) as mock_once:
             with pytest.raises(RuntimeError):

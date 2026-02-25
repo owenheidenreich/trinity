@@ -34,6 +34,10 @@ export const useStore = create<StoreState>((set, get) => ({
   isGenerating: false,
   isLoadingChat: false,
 
+  // ===== Pagination =====
+  hasMoreMessages: false,
+  oldestMessageId: null as number | null,
+
   // ===== Actions =====
 
   reset: () =>
@@ -42,6 +46,8 @@ export const useStore = create<StoreState>((set, get) => ({
       chatHistory: [],
       contextMemory: [],
       currentChatId: null,
+      hasMoreMessages: false,
+      oldestMessageId: null,
     })),
 
   generateChatId: () => generateId('chat'),
@@ -133,6 +139,8 @@ export const useStore = create<StoreState>((set, get) => ({
       currentChatId: null,
       chatStarted: false,
       userMemory: null,
+      hasMoreMessages: false,
+      oldestMessageId: null,
     }),
 
   setUserMemory: (memory) => set({ userMemory: memory }),
@@ -143,6 +151,17 @@ export const useStore = create<StoreState>((set, get) => ({
   setLoadingChat: (isLoadingChat) => set({ isLoadingChat }),
   setCurrentChatId: (chatId) => set({ currentChatId: chatId }),
   setChatStarted: (started) => set({ chatStarted: started }),
+
+  setHasMoreMessages: (has) => set({ hasMoreMessages: has }),
+  setOldestMessageId: (id) => set({ oldestMessageId: id }),
+  prependMessages: (messages) => {
+    const state = get();
+    const merged = [...messages, ...state.chatHistory];
+    set({
+      chatHistory: merged,
+      contextMemory: merged.slice(-state.CONTEXT_WINDOW_SIZE),
+    });
+  },
 
   removeLastMessage: () => {
     const state = get();

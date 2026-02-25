@@ -1,7 +1,7 @@
 # Trinity Feature Catalog
 
 > Complete inventory of production features.
-> **Last Updated:** February 19, 2026
+> **Last Updated:** February 20, 2026
 
 ---
 
@@ -52,14 +52,14 @@
 
 ### Composable Pipeline (Refactored Feb 19, 2026)
 - **Where**: `backend/services/pipeline.py`, `backend/services/context_loader.py`, `backend/services/query_classifier.py`, `backend/services/prompt_assembler.py`, `backend/services/think_filter.py`
-- **How**: `context_loader.load_context()` (classify + load once) → `prompt_assembler.assemble()` (token-budgeted) → `StreamingPipeline.process_streaming()` (fast-path / ReAct / direct). Extracted from 1086-line `agent.py`.
+- **How**: `context_loader.load_context()` (classify via ByteTransformer + load once) → `prompt_assembler.assemble()` (token-budgeted) → `StreamingPipeline.process_streaming()` (fast-path / ReAct / direct). Extracted from 1086-line `agent.py`. Classification uses trained neural classifiers, not regex.
 - **Compat wrapper**: `backend/services/agent.py` (`AgentPipeline`) delegates to `StreamingPipeline`
 - **Endpoint**: `POST /generate/agent`
 - **Status**: Production
 
 ### ReAct Agentic Loop
 - **Where**: `backend/services/react_loop.py`
-- **How**: Iterative think→act→observe with dual-mode tool calling (native JSON + XML fallback). `think=False` on all 4 LLM call sites to suppress Qwen3 `<think>` blocks. Defensive `<tool_call>` XML stripping in `_get_response_content()`.
+- **How**: Iterative think→act→observe with dual-mode tool calling (native JSON + XML fallback). `think_filter.py` strips `<think>` blocks from llama-server stream. Defensive `<tool_call>` XML stripping in `_get_response_content()`.
 - **Safeguards**: 48K token budget, 15 max iterations, Reflexion for code errors
 - **Status**: Production
 
@@ -132,10 +132,37 @@
 
 ### Automated Test Suite
 - **Where**: `backend/tests/` (35 files, 969 test functions)
-- **Count**: 978 tests
+- **Count**: 1028+ tests
 - **Run**: `cd backend && python -m pytest tests/ -x -q`
 - **Rationale**: `docs/architecture/RATIONALE-TEST-COVERAGE.md`
 - **Status**: All passing
+
+---
+
+## MicroGPT Overhaul (Feb 20, 2026)
+
+Three-phase overhaul replacing hardcoded intelligence with trained models and direct LLM control.
+
+### Temperature Routing (Phase 1)
+- **Where**: `backend/services/query_classifier.py` (`classify_temperature()`), `backend/config.py`
+- **How**: Maps query type to sampling temperature automatically. Code → 0.1, factual/tool/memory → 0.3, conversational → 0.7. Temperature threaded through `RequestContext` → `pipeline.process_streaming()` → `chat_stream()`.
+- **Tests**: `backend/tests/unit/test_temperature_routing.py` (16 tests)
+- **Status**: Production
+
+### Tiny Classifiers (Phase 2)
+- **Where**: `backend/services/tiny_classifier.py`, `backend/models/query_classifier.npz`, `backend/models/tool_detector.npz`
+- **How**: Two trained ByteTransformer models (~100K params each, pure numpy inference). Query classifier: 7 classes (smalltalk, disclosure, code, lightweight, memory_recall, preference, general). Tool detector: 16 classes (15 tools + no_tool). Input is raw UTF-8 bytes, zero-padded to 256. Classifier-first with regex fallback: confidence < 0.75 falls to regex heuristics in `query_classifier.py` and `tools.py`, then defaults to FULL context / no tools.
+- **Regex fallback**: Permanent safety net — 22 canonical smalltalk phrases, 6 disclosure patterns, 4 code patterns, 7 memory patterns in `query_classifier.py`; calculator/web/code/memory/filesystem patterns in `tools.py`. See [MICROGPT.md](MICROGPT.md) for full details.
+- **Training**: `scripts/generate_training_data.py` (seed phrases + augmentation), `scripts/train_classifiers.py` (PyTorch, dev-only). Models are static — no continuous training.
+- **Tests**: `backend/tests/unit/test_tiny_classifier.py` (32 tests), `backend/tests/unit/test_regex_fallback.py` (38 tests)
+- **Status**: Production
+
+### llama-server Migration (Phase 3)
+- **Where**: `backend/services/llama_server_provider.py`, `backend/services/provider_factory.py`, `deploy/docker/Dockerfile`, `deploy/docker/startup.sh`
+- **How**: Replaced Ollama with llama-server (llama.cpp HTTP server directly). OpenAI-compatible API (`/v1/chat/completions`, `/v1/completions`). SSE streaming. Dual instances: chat (port 8081, 32B model, 65K ctx) + ingest (port 8082, 8B model, 8K ctx). GGUF models downloaded from HuggingFace at startup.
+- **Deleted**: `ollama_provider.py`, `ollama.py`
+- **Unlocked**: KV cache persistence (`--prompt-cache`), native LoRA loading (`--lora`), inference isolation
+- **Status**: Production
 
 ---
 

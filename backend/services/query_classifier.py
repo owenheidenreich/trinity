@@ -1,105 +1,37 @@
 """
 Trinity Backend — Query Classifier
 
-Extracted from agent.py (1086 lines). Contains all query classification logic:
-  - is_trivial_smalltalk() — detect greetings/acknowledgements
-  - is_personal_disclosure() — detect self-disclosure statements
-  - is_code_generation_request() — detect code requests
-  - classify_context_level() — determine NONE / MINIMAL / FULL context loading
+Provides disclosure detection, memory-recall detection, and temperature
+routing. The tiny ByteTransformer classifier assists tool detection
+(in tools.py) — that's its primary job now.
 
-Each function is evaluated ONCE per request in context_loader.py.
-No re-evaluation in agent.py or generate.py.
+Context-level classification has been removed. Every query gets full
+context (messages, knowledge, embedding). The LLM handles routing
+naturally; we don't need a 50K-param model to decide whether "hello"
+deserves a database lookup.
+
+Public API:
+  - is_personal_disclosure(question) → bool
+  - requests_personal_memory(question) → bool
+  - classify_temperature(prompt, tools_needed) → float
+  - ContextLevel (kept for backwards-compat imports, but unused in pipeline)
 """
 
+import logging
 import re
 from enum import Enum
 from typing import List, Optional
 
-# ---------------------------------------------------------------------------
-# Context level enum (used by context_loader.py)
-# ---------------------------------------------------------------------------
+logger = logging.getLogger(__name__)
 
-
-class ContextLevel(Enum):
-    NONE = "none"
-    MINIMAL = "minimal"
-    DISCLOSURE = "disclosure"
-    FULL = "full"
-
-
-# ContextLevel is defined here (canonical location) and imported by
-# context_loader.py — no re-import needed.
-
+# Confidence threshold — below this, fall back to regex heuristics
+_CONFIDENCE_THRESHOLD = 0.75
 
 # ---------------------------------------------------------------------------
-# Internal helpers
+# Regex patterns
 # ---------------------------------------------------------------------------
 
-_SMALLTALK_NORMALIZE = re.compile(r"[^\w\s']")
-
-
-def _normalize_text(text: str) -> str:
-    """Normalize text for classification: lowercase, strip punctuation, collapse whitespace."""
-    normalized = (text or "").strip().lower().replace("\u2019", "'")
-    normalized = _SMALLTALK_NORMALIZE.sub(" ", normalized)
-    return " ".join(normalized.split())
-
-
-# ---------------------------------------------------------------------------
-# Smalltalk detection
-# ---------------------------------------------------------------------------
-
-_SMALLTALK_MAX_WORDS = 6
-
-_SMALLTALK_CANONICAL = {
-    "hi", "hello", "hello there", "hey", "hey there", "hi there",
-    "good morning", "good afternoon", "good evening",
-    "morning", "afternoon", "evening",
-    "sup", "what up", "what up friend", "what up my friend",
-    "whats up", "what's up",
-    "how are you", "how are you doing",
-    "thanks", "thank you", "thx",
-}
-
-_SMALLTALK_GREETING_TOKENS = {
-    "hi", "hello", "hey", "yo", "sup", "what", "up", "my", "friend",
-    "morning", "afternoon", "evening", "thanks", "thank", "you", "thx",
-    "trinity", "there",
-}
-
-
-def is_trivial_smalltalk(question: str, context_messages: Optional[List] = None) -> bool:
-    """
-    Return True for low-value phatic messages that should use a fast path.
-
-    Conservative: only clear greetings/acknowledgements.
-    """
-    normalized = _normalize_text(question)
-    if not normalized:
-        return False
-    if len(normalized.split()) > _SMALLTALK_MAX_WORDS:
-        return False
-    if normalized in _SMALLTALK_CANONICAL:
-        return True
-    words = normalized.split()
-    if 1 <= len(words) <= 3 and all(w in _SMALLTALK_GREETING_TOKENS for w in words):
-        return True
-    return False
-
-
-def smalltalk_fast_response(question: str) -> str:
-    """Generate a concise non-LLM response for trivial greetings."""
-    normalized = _normalize_text(question)
-    if normalized in {"thanks", "thank you", "thx"}:
-        return "You're welcome. What do you want to work on next?"
-    if normalized in {"how are you", "how are you doing"}:
-        return "Doing well and ready to help. What are we tackling?"
-    return "Hey. I'm here and ready when you are."
-
-
-# ---------------------------------------------------------------------------
-# Personal disclosure detection
-# ---------------------------------------------------------------------------
+_NORMALIZE_RE = re.compile(r"[^\w\s']")
 
 _PERSONAL_DISCLOSURE_PATTERNS = [
     re.compile(r"\bmy name is\b"),
@@ -120,10 +52,80 @@ _PERSONAL_DISCLOSURE_NEGATIVE_PATTERNS = [
     re.compile(r"\bwhy is\b"),
 ]
 
+_PERSONAL_MEMORY_PATTERNS = [
+    re.compile(r"\bwhat do you know about me\b"),
+    re.compile(r"\bwhat do you remember about me\b"),
+    re.compile(r"\bdo you remember\b"),
+    re.compile(r"\bwho am i\b"),
+    re.compile(r"\bwhat(?:'s| is| was| are) my (?:name|job|role|company|goal|preference|preferences|favorite|colour|color|birthday|hobby|hobbies|interest|interests|team|project|stack|language|work)\b"),
+    re.compile(r"\bwhere do i (?:live|work)\b"),
+    re.compile(r"\btell me about me\b"),
+    re.compile(r"\bwhat do i (?:do|like|prefer|work|study)\b"),
+    re.compile(r"\bwhat did i\b"),
+    re.compile(r"\bdo you know (?:my|me|who i)\b"),
+]
+
+_CODE_PATTERNS = [
+    re.compile(r"\b(write|create|generate|build|make|implement)\b.*\b(code|script|function|program|file)\b"),
+    re.compile(r"\b(show|give)\b.*\b(code|implementation|example)\b"),
+    re.compile(r"\b(python|javascript|typescript|html|css|sql|bash|shell|rust|go|java|c\+\+|c#)\b"),
+]
+
+
+def _normalize(text: str) -> str:
+    """Normalize text for regex matching."""
+    normalized = (text or "").strip().lower().replace("\u2019", "'")
+    normalized = _NORMALIZE_RE.sub(" ", normalized)
+    return " ".join(normalized.split())
+
+
+# ---------------------------------------------------------------------------
+# ContextLevel — kept for backwards compatibility (imports still reference it)
+# The pipeline no longer branches on this; every query gets FULL treatment.
+# ---------------------------------------------------------------------------
+
+
+class ContextLevel(Enum):
+    NONE = "none"
+    MINIMAL = "minimal"
+    DISCLOSURE = "disclosure"
+    FULL = "full"
+
+
+# ---------------------------------------------------------------------------
+# Classifier helper
+# ---------------------------------------------------------------------------
+
+
+def _classify(text: str):
+    """Get classifier prediction. Returns (label, confidence)."""
+    try:
+        from services.tiny_classifier import classify_query
+        return classify_query(text)
+    except Exception as e:
+        logger.debug("Classifier unavailable: %s", e)
+        return ("general", 0.0)
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
 
 def is_personal_disclosure(question: str) -> bool:
-    """Return True for first-person self-disclosure statements (not requests)."""
-    normalized = _normalize_text(question)
+    """Return True for first-person self-disclosure statements.
+
+    Used by context_loader to set is_disclosure flag, which controls
+    whether identity/preference facts are included in the prompt.
+    """
+    try:
+        label, confidence = _classify(question)
+        if label == "disclosure" and confidence >= _CONFIDENCE_THRESHOLD:
+            return True
+    except Exception:
+        pass
+
+    normalized = _normalize(question)
     if not normalized:
         return False
     if "?" in (question or ""):
@@ -133,149 +135,101 @@ def is_personal_disclosure(question: str) -> bool:
     return any(p.search(normalized) for p in _PERSONAL_DISCLOSURE_PATTERNS)
 
 
-# ---------------------------------------------------------------------------
-# Personal memory recall detection
-# ---------------------------------------------------------------------------
-
-_PERSONAL_MEMORY_PATTERNS = [
-    re.compile(r"\bwhat do you know about me\b"),
-    re.compile(r"\bwhat do you remember about me\b"),
-    re.compile(r"\bdo you remember\b"),
-    re.compile(r"\bwho am i\b"),
-    re.compile(r"\bwhat(?:'s| is) my (?:name|job|role|company|goal|preference|preferences)\b"),
-    re.compile(r"\bwhere do i (?:live|work)\b"),
-    re.compile(r"\btell me about me\b"),
-]
-
-
 def requests_personal_memory(question: str) -> bool:
-    """Return True when the user explicitly asks for personal/profile recall."""
-    normalized = _normalize_text(question)
+    """Return True when the user explicitly asks for personal/profile recall.
+
+    Used by memory_eval.py to decide whether to include identity facts.
+    """
+    try:
+        label, confidence = _classify(question)
+        if label == "memory_recall" and confidence >= _CONFIDENCE_THRESHOLD:
+            return True
+    except Exception:
+        pass
+
+    normalized = _normalize(question)
     if not normalized:
         return False
     return any(p.search(normalized) for p in _PERSONAL_MEMORY_PATTERNS)
 
 
+def classify_temperature(
+    prompt: str,
+    tools_needed: list = None,
+    # Deprecated params kept for backwards-compat call sites:
+    context_level=None,
+    is_code: bool = False,
+) -> float:
+    """Determine sampling temperature.
+
+    Simple routing:
+      - Code → 0.1 (deterministic)
+      - Tool use → 0.3 (precise)
+      - Everything else → 0.7 (conversational)
+    """
+    from config import TEMPERATURE_CODE, TEMPERATURE_FACTUAL, TEMPERATURE_CONVERSATIONAL
+
+    try:
+        label, confidence = _classify(prompt)
+    except Exception:
+        label, confidence = "general", 0.0
+
+    if is_code or label == "code":
+        return TEMPERATURE_CODE
+
+    # Regex fallback for code detection
+    if confidence < _CONFIDENCE_THRESHOLD:
+        normalized = _normalize(prompt)
+        if any(p.search(normalized) for p in _CODE_PATTERNS):
+            return TEMPERATURE_CODE
+
+    if tools_needed:
+        return TEMPERATURE_FACTUAL
+
+    if label == "memory_recall" and confidence >= _CONFIDENCE_THRESHOLD:
+        return TEMPERATURE_FACTUAL
+
+    return TEMPERATURE_CONVERSATIONAL
+
+
 # ---------------------------------------------------------------------------
-# Code generation detection
+# Deprecated — kept as stubs for backwards compatibility
 # ---------------------------------------------------------------------------
 
-_CODE_REQUEST_PATTERNS = [
-    re.compile(r"\b(write|create|generate|build|make|implement)\b.*\b(code|script|function|program|file)\b"),
-    re.compile(r"\b(show|give)\b.*\b(code|implementation|example)\b"),
-    re.compile(r"\b(can you|could you)\b.*\b(code|script|function|program|file)\b"),
-    re.compile(r"\b(python|javascript|typescript|html|css|sql|bash|shell|rust|go|java|c\+\+|c#)\b"),
-]
 
-_EXECUTION_INTENT_PATTERNS = [
-    re.compile(r"\b(run|execute|debug|fix|test|benchmark|profile)\b"),
-]
+def is_trivial_smalltalk(question: str, context_messages: Optional[List] = None) -> bool:
+    """DEPRECATED: No longer drives any pipeline behavior."""
+    return False
 
-_CODE_LANGUAGE_PATTERNS = [
-    (re.compile(r"\btypescript\b|\b\.ts\b"), "typescript"),
-    (re.compile(r"\bjavascript\b|\b\.js\b"), "javascript"),
-    (re.compile(r"\bpython\b|\b\.py\b"), "python"),
-    (re.compile(r"\bhtml\b|\b\.html\b"), "html"),
-    (re.compile(r"\bcss\b|\b\.css\b"), "css"),
-    (re.compile(r"\bsql\b"), "sql"),
-    (re.compile(r"\brust\b|\b\.rs\b"), "rust"),
-    (re.compile(r"\bgo\b|\b\.go\b"), "go"),
-    (re.compile(r"\bjava\b|\b\.java\b"), "java"),
-    (re.compile(r"\bbash\b|\bshell\b|\b\.sh\b"), "bash"),
-]
+
+def smalltalk_fast_response(question: str) -> str:
+    """DEPRECATED: All queries go through the LLM."""
+    return ""
+
+
+def classify_context_level(prompt: str) -> ContextLevel:
+    """DEPRECATED: Every query gets FULL context now."""
+    return ContextLevel.FULL
 
 
 def is_code_generation_request(question: str) -> bool:
-    """Return True for pure code-generation requests (not run/debug)."""
-    text = _normalize_text(question)
-    if not text:
+    """DEPRECATED: Only used for temperature routing now (handled internally)."""
+    normalized = _normalize(question)
+    if not normalized:
         return False
-    if any(p.search(text) for p in _EXECUTION_INTENT_PATTERNS):
-        return False
-    return any(p.search(text) for p in _CODE_REQUEST_PATTERNS)
-
-
-def infer_code_language(question: str) -> str:
-    """Guess the target programming language from the question."""
-    text = _normalize_text(question)
-    for pattern, language in _CODE_LANGUAGE_PATTERNS:
-        if pattern.search(text):
-            return language
-    return "text"
-
-
-# ---------------------------------------------------------------------------
-# Lightweight prompt detection (from generate.py)
-# ---------------------------------------------------------------------------
-
-_MEMORY_SIGNALS = (
-    "remember", "recall", "about me", "my name", "i'm ", "i am ",
-    "my project", "my startup", "my company", "i moved", "i live",
-    "i work", "actually",
-)
-
-_RETRIEVAL_SIGNALS = (
-    "latest", "today", "news", "price", "weather", "search",
-    "look up", "find out", "code", "function", "script", "file",
-    "debug", "fix",
-)
-
-
-def _is_lightweight_prompt(prompt: str) -> bool:
-    """Return True for short prompts that don't need memory or retrieval."""
-    text = (prompt or "").strip().lower()
-    if not text:
-        return False
-    words = text.split()
-    if len(words) > 6:
-        return False
-    if any(sig in text for sig in _MEMORY_SIGNALS):
-        return False
-    if any(sig in text for sig in _RETRIEVAL_SIGNALS):
-        return False
-    if "?" in text:
-        return False
-    return True
-
-
-# ---------------------------------------------------------------------------
-# Preference query detection
-# ---------------------------------------------------------------------------
-
-_PREFERENCE_QUERY_HINTS = {
-    "style", "tone", "format", "respond", "reply", "wording",
-    "color", "green", "concise", "verbose", "bullet",
-}
+    try:
+        label, confidence = _classify(question)
+        if label == "code" and confidence >= _CONFIDENCE_THRESHOLD:
+            return True
+    except Exception:
+        pass
+    return any(p.search(normalized) for p in _CODE_PATTERNS)
 
 
 def is_preference_query(query: str) -> bool:
-    """Return True when the query targets response/style preferences."""
-    normalized = _normalize_text(query)
-    if not normalized:
+    """DEPRECATED: No longer drives pipeline behavior."""
+    try:
+        label, confidence = _classify(query)
+        return label == "preference" and confidence >= _CONFIDENCE_THRESHOLD
+    except Exception:
         return False
-    words = set(normalized.split())
-    return any(hint in words for hint in _PREFERENCE_QUERY_HINTS)
-
-
-# ---------------------------------------------------------------------------
-# Unified classifier
-# ---------------------------------------------------------------------------
-
-
-def classify_context_level(prompt: str) -> "ContextLevel":
-    """
-    Classify how much context a prompt needs.
-
-    Returns:
-        ContextLevel.NONE: Smalltalk — hardcoded response, no DB.
-        ContextLevel.MINIMAL: Short non-memory prompt — last 5 messages only.
-        ContextLevel.DISCLOSURE: Self-introduction — last 5 msgs, no embedding/knowledge.
-        ContextLevel.FULL: Everything — messages, summary, knowledge, embedding.
-    """
-    if is_trivial_smalltalk(prompt):
-        return ContextLevel.NONE
-    if _is_lightweight_prompt(prompt):
-        return ContextLevel.MINIMAL
-    if is_personal_disclosure(prompt):
-        return ContextLevel.DISCLOSURE
-    return ContextLevel.FULL

@@ -17,7 +17,7 @@ export interface HealthCheckResponse {
   version?: string;
   gpu_type?: string;
   provider_id?: string;
-  ollama_connected?: boolean;
+  llm_connected?: boolean;
   features?: Record<string, boolean>;
   build_timestamp?: string;
 }
@@ -76,3 +76,6 @@ export type AuthHeaders = Record<string, string> & {
   'ICP-PublicKey': string;
   'ICP-Nonce': string;
 };
+
+/** Broader header type that works for both authenticated and anonymous requests */
+export type RequestHeaders = Record<string, string>;

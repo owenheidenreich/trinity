@@ -52,6 +52,13 @@ export interface StoreState {
   setLoadingChat: (isLoadingChat: boolean) => void;
   setCurrentChatId: (chatId: string | null) => void;
   setChatStarted: (started: boolean) => void;
+
+  // ===== Pagination =====
+  hasMoreMessages: boolean;
+  oldestMessageId: number | null;
+  setHasMoreMessages: (has: boolean) => void;
+  setOldestMessageId: (id: number | null) => void;
+  prependMessages: (messages: ChatMessage[]) => void;
   removeLastMessage: () => ChatMessage | null;
   getLastUserMessage: () => ChatMessage | null;
 

@@ -1,7 +1,7 @@
 # Trinity Codebase Map
 
 > **Purpose:** Single-file reference for any LLM to understand Trinity without searching the codebase.
-> **Last Updated:** February 19, 2026
+> **Last Updated:** February 20, 2026
 > **Accuracy:** Verified against live codebase on `main` branch.
 
 ---
@@ -38,15 +38,16 @@ backend/
 │   ├── mcp.py               # /mcp (MCP JSON-RPC 2.0)
 │   └── passphrase.py        # /api/passphrase/* setup, unlock, change, lock, status
 │
-├── services/                # 42 business logic modules
+├── services/                # 49 business logic modules
 │   ├── __init__.py          # Service exports
 │   │
 │   │   # ── Pipeline (new: extracted from 1086-line agent.py god module) ──
 │   ├── context_loader.py    # Single load_context() → RequestContext dataclass
-│   ├── query_classifier.py  # ContextLevel enum, smalltalk/disclosure/code classification
+│   ├── query_classifier.py  # Deprecated stubs, is_personal_disclosure(), classify_temperature()
 │   ├── prompt_assembler.py  # Token-budgeted prompt builder, auto-generated tool sections
-│   ├── pipeline.py          # StreamingPipeline: fast-path / tools / direct chat
+│   ├── pipeline.py          # StreamingPipeline: ReAct loop (tools) / direct chat + tool-call rescue
 │   ├── think_filter.py      # Streaming <think> block filter + code-fence helpers
+│   ├── tiny_classifier.py   # ByteTransformer (pure numpy), classify_query(), detect_tools()
 │   │
 │   │   # ── Agent & Tools ──
 │   ├── agent.py             # AgentPipeline (thin wrapper around StreamingPipeline)
@@ -74,10 +75,9 @@ backend/
 │   ├── user_data_store.py   # IPFS checkpoint/archive pipeline
 │   │
 │   │   # ── LLM Providers ──
-│   ├── ollama.py            # Ollama HTTP client
-│   ├── ollama_provider.py   # Ollama LLM provider implementation
+│   ├── llama_server_provider.py  # llama-server (llama.cpp) LLM provider — OpenAI-compatible API
 │   ├── llm_provider.py      # Abstract LLM provider interface
-│   ├── provider_factory.py  # Provider factory (Ollama, vLLM, etc.)
+│   ├── provider_factory.py  # Provider factory (llama-server)
 │   ├── model_router.py      # Route queries to conversation vs coder model
 │   │
 │   │   # ── Search & RAG ──
@@ -106,7 +106,11 @@ backend/
 │
 ├── mcp_stdio_server.py      # MCP stdio entry point (Claude Desktop)
 │
-└── tests/                   # 986 tests
+├── models/                  # Trained classifier weights
+│   ├── query_classifier.npz # ByteTransformer query classifier (~370KB, 7 classes)
+│   └── tool_detector.npz    # ByteTransformer tool detector (~370KB, 16 classes)
+│
+└── tests/                   # 1055+ tests
     ├── conftest.py          # Root fixtures
     ├── fixtures/
     │   └── auth_fixtures.py # Ed25519 test keypairs
@@ -125,7 +129,7 @@ trinity-icp/src-react/
 ├── components/
 │   ├── chat/           # CodeBlock, Message, MessageInput, MessageList,
 │   │                   # StreamingMessage, MarkdownRenderer, MathBlock,
-│   │                   # CopyAllButton, ContinueButton, DownloadCards,
+│   │                   # CopyAllButton, DownloadCards,
 │   │                   # TypingIndicator
 │   ├── layout/         # AppShell, EmptyState
 │   ├── modals/         # AuthModal, ConfirmModal, InfoModal, KeyExportModal,
@@ -162,13 +166,12 @@ trinity-icp/src/
 ```
 deploy/
 ├── docker/
-│   ├── Dockerfile           # NVIDIA CUDA base, Ollama, Flask
-│   ├── Dockerfile.vllm      # vLLM-based alternative (multi-GPU)
-│   ├── startup.sh           # Container entrypoint (model pull + server start)
-│   └── startup-vllm.sh      # vLLM entrypoint
+│   ├── Dockerfile           # NVIDIA CUDA base, llama-server (llama.cpp), Flask
+│   ├── startup.sh           # Container entrypoint (model download via HuggingFace + dual llama-server start)
 ├── akash/
 │   ├── deploy-production.yaml       # Qwen3 32B (production)
-│   └── deploy-test.yaml            # Qwen3 8B (smoke-testing)
+│   ├── deploy-test.yaml            # Qwen3 8B (smoke-testing)
+│   └── deploy-tier3.yaml           # Qwen3-Coder-Next 80B MoE (high-perf, A100-80GB/H100-80GB)
 └── cloudflare-worker/
     └── worker.js            # SSL termination proxy
 ```
@@ -181,7 +184,7 @@ deploy/
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/health` | Server + Ollama status |
+| GET | `/health` | Server + llama-server status |
 | GET | `/health/icp` | ICP-specific health check |
 | GET | `/metrics` | Prometheus metrics |
 | GET | `/stats` | Server statistics |
@@ -290,18 +293,25 @@ Nonce is required on protected endpoints.
 | Constant | Default |
 |----------|---------|
 | `MODEL_NAME` | `qwen3:32b` |
+| `MODEL_BACKEND` | `llama-server` |
+| `LLAMA_SERVER_CHAT_PORT` | `8081` |
+| `LLAMA_SERVER_INGEST_PORT` | `8082` |
 | `NUM_CTX` | `65536` |
 | `DEFAULT_MAX_TOKENS` | `8000` |
 | `DEFAULT_TEMPERATURE` | `0.7` |
-| `OLLAMA_TIMEOUT` | `600` (10 min) |
-| `OLLAMA_TIMEOUT_TOOLS` | `300` (5 min) |
+| `TEMPERATURE_CODE` | `0.1` |
+| `TEMPERATURE_FACTUAL` | `0.3` |
+| `TEMPERATURE_CONVERSATIONAL` | `0.7` |
+| `DEFAULT_TOP_P` | `0.8` (env-configurable, tier3: 0.95) |
+| `DEFAULT_TOP_K` | `20` (env-configurable, tier3: 40) |
+| `DEFAULT_MIN_P` | `0` (env-configurable) |
 
 ### ReAct Loop
 
 | Constant | Default |
 |----------|---------|
 | `REACT_ENABLED` | `true` |
-| `REACT_MAX_ITERATIONS` | `15` |
+| `REACT_MAX_ITERATIONS` | `5` |
 | `REACT_TOKEN_BUDGET` | `48000` |
 | `REFLEXION_MAX_RETRIES` | `3` |
 
@@ -379,6 +389,10 @@ Store: `trinity-icp/src-react/store/index.ts` · Types: `trinity-icp/src-react/s
 | Change LLM prompts | `backend/services/agent_prompts.py`, `backend/services/prompt_assembler.py` |
 | Change context loading logic | `backend/services/context_loader.py`, `backend/services/query_classifier.py` |
 | Change the streaming pipeline | `backend/services/pipeline.py` |
+| Change query classification | `backend/services/tiny_classifier.py`, `backend/models/*.npz` |
+| Change tool detection | `backend/services/tiny_classifier.py` (model), `backend/services/tools.py` (definitions + regex confirmation gate) |
+| Change LLM provider | `backend/services/llama_server_provider.py`, `backend/services/provider_factory.py` |
+| Change temperature routing | `backend/services/query_classifier.py` (`classify_temperature()`), `backend/config.py` |
 | Add a tool | `backend/services/tools.py` + `code_executor.py` |
 | Fix memory retrieval | `backend/services/knowledge_store.py` |
 | Fix memory ingestion | `backend/services/ingestion_worker.py` |
@@ -390,8 +404,9 @@ Store: `trinity-icp/src-react/store/index.ts` · Types: `trinity-icp/src-react/s
 | Change state shape | `trinity-icp/src-react/store/index.ts` |
 | Canonical message persistence | `backend/routes/generate.py`, `backend/services/state_store.py` |
 | Fix streaming | `trinity-icp/src-react/hooks/useChat.ts` |
-| Modify Docker | `deploy/docker/Dockerfile` |
-| Change Akash deploy | `deploy/akash/deploy-production.yaml`, `deploy/akash/deploy-test.yaml` |
+| Retrain classifiers | `scripts/generate_training_data.py` → `scripts/train_classifiers.py` |
+| Modify Docker | `deploy/docker/Dockerfile`, `deploy/docker/startup.sh` |
+| Change Akash deploy | `deploy/akash/deploy-production.yaml`, `deploy/akash/deploy-test.yaml`, `deploy/akash/deploy-tier3.yaml` |
 
 ---
 
@@ -410,3 +425,4 @@ Store: `trinity-icp/src-react/store/index.ts` · Types: `trinity-icp/src-react/s
 |-------|---------|
 | `database.py` not integrated | 298-line ORM exists but unused |
 | Cold start delay | First request after Akash deploy takes 20-30s (LLM loading) |
+| `.bak` files in services/ | 5 backup files from refactor — can be cleaned up |

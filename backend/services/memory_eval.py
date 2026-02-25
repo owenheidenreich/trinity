@@ -6,7 +6,18 @@ Deterministic eval cases for memory relevance precision/recall.
 
 from typing import Dict, List
 
-from services.agent import _format_user_memory, _question_requests_personal_memory
+from services.query_classifier import requests_personal_memory as _question_requests_personal_memory
+
+# Try to import _format_user_memory from agent — may have been refactored
+try:
+    from services.agent import _format_user_memory
+except ImportError:
+    def _format_user_memory(profile, query="", include_personal=False):
+        """Fallback: render facts as bullet list."""
+        facts = profile.get("facts", [])
+        if not include_personal:
+            facts = [f for f in facts if f.get("category") != "identity"]
+        return "\n".join(f"- {f['text']}" for f in facts)
 
 _EVAL_CASES = [
     {

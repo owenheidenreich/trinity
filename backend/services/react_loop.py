@@ -8,13 +8,15 @@ and repeats until it has enough information to answer.
 This module is called from agent.py's execute pass when tools are needed.
 
 Supports dual-mode tool calling:
-- Native: Ollama /api/chat tools parameter (Qwen3, Llama3.1+, Mistral)
+- Native: OpenAI-compatible tools parameter (Qwen3, Llama3.1+, Mistral)
 - XML: Prompt-based XML parsing (all models, fallback)
 """
 
+import json
 import logging
 import re
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Dict, Generator, List, Optional
 
 from config import REACT_MAX_ITERATIONS, REACT_TOKEN_BUDGET, REFLEXION_MAX_RETRIES
@@ -70,7 +72,7 @@ class ReactLoop:
     def __init__(self, client, max_iterations: int = None, context: Dict = None):
         """
         Args:
-            client: OllamaClient instance (provides chat() and chat_stream())
+            client: LLMProvider instance (provides chat() and chat_stream())
             max_iterations: Max tool-calling rounds (default from config)
             context: Optional dict with principal_id, chat_id for context-aware tools
         """
@@ -148,9 +150,13 @@ class ReactLoop:
 
         tool_defs = TOOL_PROMPT_SECTION
 
+        now = datetime.now(timezone.utc)
+        temporal_context = f"Current date: {now.strftime('%A, %B %d, %Y')} UTC"
+
         return REACT_SYSTEM_PROMPT.format(
             tool_definitions=tool_defs,
             extra_context=extra_context,
+            temporal_context=temporal_context,
         )
 
     def _build_messages(
@@ -259,6 +265,7 @@ class ReactLoop:
         tools_used = []
         tool_log = []
         reflexion_counts = {}  # Track retries per tool type
+        _seen_calls = set()  # Guard against duplicate tool calls
 
         for iteration in range(self.max_iterations):
             with track_agent_pass("react_iteration"):
@@ -274,7 +281,7 @@ class ReactLoop:
                 )
 
                 if not response:
-                    logger.warning("Empty response from Ollama chat")
+                    logger.warning("Empty response from LLM chat")
                     break
 
                 # CHECK: Does response contain tool calls?
@@ -292,6 +299,30 @@ class ReactLoop:
 
                 # ACT: Execute the first tool call only (one per turn)
                 tc = tool_calls[0]
+
+                # Duplicate-call guard: if same tool+params already executed,
+                # force a final answer using content (strip any tool XML)
+                call_key = (tc.name, json.dumps(tc.params, sort_keys=True))
+                if call_key in _seen_calls:
+                    logger.info(
+                        "ReAct duplicate call blocked: %s (iteration %d)",
+                        tc.name, iteration + 1,
+                    )
+                    # Use the last tool result as the answer — the model is
+                    # just re-emitting the same tool call, not producing text.
+                    if tool_log:
+                        last_out = tool_log[-1]['output']
+                        clean = f"The result is: {last_out}"
+                    else:
+                        clean = content
+                    return ReactResult(
+                        answer=clean,
+                        tools_used=tools_used,
+                        iterations=iteration + 1,
+                        tool_results=tool_log,
+                    )
+                _seen_calls.add(call_key)
+
                 logger.info(f"ReAct iteration {iteration + 1}: calling {tc.name}")
                 tools_used.append(tc.name)
 
@@ -339,9 +370,7 @@ class ReactLoop:
                         else f"Error: {result.error or result.output}"
                     )
                     observation = (
-                        f"[Tool Result: {tc.name}]\n{result_text}\n\n"
-                        f"Continue based on this result. Use another tool if needed, "
-                        f"or give your final answer."
+                        f"[Tool Result: {tc.name}]\n{result_text}"
                     )
 
                 messages.append({"role": "user", "content": observation})
@@ -415,6 +444,8 @@ class ReactLoop:
 
         tools_used = []
         reflexion_counts = {}  # Track retries per tool type
+        _seen_calls = set()  # Guard against duplicate tool calls
+        _last_tool_output = ""  # Cache last result for duplicate fallback
 
         for iteration in range(self.max_iterations):
             with track_agent_pass("react_iteration"):
@@ -432,7 +463,7 @@ class ReactLoop:
                 )
 
                 if not response:
-                    logger.warning("Empty response from Ollama chat in streaming mode")
+                    logger.warning("Empty response from LLM chat in streaming mode")
                     break
 
                 # CHECK: Does response contain tool calls?
@@ -454,6 +485,27 @@ class ReactLoop:
 
                 # ACT: Execute the first tool call
                 tc = tool_calls[0]
+
+                # Duplicate-call guard: if same tool+params already executed,
+                # force a final answer instead of re-running
+                call_key = (tc.name, json.dumps(tc.params, sort_keys=True))
+                if call_key in _seen_calls:
+                    logger.info(
+                        "ReAct streaming duplicate call blocked: %s (iteration %d)",
+                        tc.name, iteration + 1,
+                    )
+                    # Use the last tool result — model is just re-calling
+                    clean = f"The result is: {_last_tool_output}" if _last_tool_output else content
+                    for char_chunk in self._chunk_text(clean):
+                        yield {"token": char_chunk}
+                    yield {
+                        "react_done": True,
+                        "tools_used": tools_used,
+                        "iterations": iteration + 1,
+                    }
+                    return
+                _seen_calls.add(call_key)
+
                 logger.info(f"ReAct streaming iteration {iteration + 1}: calling {tc.name}")
                 tools_used.append(tc.name)
 
@@ -464,6 +516,7 @@ class ReactLoop:
 
                 results = self._run_tools([tc])
                 result = results[0]
+                _last_tool_output = result.output or ""
 
                 status = "done" if result.success else "error"
                 yield format_phase_update(
@@ -505,9 +558,7 @@ class ReactLoop:
                         else f"Error: {result.error or result.output}"
                     )
                     observation = (
-                        f"[Tool Result: {tc.name}]\n{result_text}\n\n"
-                        f"Continue based on this result. Use another tool if needed, "
-                        f"or give your final answer."
+                        f"[Tool Result: {tc.name}]\n{result_text}"
                     )
 
                 messages.append({"role": "user", "content": observation})

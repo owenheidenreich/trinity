@@ -12,12 +12,15 @@ import threading
 import tempfile
 import time
 import uuid
+from collections import OrderedDict
 from pathlib import Path
 from typing import Dict, List, Optional
 
 import numpy as np
 
+from config import ARCHIVE_AFTER_DAYS
 from config import CHATS_DIR
+from config import MAX_STATE_STORES
 from encryption import EncryptionUtils
 from services.session_manager import get_session_passphrase
 
@@ -81,6 +84,7 @@ class PrincipalStateStore:
         self.principal_id = principal_id
         self._lock = threading.RLock()
         self._last_quick_check_ms = 0
+        self._last_archive_check: float = 0.0
         self.user_dir = self._user_dir_for_principal(principal_id)
         self.db_path = self.user_dir / "state.db"
         self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
@@ -155,6 +159,20 @@ class PrincipalStateStore:
                     FOREIGN KEY(chat_id) REFERENCES chats(chat_id) ON DELETE CASCADE
                 );
 
+                -- Additive migration: source_chat_id for tier-aware retrieval --
+                """
+            )
+            # Additive column migration (idempotent — fails silently if column exists)
+            try:
+                self.conn.execute(
+                    "ALTER TABLE memory_facts ADD COLUMN source_chat_id TEXT DEFAULT NULL"
+                )
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+
+            self.conn.executescript(
+                """
+
                 CREATE TABLE IF NOT EXISTS graph_triples (
                     triple_id INTEGER PRIMARY KEY AUTOINCREMENT,
                     principal_id TEXT NOT NULL,
@@ -210,6 +228,11 @@ class PrincipalStateStore:
                 """
             )
             self.conn.commit()
+
+            # Create sqlite-vec virtual tables for ANN search (if sqlite-vec is available)
+            from services.db import create_vec_tables
+
+            create_vec_tables(self.conn)
 
     def _configure_connection(self, conn: sqlite3.Connection):
         conn.row_factory = sqlite3.Row
@@ -325,6 +348,42 @@ class PrincipalStateStore:
     # Chat / message operations
     # ---------------------------------------------------------------------
 
+    def auto_archive_stale_chats(self, days: Optional[int] = None) -> int:
+        """Archive chats whose updated_at is older than *days* days.
+
+        Pinned chats are exempt.  Returns the number of chats archived.
+        Throttled to run at most once per hour via ``_last_archive_check``.
+        """
+        now = time.time()
+        if now - self._last_archive_check < 3600:
+            return 0
+        self._last_archive_check = now
+
+        threshold_days = days if days is not None else ARCHIVE_AFTER_DAYS
+        cutoff_ms = _now_ms() - (threshold_days * 86_400_000)
+
+        with self._lock:
+            cursor = self.conn.execute(
+                """
+                UPDATE chats
+                SET archived = 1, updated_at = ?
+                WHERE principal_id = ?
+                  AND archived = 0
+                  AND pinned = 0
+                  AND updated_at < ?
+                """,
+                (_now_ms(), self.principal_id, cutoff_ms),
+            )
+            count = cursor.rowcount
+            if count:
+                self.conn.commit()
+                logger.info(
+                    "Auto-archived %d stale chat(s) for principal %s",
+                    count,
+                    self.principal_id[:12],
+                )
+        return count
+
     def create_chat(self, chat_id: Optional[str] = None, title: str = "New Chat") -> str:
         with self._lock:
             now = _now_ms()
@@ -352,6 +411,9 @@ class PrincipalStateStore:
         return self.create_chat(chat_id=chat_id, title=default_title)
 
     def list_chats(self, include_archived: bool = True, limit: int = 200) -> List[Dict]:
+        # Lazily archive stale chats (throttled to once/hour)
+        self.auto_archive_stale_chats()
+
         with self._lock:
             query = (
                 "SELECT chat_id, title_enc, pinned, archived, created_at, updated_at, message_count "
@@ -636,7 +698,7 @@ class PrincipalStateStore:
 
         select = (
             "f.fact_id, f.text_enc, f.category, f.importance, f.created_at, f.updated_at, "
-            "f.deleted_at, f.valid_at, f.invalid_at, f.source_message_id"
+            "f.deleted_at, f.valid_at, f.invalid_at, f.source_message_id, f.source_chat_id"
         )
         join = ""
         if with_embeddings:
@@ -665,6 +727,7 @@ class PrincipalStateStore:
                 "valid_at": int(row["valid_at"]) if row["valid_at"] is not None else None,
                 "invalid_at": int(row["invalid_at"]) if row["invalid_at"] is not None else None,
                 "source_message_id": row["source_message_id"],
+                "source_chat_id": row["source_chat_id"] if "source_chat_id" in row.keys() else None,
                 "last_mentioned": int(row["updated_at"]),
             }
             if with_embeddings:
@@ -686,6 +749,7 @@ class PrincipalStateStore:
         category: str,
         importance: int,
         source_message_id: Optional[int] = None,
+        source_chat_id: Optional[str] = None,
         valid_at: Optional[int] = None,
         invalid_at: Optional[int] = None,
         deleted_at: Optional[int] = None,
@@ -697,8 +761,8 @@ class PrincipalStateStore:
                 """
                 INSERT INTO memory_facts
                 (principal_id, text_enc, category, importance, created_at, updated_at,
-                 deleted_at, valid_at, invalid_at, source_message_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 deleted_at, valid_at, invalid_at, source_message_id, source_chat_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     self.principal_id,
@@ -711,6 +775,7 @@ class PrincipalStateStore:
                     valid_at if valid_at is not None else now,
                     invalid_at,
                     source_message_id,
+                    source_chat_id,
                 ),
             )
             fact_id = int(self.conn.execute("SELECT last_insert_rowid()").fetchone()[0])
@@ -736,6 +801,7 @@ class PrincipalStateStore:
             "valid_at",
             "invalid_at",
             "source_message_id",
+            "source_chat_id",
             "embedding",
         }
         clean = {k: v for k, v in updates.items() if k in allowed}
@@ -773,6 +839,9 @@ class PrincipalStateStore:
             if "source_message_id" in clean:
                 fields.append("source_message_id = ?")
                 params.append(clean["source_message_id"])
+            if "source_chat_id" in clean:
+                fields.append("source_chat_id = ?")
+                params.append(clean["source_chat_id"])
 
             fields.append("updated_at = ?")
             params.append(_now_ms())
@@ -1419,7 +1488,7 @@ class PrincipalStateStore:
 
 
 _state_store_lock = threading.Lock()
-_state_stores: Dict[str, PrincipalStateStore] = {}
+_state_stores: OrderedDict[str, PrincipalStateStore] = OrderedDict()
 
 
 def get_state_store(principal_id: str) -> PrincipalStateStore:
@@ -1435,7 +1504,18 @@ def get_state_store(principal_id: str) -> PrincipalStateStore:
                     pass
                 _state_stores.pop(principal_id, None)
                 store = None
+            else:
+                # Mark as recently used (move to end of OrderedDict)
+                _state_stores.move_to_end(principal_id)
         if store is None:
+            # Evict oldest entries if at capacity
+            while len(_state_stores) >= MAX_STATE_STORES:
+                evicted_pid, evicted_store = _state_stores.popitem(last=False)
+                try:
+                    evicted_store.close()
+                    logger.debug("LRU-evicted state store for principal %s", evicted_pid[:16])
+                except Exception:
+                    pass
             store = PrincipalStateStore(principal_id)
             _state_stores[principal_id] = store
         try:

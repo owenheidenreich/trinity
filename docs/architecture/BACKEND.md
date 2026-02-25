@@ -1,10 +1,10 @@
 # Trinity — Backend Architecture
 
-> Last updated: February 19, 2026 · Covers the Python Flask inference server
+> Last updated: February 20, 2026 · Covers the Python Flask inference server
 
 ## Overview
 
-The backend is a Python Flask application that runs inside a Docker container on the Akash Network alongside an Ollama instance for LLM inference. It handles authentication, chat management, AI generation (with agentic tool-calling), encrypted storage, and exposes a Prometheus-compatible metrics endpoint.
+The backend is a Python Flask application that runs inside a Docker container on the Akash Network alongside two llama-server (llama.cpp) instances for LLM inference — one for chat (32B model, port 8081) and one for ingestion tasks (8B model, port 8082). It handles authentication, chat management, AI generation (with agentic tool-calling), encrypted storage, and exposes a Prometheus-compatible metrics endpoint.
 
 ---
 
@@ -40,14 +40,15 @@ backend/
 │   ├── rate_limit.py          # Rate limiting + token quotas
 │   └── icp_cache.py           # ICP idempotency cache (for subnet replicas)
 │
-├── services/                  # 42 business logic modules
+├── services/                  # 49 business logic modules
 │   │
 │   │   # ── Pipeline (extracted from 1086-line agent.py) ──
 │   ├── context_loader.py      # Single load_context() → RequestContext dataclass
-│   ├── query_classifier.py    # ContextLevel enum, smalltalk/disclosure/code detection
+│   ├── query_classifier.py    # ContextLevel enum, classifier-backed classification (no regex)
 │   ├── prompt_assembler.py    # Token-budgeted prompt builder + auto-generated tool sections
 │   ├── pipeline.py            # StreamingPipeline: fast-path / tools / direct chat
 │   ├── think_filter.py        # Streaming <think> block filter + code-fence helpers
+│   ├── tiny_classifier.py     # ByteTransformer (pure numpy): classify_query(), detect_tools()
 │   │
 │   │   # ── Agent & Tools ──
 │   ├── agent.py               # AgentPipeline (thin compat wrapper around StreamingPipeline)
@@ -75,10 +76,9 @@ backend/
 │   ├── user_data_store.py     # IPFS persistence pipeline (retry, sync, manifest)
 │   │
 │   │   # ── LLM Providers ──
-│   ├── ollama.py              # Ollama client utilities
-│   ├── ollama_provider.py     # Ollama LLM provider implementation
+│   ├── llama_server_provider.py  # llama-server (llama.cpp) provider — OpenAI-compatible API
 │   ├── llm_provider.py        # Abstract LLM provider interface
-│   ├── provider_factory.py    # Provider factory (Ollama, vLLM, etc.)
+│   ├── provider_factory.py    # Provider factory (llama-server)
 │   ├── model_router.py        # Route queries to conversation vs coder model
 │   │
 │   │   # ── Search & RAG ──
@@ -151,7 +151,7 @@ create_app()
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| GET | `/health` | None | Full health check: Ollama status, CPU/RAM/disk, queue size, feature flags |
+| GET | `/health` | None | Full health check: llama-server status, CPU/RAM/disk, queue size, feature flags |
 | GET | `/health/icp` | None | Deterministic health response for ICP HTTP Outcalls |
 | GET | `/metrics` | None | Prometheus metrics (text format) |
 | GET | `/stats` | None | JSON system statistics |
@@ -375,12 +375,15 @@ All values have sensible defaults and can be overridden via environment variable
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `MODEL_NAME` | `qwen3:32b` | Ollama model to use |
-| `MODEL_BACKEND` | `ollama` | Inference backend |
-| `OLLAMA_HOST` | `http://localhost:11434` | Ollama API URL |
+| `MODEL_NAME` | `qwen3:32b` | Model name (maps to GGUF filename) |
+| `MODEL_BACKEND` | `llama-server` | Inference backend |
+| `LLAMA_SERVER_CHAT_PORT` | `8081` | Chat llama-server port |
+| `LLAMA_SERVER_INGEST_PORT` | `8082` | Ingest llama-server port |
 | `NUM_CTX` | `65536` | Context window size (tokens) |
 | `DEFAULT_MAX_TOKENS` | `8000` | Max tokens per response |
-| `OLLAMA_TIMEOUT` | `600` seconds | Request timeout |
+| `TEMPERATURE_CODE` | `0.1` | Temperature for code queries |
+| `TEMPERATURE_FACTUAL` | `0.3` | Temperature for factual/tool queries |
+| `TEMPERATURE_CONVERSATIONAL` | `0.7` | Temperature for conversational queries |
 
 ### RAG & Embeddings
 
@@ -444,19 +447,19 @@ Docker Build Layers:
 │
 ├── CUDA runtime (cached, ~4GB)
 ├── System packages: python3.11, pip, curl, zstd
-├── Ollama installation (curl | sh)
+├── llama-server binary (copied from ghcr.io/ggml-org/llama.cpp:server-cuda)
 ├── Python dependencies from requirements.txt (cached)
 ├── Non-root user 'trinity', data directories
 ├── Application code (~2MB, cache-busted)
 │   └── Copies: inference_server.py, config.py, database.py,
 │       encryption.py, icp_auth.py, storage.py, validation.py,
-│       lighthouse.py, middleware/, services/, routes/
+│       lighthouse.py, middleware/, services/, routes/, models/
 └── startup.sh entrypoint
 ```
 
-**Key design choice:** Models are NOT baked into the image. They are pulled by `startup.sh` at first boot and cached on the Akash persistent volume. This keeps the image at ~4GB instead of ~20GB.
+**Key design choice:** GGUF models are NOT baked into the image. They are downloaded from HuggingFace by `startup.sh` at first boot and cached on the Akash persistent volume. This keeps the image at ~4GB instead of ~20GB.
 
-**Ports:** 8000 (Flask), 11434 (Ollama)
+**Ports:** 8000 (Flask), 8081 (llama-server chat), 8082 (llama-server ingest)
 
 **Health check:** `curl http://localhost:8000/health` every 30 seconds with a 1200-second start period (for initial model download).
 
@@ -482,7 +485,8 @@ Docker Build Layers:
 | beautifulsoup4 | Latest | HTML parsing |
 | mcp | ≥1.0.0 | Model Context Protocol (optional) |
 | psutil | Latest | System metrics |
-| numpy | 1.26.4 | Numerical operations |
+| numpy | 1.26.4 | ByteTransformer classifiers + numerical operations |
+| huggingface_hub | Latest | GGUF model download from HuggingFace |
 
 ---
 

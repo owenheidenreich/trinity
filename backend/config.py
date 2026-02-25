@@ -58,19 +58,22 @@ MODEL_NAME = os.getenv("MODEL_NAME", "qwen3:32b")
 MODEL_ROUTING_ENABLED = os.getenv("MODEL_ROUTING_ENABLED", "true").lower() == "true"
 CONVERSATION_MODEL_NAME = os.getenv("CONVERSATION_MODEL_NAME", MODEL_NAME)
 CODER_MODEL_NAME = os.getenv("CODER_MODEL_NAME", MODEL_NAME)
-MODEL_BACKEND = os.getenv("MODEL_BACKEND", "ollama")
+MODEL_BACKEND = os.getenv("MODEL_BACKEND", "llama-server")
 GPU_TYPE = os.getenv("GPU_TYPE", "CPU")
-OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-# Split model capacity between chat (user-facing) and ingestion (background).
-OLLAMA_CHAT_HOST = os.getenv("OLLAMA_CHAT_HOST", OLLAMA_HOST)
-OLLAMA_CHAT_MODEL = os.getenv("OLLAMA_CHAT_MODEL", CONVERSATION_MODEL_NAME or MODEL_NAME)
-OLLAMA_INGEST_HOST = os.getenv("OLLAMA_INGEST_HOST", OLLAMA_HOST)
+# Model name variables — used in startup.sh and Akash YAML.
+CHAT_MODEL = os.getenv("CHAT_MODEL", os.getenv("OLLAMA_CHAT_MODEL", CONVERSATION_MODEL_NAME or MODEL_NAME))
 # Default ingest model to chat model unless explicitly overridden.
 # This prevents background extraction from failing on deployments that only
 # pull/configure MODEL_NAME (for example, qwen3:8b test environments).
-OLLAMA_INGEST_MODEL = os.getenv("OLLAMA_INGEST_MODEL", OLLAMA_CHAT_MODEL or MODEL_NAME)
+INGEST_MODEL = os.getenv("INGEST_MODEL", os.getenv("OLLAMA_INGEST_MODEL", CHAT_MODEL or MODEL_NAME))
+
+# ===== LLAMA-SERVER CONFIGURATION =====
+# Ports for llama-server instances (used when MODEL_BACKEND="llama-server")
+LLAMA_SERVER_CHAT_PORT = int(os.getenv("LLAMA_SERVER_CHAT_PORT", "8081"))
+LLAMA_SERVER_INGEST_PORT = int(os.getenv("LLAMA_SERVER_INGEST_PORT", "8082"))
+
 MAX_QUEUE_SIZE = int(os.getenv("MAX_QUEUE_SIZE", "10"))
-CHATS_DIR = os.getenv("CHATS_DIR", "/var/lib/trinity/chats")
+CHATS_DIR = os.getenv("CHATS_DIR", "/data/chats")
 # Canonical architecture paths
 CANONICAL_FRONTEND_PATH = "src-react"
 CANONICAL_GENERATE_ROUTE = "/generate/agent"
@@ -111,12 +114,25 @@ ADMIN_PRINCIPALS = [p.strip() for p in os.getenv("ADMIN_PRINCIPALS", "").split("
 MAX_PROMPT_LENGTH = 100000  # 100KB max prompt (doubled for 64K context window)
 
 # ===== INFERENCE DEFAULTS =====
-NUM_CTX = 65536                        # Explicit Ollama context window (prompt + response)
-DEFAULT_MAX_TOKENS = 8000             # Default max_length for /generate
+NUM_CTX = int(os.getenv("NUM_CTX", "40960"))  # Context window (prompt + response), env-overridable per tier
+DEFAULT_MAX_TOKENS = int(os.getenv("DEFAULT_MAX_TOKENS", "16384"))  # Max response tokens (must match pipeline budget)
 REASONING_MIN_TOKENS = 8000        # Min tokens when reasoning mode active
-DEFAULT_TEMPERATURE = 0.7          # Default sampling temperature
-OLLAMA_TIMEOUT = 600               # Full generation timeout (seconds)
-OLLAMA_TIMEOUT_TOOLS = 300         # Tools/summarize timeout (seconds)
+DEFAULT_TEMPERATURE = float(os.getenv("DEFAULT_TEMPERATURE", "0.7"))
+
+# ===== TEMPERATURE ROUTING =====
+TEMPERATURE_CODE = float(os.getenv("TEMPERATURE_CODE", "0.1"))
+TEMPERATURE_FACTUAL = float(os.getenv("TEMPERATURE_FACTUAL", "0.3"))
+TEMPERATURE_CONVERSATIONAL = float(os.getenv("TEMPERATURE_CONVERSATIONAL", "0.7"))
+
+# ===== SAMPLING PARAMETERS =====
+# Configurable via env vars so each deployment tier can use model-recommended values.
+# Qwen3-32B defaults: top_p=0.8, top_k=20, min_p=0
+# Qwen3-Coder-Next: top_p=0.95, top_k=40, min_p=0
+DEFAULT_TOP_P = float(os.getenv("DEFAULT_TOP_P", "0.8"))
+DEFAULT_TOP_K = int(os.getenv("DEFAULT_TOP_K", "20"))
+DEFAULT_MIN_P = float(os.getenv("DEFAULT_MIN_P", "0"))
+LLM_TIMEOUT = 600                  # Full generation timeout (seconds)
+LLM_TIMEOUT_TOOLS = 300            # Tools/summarize timeout (seconds)
 
 # ===== DOCUMENT / CONTEXT LIMITS =====
 MAX_DOCUMENT_CONTEXT_CHARS = 60000    # Chars of document context sent to LLM
@@ -132,7 +148,15 @@ SEARCH_SUMMARIZE_CHARS_PER_SOURCE = 3000 # Chars extracted per source
 MAX_ARCHIVED_CHATS = 20              # Maximum archived chats per user
 IPFS_SCAN_LIMIT = 50                 # Max uploads to scan when listing chats
 CHAT_INACTIVE_DAYS = 7               # Days before auto-delete
+MAX_STATE_STORES = int(os.getenv("MAX_STATE_STORES", "100"))  # LRU cap for open per-principal SQLite connections
 PRINCIPAL_DISPLAY_LENGTH = 16         # Chars of principal shown in logs/filenames
+
+# ===== TIERED MEMORY CONFIGURATION =====
+ARCHIVE_AFTER_DAYS = int(os.getenv("ARCHIVE_AFTER_DAYS", "7"))
+ARCHIVE_RETRIEVAL_WEIGHT = float(os.getenv("ARCHIVE_RETRIEVAL_WEIGHT", "0.6"))
+CROSS_CONVERSATION_SUMMARY_BUDGET = int(os.getenv("CROSS_CONVERSATION_SUMMARY_BUDGET", "1500"))
+CROSS_CONVERSATION_MAX_CHATS = int(os.getenv("CROSS_CONVERSATION_MAX_CHATS", "3"))
+ARCHIVED_CONTEXT_SIZE = int(os.getenv("ARCHIVED_CONTEXT_SIZE", "16384"))
 # Debounce window before autosaved chats checkpoint to IPFS
 CHAT_CHECKPOINT_DEBOUNCE_SECONDS = int(os.getenv("CHAT_CHECKPOINT_DEBOUNCE_SECONDS", "45"))
 # Hard cap for how long autosave writes can stay unsynced during active chats
@@ -198,7 +222,9 @@ CODE_EXECUTION_MEMORY_LIMIT = 10 * 1024 * 1024  # 10MB
 # Enable iterative tool calling (think -> act -> observe -> repeat)
 REACT_ENABLED = os.getenv("REACT_ENABLED", "true").lower() == "true"
 # Maximum tool-calling iterations before forcing a final answer
-REACT_MAX_ITERATIONS = int(os.getenv("REACT_MAX_ITERATIONS", "15"))
+# 5 is enough for multi-tool chains (search→calculate→save) while preventing
+# runaway loops where the model keeps re-calling the same tool type.
+REACT_MAX_ITERATIONS = int(os.getenv("REACT_MAX_ITERATIONS", "5"))
 # Token budget guard — force final answer if approaching context limit
 # 75% of context window (64K default → 48K budget)
 REACT_TOKEN_BUDGET = int(os.getenv("REACT_TOKEN_BUDGET", "48000"))
@@ -224,11 +250,15 @@ MEMORY_TOOLS_ENABLED = os.getenv("MEMORY_TOOLS_ENABLED", "true").lower() == "tru
 # ===== MCP (Model Context Protocol) =====
 # Enable MCP server (exposes Trinity tools to external MCP clients)
 MCP_SERVER_ENABLED = os.getenv("MCP_SERVER_ENABLED", "true").lower() == "true"
+
+# ===== DIAGNOSTIC MODE =====
+# Enable /diagnostic/* endpoints for LLM behavior analysis (no auth required)
+DIAGNOSTIC_ENABLED = os.getenv("DIAGNOSTIC_ENABLED", "false").lower() == "true"
 # ===== PATHS =====
 # Only create directories in production (not during import for tests)
 try:
     Path(CHATS_DIR).mkdir(parents=True, exist_ok=True)
-except PermissionError:
+except (PermissionError, OSError):
     # Running locally without Docker - use temp directory
     CHATS_DIR = "/tmp/trinity/chats"
     Path(CHATS_DIR).mkdir(parents=True, exist_ok=True)
@@ -237,5 +267,5 @@ except PermissionError:
 # Log startup configuration
 logger.info(f"🏗️  Trinity Backend Build: {BUILD_TIMESTAMP}")
 logger.info(f"📦 Model: {MODEL_NAME}")
-logger.info(f"🔗 Ollama: {OLLAMA_HOST}")
+logger.info(f"🔗 Backend: {MODEL_BACKEND}")
 logger.info(f"💾 Chats: {CHATS_DIR}")

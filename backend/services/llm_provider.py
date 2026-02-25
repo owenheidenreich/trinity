@@ -7,7 +7,7 @@ to a specific backend.
 
 Architecture:
     LLMProvider (ABC)
-    └── OllamaProvider   — wraps Ollama /api/generate & /api/chat
+    └── LlamaServerProvider — wraps llama-server /v1/chat/completions
 """
 
 import logging

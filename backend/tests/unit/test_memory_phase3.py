@@ -179,15 +179,15 @@ class TestFormatUserMemory:
 
     def test_personal_memory_detector_is_explicit(self):
         """Only explicit profile recall prompts should trigger full personal memory injection."""
-        from services.agent import _question_requests_personal_memory
+        from services.query_classifier import requests_personal_memory
 
-        assert _question_requests_personal_memory("what do you know about me")
-        assert _question_requests_personal_memory("what is my name")
-        assert not _question_requests_personal_memory("what is the quadratic formula")
+        assert requests_personal_memory("what do you know about me")
+        assert requests_personal_memory("what is my name")
+        assert not requests_personal_memory("what is the quadratic formula")
 
     def test_personal_disclosure_detector(self):
         """First-person disclosures should be detected without matching generic help requests."""
-        from services.agent import is_personal_disclosure
+        from services.query_classifier import is_personal_disclosure
 
         assert is_personal_disclosure("my favorite games are zelda and melee")
         assert is_personal_disclosure("i like sci-fi books")

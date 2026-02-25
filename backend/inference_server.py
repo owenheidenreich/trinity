@@ -1,7 +1,7 @@
 """
 Trinity Inference Server — App Factory
 ========================================
-Production backend using Ollama for model inference.
+Production backend using llama-server for model inference.
 
 Phase 3.1 refactor: all route handlers live in routes/ blueprints.
 This file creates the Flask app, registers blueprints, hooks, and scheduler.
@@ -149,6 +149,16 @@ _startup_state_integrity_scan()
 for bp in ALL_BLUEPRINTS:
     app.register_blueprint(bp)
     logger.info(f"  📦 Registered blueprint: {bp.name}")
+
+# Diagnostic blueprint (opt-in via DIAGNOSTIC_ENABLED env var)
+try:
+    from config import DIAGNOSTIC_ENABLED
+    if DIAGNOSTIC_ENABLED:
+        from routes.diagnostic import diagnostic_bp
+        app.register_blueprint(diagnostic_bp)
+        logger.info("  🔬 Registered diagnostic blueprint (DIAGNOSTIC_ENABLED=true)")
+except Exception as e:
+    logger.debug(f"Diagnostic blueprint not loaded: {e}")
 
 # ===========================================================================
 # Request Hooks
@@ -368,8 +378,8 @@ if __name__ == "__main__":
             logger.warning(f"⚠️  Embedding model warmup failed: {e}")
     else:
         logger.warning(f"⚠️  Could not connect to {provider.backend_name} — server will start anyway")
-        logger.warning("   Make sure Ollama is running: ollama serve")
-        logger.warning(f"   Make sure model is available: ollama pull {MODEL_NAME}")
+        logger.warning("   Make sure llama-server is running (check startup.sh logs)")
+        logger.warning(f"   Expected model: {MODEL_NAME}")
 
     if not scheduler.running:
         scheduler.start()

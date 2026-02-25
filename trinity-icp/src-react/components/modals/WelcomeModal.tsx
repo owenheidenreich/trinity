@@ -20,6 +20,7 @@ interface WelcomeModalProps {
   savedUsername: string | null;
   onRegister: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
   onSignIn: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  onDismiss?: () => void;
 }
 
 export function WelcomeModal({
@@ -27,6 +28,7 @@ export function WelcomeModal({
   savedUsername,
   onRegister,
   onSignIn,
+  onDismiss,
 }: WelcomeModalProps) {
   // Default to sign-in if we have a saved username (returning user)
   const [mode, setMode] = useState<Mode>(savedUsername ? 'signin' : 'create');
@@ -377,6 +379,26 @@ export function WelcomeModal({
           }}>
             {error}
           </p>
+        )}
+
+        {/* ─── Dismiss (back to chat) ─── */}
+        {onDismiss && (
+          <div style={{ textAlign: 'center', padding: '0 24px 20px' }}>
+            <button
+              onClick={onDismiss}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: 'var(--color-text-secondary)',
+                cursor: 'pointer',
+                fontSize: '0.8125rem',
+                textDecoration: 'underline',
+                padding: 0,
+              }}
+            >
+              Continue without account
+            </button>
+          </div>
         )}
       </div>
     </div>

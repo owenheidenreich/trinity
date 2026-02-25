@@ -20,7 +20,9 @@ from config import (
     MAX_QUEUE_SIZE,
     logger,
 )
-from icp_auth import require_auth
+from icp_auth import (
+    require_auth_or_anonymous,
+)
 from middleware import (
     end_request,
     get_active_requests,
@@ -35,7 +37,7 @@ generate_bp = Blueprint("generate", __name__)
 
 
 @generate_bp.route("/generate/agent", methods=["POST"])
-@require_auth
+@require_auth_or_anonymous
 @rate_limit
 @token_quota(estimated_tokens=1500)
 def generate_agent():
@@ -45,9 +47,10 @@ def generate_agent():
     from services.pipeline import StreamingPipeline, get_pipeline
     from services.prompt_assembler import PromptAssembler
     from services.provider_factory import get_provider
-    from services.query_classifier import ContextLevel, is_trivial_smalltalk, smalltalk_fast_response
     from services.state_store import get_state_store
     from services.knowledge_store import KnowledgeStore
+
+    is_anonymous = getattr(request, "is_anonymous", False)
 
     if get_active_requests() >= MAX_QUEUE_SIZE:
         return jsonify({"error": "Server at capacity"}), 503
@@ -84,8 +87,8 @@ def generate_agent():
             token_count=len(user_prompt.split()),
         )
 
-        # --- Enqueue ingestion (replaces fire-and-forget threads) ---
-        if ctx.level not in (ContextLevel.NONE, ContextLevel.MINIMAL):
+        # --- Enqueue user message for ingestion (skip for anonymous) ---
+        if not is_anonymous:
             enqueue_ingestion(
                 principal_id=principal,
                 source="user",
@@ -94,21 +97,41 @@ def generate_agent():
             )
 
         logger.info(
-            "🧠 Agent request: %d words, level=%s, tools=%s",
+            "🧠 Agent request: %d words, tools=%s, disclosure=%s",
             len(user_prompt.split()),
-            ctx.level.value,
             bool(ctx.tools_needed),
+            ctx.is_disclosure,
         )
+
+        # --- Injection gate (classifier, not prompt) ---
+        if ctx.injection_detected:
+            refusal = "I'm not able to do that. How can I help you with something else?"
+
+            def generate_refusal_sse():
+                yield f"data: {json.dumps({'type': 'session', 'chat_id': chat_id, 'user_message_id': user_message_id})}\n\n"
+                yield f"data: {json.dumps({'token': refusal})}\n\n"
+
+                # Persist refusal as assistant message
+                assistant_mid = store.add_message(
+                    chat_id=chat_id, role="assistant", content=refusal,
+                )
+                yield f"data: {json.dumps({'done': True, 'response': {'answer': refusal, 'total_time_seconds': 0.0}, 'done_reason': 'injection_blocked', 'response_mode': 'normal', 'assistant_message_id': assistant_mid})}\n\n"
+
+            return Response(generate_refusal_sse(), mimetype="text/event-stream")
 
         # --- Build messages array ---
         assembler = PromptAssembler()
+        has_tools = bool(ctx.tools_needed)
         messages = assembler.assemble(
             question=user_prompt,
             context_messages=ctx.messages,
             knowledge_items=ctx.knowledge_items,
             conversation_summary=ctx.conversation_summary,
             search_context="",  # web search handled inside pipeline
-            tools_active=bool(ctx.tools_needed),
+            tools_active=has_tools,
+            react_mode=has_tools,  # Use ReAct system prompt when tools are active
+            cross_conversation_summaries=ctx.cross_conversation_summaries,
+            ctx_budget=ctx.ctx_budget,
         )
 
         # --- Stream response ---
@@ -129,10 +152,9 @@ def generate_agent():
                     question=user_prompt,
                     messages=messages,
                     principal_id=principal,
-                    fast_path=(ctx.level == ContextLevel.NONE),
-                    disclosure_path=ctx.is_disclosure,
                     tools_needed=ctx.tools_needed,
                     chat_id=chat_id,
+                    temperature=ctx.temperature,
                 ):
                     if isinstance(event, dict) and event.get("done"):
                         done_reason = event.get("done_reason", "stop")
@@ -160,8 +182,8 @@ def generate_agent():
                         token_count=len(full_response.split()),
                     )
 
-                    # Enqueue assistant message for ingestion
-                    if AUTO_EXTRACT_ASSISTANT_MEMORY and ctx.level not in (ContextLevel.NONE, ContextLevel.MINIMAL):
+                    # Enqueue assistant message for ingestion (skip for anonymous)
+                    if AUTO_EXTRACT_ASSISTANT_MEMORY and not is_anonymous:
                         enqueue_ingestion(
                             principal_id=principal,
                             source="assistant",

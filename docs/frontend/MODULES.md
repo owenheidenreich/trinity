@@ -26,7 +26,7 @@ App
     ├── MessageList                     ← Message container
     │   ├── Message → MarkdownRenderer → CodeBlock
     │   ├── StreamingMessage (live typing, MemoizedMarkdown)
-    │   └── ContinueButton
+    │   └── (auto-scroll, load-more)
     ├── MessageInput                    ← Text input + send/stop
     ├── ConfirmModal, InfoModal         ← Dialogs
     └── AutosaveIndicator               ← Save status badge
@@ -37,7 +37,7 @@ App
 | Hook | Purpose |
 |------|---------|
 | `useAuth` | Ed25519 identity: register/signIn with username+password (deterministic Argon2id derivation), import, export, sign, build auth headers |
-| `useChat` | SSE streaming: send, continue, stop, phase tracking |
+| `useChat` | SSE streaming: send, stop, phase tracking |
 | `useAutosave` | Debounced 2s save → IndexedDB (local-first) + cloud sync |
 | `useConnection` | `/health` polling every 30s, connection status |
 
@@ -59,7 +59,7 @@ src-react/
 ├── components/
 │   ├── chat/          # CodeBlock, Message, MessageInput, MessageList,
 │   │                  # StreamingMessage, MarkdownRenderer, MathBlock,
-│   │                  # CopyAllButton, ContinueButton, DownloadCards
+│   │                  # CopyAllButton, DownloadCards
 │   ├── layout/        # AppShell, EmptyState
 │   ├── modals/        # WelcomeModal, AuthModal, ConfirmModal, InfoModal, KeyExportModal
 │   ├── notifications/ # AutosaveIndicator, ToastProvider

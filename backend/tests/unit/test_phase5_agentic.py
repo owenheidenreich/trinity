@@ -708,17 +708,19 @@ class TestRepoMap:
 class TestPhase5Config:
     """Test Phase 5 configuration values."""
 
-    def test_react_max_iterations_is_15(self):
-        """REACT_MAX_ITERATIONS defaults to 15."""
+    def test_react_max_iterations_is_5(self):
+        """REACT_MAX_ITERATIONS defaults to 5."""
         from config import REACT_MAX_ITERATIONS
 
-        assert REACT_MAX_ITERATIONS == 15
+        assert REACT_MAX_ITERATIONS == 5
 
     def test_token_budget_exists(self):
-        """REACT_TOKEN_BUDGET config exists."""
+        """REACT_TOKEN_BUDGET config exists and has a sane default."""
         from config import REACT_TOKEN_BUDGET
 
-        assert REACT_TOKEN_BUDGET == 48000
+        # Default is 48000 (75% of 64K); tier3 overrides to 24000 via env
+        assert REACT_TOKEN_BUDGET > 0
+        assert REACT_TOKEN_BUDGET <= 65536
 
     def test_reflexion_retries_config(self):
         """REFLEXION_MAX_RETRIES defaults to 3."""

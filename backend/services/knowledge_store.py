@@ -21,7 +21,7 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
-from config import EMBEDDING_DIM
+from config import ARCHIVE_RETRIEVAL_WEIGHT, EMBEDDING_DIM
 
 logger = logging.getLogger(__name__)
 
@@ -103,12 +103,30 @@ class KnowledgeStore:
     # Search — unified retrieval
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _get_source_weight(
+        source_chat_id: Optional[str],
+        current_chat_id: Optional[str],
+    ) -> float:
+        """Return a multiplier for cross-conversation demotion.
+
+        Items from the current chat get weight 1.0.
+        Items from other chats get ``ARCHIVE_RETRIEVAL_WEIGHT`` (default 0.6).
+        Items without a source chat (e.g. global facts) are unpenalised.
+        """
+        if current_chat_id is None or source_chat_id is None:
+            return 1.0
+        if source_chat_id == current_chat_id:
+            return 1.0
+        return ARCHIVE_RETRIEVAL_WEIGHT
+
     def search(
         self,
         query_embedding: np.ndarray,
         top_k: int = KNOWLEDGE_TOP_K,
         item_types: Optional[List[ItemType]] = None,
         category_filter: Optional[str] = None,
+        current_chat_id: Optional[str] = None,
     ) -> List[KnowledgeItem]:
         """
         Search all knowledge items by embedding similarity.
@@ -120,6 +138,7 @@ class KnowledgeStore:
             top_k: Maximum results to return.
             item_types: Filter by item type (default: all types).
             category_filter: Filter by category (optional).
+            current_chat_id: Active chat — items from other chats are demoted.
 
         Returns:
             List of KnowledgeItem sorted by combined_score descending.
@@ -127,8 +146,8 @@ class KnowledgeStore:
         from services.db import SQLITE_VEC_AVAILABLE
 
         if SQLITE_VEC_AVAILABLE:
-            return self._search_vec(query_embedding, top_k, item_types, category_filter)
-        return self._search_brute_force(query_embedding, top_k, item_types, category_filter)
+            return self._search_vec(query_embedding, top_k, item_types, category_filter, current_chat_id)
+        return self._search_brute_force(query_embedding, top_k, item_types, category_filter, current_chat_id)
 
     def _search_vec(
         self,
@@ -136,6 +155,7 @@ class KnowledgeStore:
         top_k: int,
         item_types: Optional[List[ItemType]],
         category_filter: Optional[str],
+        current_chat_id: Optional[str] = None,
     ) -> List[KnowledgeItem]:
         """ANN search via sqlite-vec vec0 virtual table."""
         blob = np.array(query_embedding, dtype=np.float32).tobytes()
@@ -181,6 +201,7 @@ class KnowledgeStore:
                 ItemType(item_type_str),
                 similarity,
                 now_ms,
+                current_chat_id=current_chat_id,
             )
             if item:
                 items.append(item)
@@ -194,6 +215,7 @@ class KnowledgeStore:
         top_k: int,
         item_types: Optional[List[ItemType]],
         category_filter: Optional[str],
+        current_chat_id: Optional[str] = None,
     ) -> List[KnowledgeItem]:
         """Brute-force cosine similarity search (fallback when sqlite-vec unavailable)."""
         from services.embeddings import cosine_similarity
@@ -221,6 +243,9 @@ class KnowledgeStore:
                 fact_vec = np.array(embedding, dtype=np.float32)
                 similarity = cosine_similarity(query_embedding, fact_vec)
 
+                sw = self._get_source_weight(
+                    fact.get("source_chat_id"), current_chat_id
+                )
                 item = self._score_item(
                     item_id=fact["fact_id"],
                     text=fact.get("text", ""),
@@ -230,6 +255,8 @@ class KnowledgeStore:
                     similarity=similarity,
                     created_at=fact.get("created_at", 0),
                     now_ms=now_ms,
+                    source_weight=sw,
+                    source_chat_id=fact.get("source_chat_id"),
                 )
                 items.append(item)
 
@@ -242,17 +269,20 @@ class KnowledgeStore:
                     recency_weight=WEIGHT_RECENCY,
                 )
                 for msg in msg_results:
-                    item = KnowledgeItem(
+                    sw = self._get_source_weight(
+                        msg.get("chat_id"), current_chat_id
+                    )
+                    item = self._score_item(
                         item_id=msg.get("message_id", 0),
                         text=msg.get("content", ""),
                         category="conversation",
                         importance=2,
                         item_type=ItemType.MESSAGE,
-                        similarity_score=msg.get("similarity", 0),
-                        recency_score=0.0,
-                        combined_score=msg.get("score", 0),
-                        source_chat_id=msg.get("chat_id"),
+                        similarity=msg.get("similarity", 0),
                         created_at=msg.get("timestamp", 0),
+                        now_ms=now_ms,
+                        source_weight=sw,
+                        source_chat_id=msg.get("chat_id"),
                     )
                     items.append(item)
             except Exception as e:
@@ -267,6 +297,7 @@ class KnowledgeStore:
         item_type: ItemType,
         similarity: float,
         now_ms: int,
+        current_chat_id: Optional[str] = None,
     ) -> Optional[KnowledgeItem]:
         """Look up full item data from the source table."""
         if item_type in (ItemType.FACT, ItemType.RELATIONSHIP):
@@ -275,6 +306,9 @@ class KnowledgeStore:
                 return None
             if fact.get("deleted_at") or fact.get("invalid_at"):
                 return None
+            sw = self._get_source_weight(
+                fact.get("source_chat_id"), current_chat_id
+            )
             return self._score_item(
                 item_id=item_id,
                 text=fact.get("text", ""),
@@ -284,6 +318,8 @@ class KnowledgeStore:
                 similarity=similarity,
                 created_at=fact.get("created_at", 0),
                 now_ms=now_ms,
+                source_weight=sw,
+                source_chat_id=fact.get("source_chat_id"),
             )
 
         if item_type == ItemType.MESSAGE:
@@ -297,6 +333,7 @@ class KnowledgeStore:
                 if not row:
                     return None
                 content = self.store._decrypt_text(row["content_enc"])
+                sw = self._get_source_weight(row["chat_id"], current_chat_id)
                 return self._score_item(
                     item_id=item_id,
                     text=content,
@@ -306,6 +343,7 @@ class KnowledgeStore:
                     similarity=similarity,
                     created_at=int(row["created_at"]),
                     now_ms=now_ms,
+                    source_weight=sw,
                     source_chat_id=row["chat_id"],
                 )
             except Exception:
@@ -324,8 +362,18 @@ class KnowledgeStore:
         created_at: int,
         now_ms: int,
         source_chat_id: Optional[str] = None,
+        source_weight: float = 1.0,
     ) -> KnowledgeItem:
-        """Apply unified scoring: similarity * 0.6 + importance * 0.25 + recency * 0.15."""
+        """Unified scoring: (sim×0.6 + importance×0.25 + recency×0.15) × source_weight.
+
+        Every retrieval path — ANN, brute-force facts, brute-force messages —
+        MUST call this function.  No direct ``KnowledgeItem`` construction
+        outside this method.  This is the single scoring function.
+
+        ``source_weight`` (default 1.0) demotes cross-conversation items via
+        ``ARCHIVE_RETRIEVAL_WEIGHT`` when the item originates from a different
+        chat than the one currently active.
+        """
         age_days = max(0.0, (now_ms - created_at) / (1000 * 86400))
         recency = max(0.0, 1.0 - (age_days / RECENCY_DECAY_DAYS))
         importance_norm = min(1.0, importance / 5.0)
@@ -335,6 +383,7 @@ class KnowledgeStore:
             + WEIGHT_IMPORTANCE * importance_norm
             + WEIGHT_RECENCY * recency
         )
+        combined *= source_weight
 
         return KnowledgeItem(
             item_id=item_id,
@@ -428,11 +477,15 @@ class KnowledgeStore:
         similarity = max(0.0, 1.0 - float(best["distance"]))
 
         if similarity >= DEDUP_SKIP_THRESHOLD:
-            return DedupResult(
-                action="skip",
-                existing_fact_id=int(best["item_id"]),
-                similarity=similarity,
-            )
+            # Verify the fact is still active — a deleted fact must not
+            # block re-insertion of the same content.
+            fact = self.store.get_fact(int(best["item_id"]))
+            if fact and not fact.get("deleted_at") and not fact.get("invalid_at"):
+                return DedupResult(
+                    action="skip",
+                    existing_fact_id=int(best["item_id"]),
+                    similarity=similarity,
+                )
 
         if similarity >= DEDUP_MERGE_THRESHOLD:
             # Verify the fact is still active
@@ -517,7 +570,7 @@ class KnowledgeStore:
         importance: int,
     ):
         """Update an existing fact with newer, more specific text."""
-        self.store.update_fact(fact_id, text=new_text, importance=importance)
+        self.store.update_fact(fact_id, {"text": new_text, "importance": importance})
         self._store_fact_embedding(fact_id, new_embedding)
         # Update vec index
         fact = self.store.get_fact(fact_id)
@@ -623,7 +676,7 @@ class KnowledgeStore:
         if importance is not None:
             kwargs["importance"] = importance
 
-        success = self.store.update_fact(fact_id, **kwargs)
+        success = self.store.update_fact(fact_id, kwargs)
         if not success:
             return False
 
@@ -639,8 +692,26 @@ class KnowledgeStore:
         return True
 
     def soft_delete(self, fact_id: int) -> bool:
-        """Soft-delete a fact (sets deleted_at, preserves for audit)."""
-        return self.store.soft_delete_fact(fact_id)
+        """Soft-delete a fact (sets deleted_at, preserves for audit).
+
+        Also removes the embedding from vec_knowledge so ANN search
+        no longer returns deleted items.
+        """
+        success = self.store.soft_delete_fact(fact_id)
+        if success:
+            from services.db import SQLITE_VEC_AVAILABLE
+
+            if SQLITE_VEC_AVAILABLE:
+                try:
+                    with self.store._lock:
+                        self.store.conn.execute(
+                            "DELETE FROM vec_knowledge WHERE item_id = ? AND principal_id = ?",
+                            (fact_id, self.principal_id),
+                        )
+                        self.store.conn.commit()
+                except Exception:
+                    pass  # vec table may not exist yet
+        return success
 
     # ------------------------------------------------------------------
     # Vec index management

@@ -111,11 +111,10 @@ describe('useChat', () => {
     expect(result.current.agentResponse).toBeNull();
   });
 
-  it('exposes send, stop, continueGeneration, clearError', () => {
+  it('exposes send, stop, clearError', () => {
     const { result } = renderHook(() => useChat());
     expect(typeof result.current.send).toBe('function');
     expect(typeof result.current.stop).toBe('function');
-    expect(typeof result.current.continueGeneration).toBe('function');
     expect(typeof result.current.clearError).toBe('function');
   });
 
@@ -340,40 +339,6 @@ describe('useChat', () => {
     // Should NOT have an error (AbortError is swallowed)
     expect(result.current.error).toBeNull();
     expect(result.current.isStreaming).toBe(false);
-  });
-
-  it('continueGeneration sends continuation prompt', async () => {
-    // First send to set up tokensRef
-    const initialResponse = createSSEResponse([
-      'data: {"token": "Hello world this is a long response"}',
-      'data: {"done": true, "done_reason": "length"}',
-    ]);
-    fetchSpy.mockResolvedValueOnce(initialResponse);
-
-    const { result } = renderHook(() => useChat());
-    const buildAuth = makeBuildAuthHeaders();
-
-    await act(async () => {
-      await result.current.send('Generate something', buildAuth);
-    });
-
-    expect(result.current.tokens).toBe('Hello world this is a long response');
-
-    // Now continue
-    const continuationResponse = createSSEResponse([
-      'data: {"token": " and more"}',
-      'data: {"done": true, "done_reason": "stop"}',
-    ]);
-    fetchSpy.mockResolvedValueOnce(continuationResponse);
-
-    await act(async () => {
-      await result.current.continueGeneration(buildAuth);
-    });
-
-    expect(result.current.tokens).toBe(
-      'Hello world this is a long response and more'
-    );
-    expect(result.current.agentResponse?.done_reason).toBe('stop');
   });
 
   it('calls setGenerating during streaming', async () => {

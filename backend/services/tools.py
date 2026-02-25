@@ -221,8 +221,8 @@ def get_tool_definitions_for_prompt() -> str:
             lines.append("Example:")
             lines.append(f'  {tool["examples"][0]}')
 
-    lines.append("\nTo use a tool, output it in this exact format:")
-    lines.append('<tool_call name="tool_name"><param>value</param></tool_call>')
+    lines.append("\nTo use a tool, output it in XML format with the parameter names shown above:")
+    lines.append('<tool_call name="calculator"><expression>2 + 3</expression></tool_call>')
 
     return "\n".join(lines)
 
@@ -306,6 +306,17 @@ def parse_tool_calls(text: str) -> List[ToolCall]:
         if bare_match:
             matches = [(bare_match.group(1), bare_match.group(2))]
 
+    # Fallback 4: JSON format tool calls
+    # Qwen3 models often output JSON instead of XML despite prompt instructions:
+    #   {"tool": "calculator", "input": "2+2"}
+    #   {"tool": "web_search", "query": "..."}
+    #   **save_memory**\n{"key": "...", "value": "..."}
+    #   ```json\n{"tool": "..."}\n```
+    if not matches:
+        json_matches = _parse_json_tool_calls(text)
+        if json_matches:
+            matches = json_matches
+
     for name, params_text in matches:
         params = {}
 
@@ -316,9 +327,28 @@ def parse_tool_calls(text: str) -> List[ToolCall]:
         for param_name, param_value in param_matches:
             params[param_name] = param_value.strip()
 
+        # Normalize generic <param> tag → tool-specific parameter name.
+        # The model sometimes uses <param>value</param> instead of the
+        # tool-specific tag (e.g. <expression>).  Map it to the tool's
+        # primary parameter so execute_tool finds the value.
+        tool_key = name.lower().strip()
+        if "param" in params and tool_key in TOOL_DEFINITIONS:
+            primary = next(iter(TOOL_DEFINITIONS[tool_key]["params"]))
+            if primary != "param" and primary not in params:
+                params[primary] = params.pop("param")
+
+        # If no XML params were extracted but there's bare text in the body,
+        # treat it as the tool's primary parameter (model omitted the tag).
+        if not params and params_text.strip() and tool_key in TOOL_DEFINITIONS:
+            bare = params_text.strip()
+            # Only accept if it doesn't look like XML at all
+            if not bare.startswith("<"):
+                primary = next(iter(TOOL_DEFINITIONS[tool_key]["params"]))
+                params[primary] = bare
+
         tool_calls.append(
             ToolCall(
-                name=name.lower().strip(),
+                name=tool_key,
                 params=params,
                 raw_text=f'<tool_call name="{name}">{params_text}</tool_call>',
             )
@@ -327,36 +357,162 @@ def parse_tool_calls(text: str) -> List[ToolCall]:
     return tool_calls
 
 
-def detect_tools_needed(query: str, understanding: Dict = None) -> List[str]:
+# ---------------------------------------------------------------------------
+# JSON tool call aliases: map common JSON keys → expected XML param names
+# ---------------------------------------------------------------------------
+
+_JSON_PARAM_ALIASES = {
+    "calculator": {"input": "expression", "expr": "expression", "math": "expression"},
+    "web_search": {"input": "query", "search_query": "query", "search": "query"},
+    "save_memory": {"value": "fact", "memory": "fact", "content": "fact", "key": "category"},
+    "recall_memory": {"input": "query", "key": "query"},
+    "search_memory": {"input": "query", "key": "query"},
+    "forget_memory": {"input": "query", "memory": "query"},
+    "update_memory": {"input": "query", "value": "new_value"},
+    "document_search": {"input": "query", "search": "query"},
+    "fact_check": {"input": "claim", "query": "claim", "statement": "claim"},
+    "code_display": {"input": "code", "source": "code"},
+    "read_file": {"file": "path", "filename": "path"},
+    "write_file": {"file": "path", "filename": "path"},
+    "list_directory": {"dir": "path", "directory": "path"},
+    "search_codebase": {"pattern": "query", "search": "query"},
+    "run_command": {"cmd": "command", "input": "command"},
+}
+
+_KNOWN_TOOL_NAMES = {
+    "calculator", "code_display", "document_search", "web_search", "fact_check",
+    "save_memory", "recall_memory", "search_memory", "update_memory", "forget_memory",
+    "read_file", "write_file", "list_directory", "search_codebase", "run_command",
+    "current_datetime",
+}
+
+
+def _apply_param_aliases(tool_name: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    """Map JSON parameter names to expected XML parameter names for a tool."""
+    aliases = _JSON_PARAM_ALIASES.get(tool_name, {})
+    mapped = {}
+    for key, value in params.items():
+        canonical = aliases.get(key, key)
+        mapped[canonical] = value
+    return mapped
+
+
+def _parse_json_tool_calls(text: str) -> List[tuple]:
+    """Parse tool calls from JSON format (Qwen3 native tool calling output).
+
+    Handles multiple formats:
+      1. ```json\n{"tool": "...", ...}\n```  (code-fenced)
+      2. {"tool": "...", ...}                 (bare JSON)
+      3. **tool_name**\n{"key": "...", ...}   (markdown bold + JSON)
+      4. {"name": "...", "arguments": {...}}  (OpenAI function call format)
+
+    Returns list of (tool_name, params_xml_body) tuples compatible with
+    the main parse_tool_calls() match processing.
     """
-    Detect which tools might be needed for a query.
+    import json as _json
 
-    Uses heuristics to pre-identify likely tools, helping the LLM
-    know what's available.
+    results = []
 
-    Args:
-        query: User's query
-        understanding: Optional parsed understanding from agentic pipeline
+    # Strip code fences to normalize
+    clean = re.sub(r'```(?:json)?\s*', '', text)
+    clean = re.sub(r'```', '', clean)
 
-    Returns:
-        List of tool names that might be relevant
-    """
+    # Also try markdown bold prefix: **tool_name**\n{...}
+    bold_match = re.search(
+        r'\*\*(' + '|'.join(re.escape(t) for t in _KNOWN_TOOL_NAMES) + r')\*\*\s*\n?\s*(\{.*)',
+        clean, re.DOTALL | re.IGNORECASE
+    )
+    if bold_match:
+        bold_tool = bold_match.group(1).lower().strip()
+        json_str = bold_match.group(2).strip()
+        try:
+            obj = _json.loads(json_str)
+            if isinstance(obj, dict):
+                params = _apply_param_aliases(bold_tool, obj)
+                # Convert params dict to XML-like body for compatibility
+                xml_body = ''.join(f'<{k}>{v}</{k}>' for k, v in params.items())
+                results.append((bold_tool, xml_body))
+                return results
+        except _json.JSONDecodeError:
+            pass
+
+    # Find all JSON objects in the text
+    json_candidates = re.findall(r'(\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\})', clean, re.DOTALL)
+
+    for candidate in json_candidates:
+        try:
+            obj = _json.loads(candidate)
+        except _json.JSONDecodeError:
+            continue
+
+        if not isinstance(obj, dict):
+            continue
+
+        # Extract tool name
+        tool_name = (obj.get("tool") or obj.get("name") or obj.get("function") or "").lower().strip()
+        if not tool_name or tool_name not in _KNOWN_TOOL_NAMES:
+            continue
+
+        # Extract params — either from an 'arguments'/'input'/'params' sub-dict
+        # or from all remaining keys
+        raw_params = {}
+        if isinstance(obj.get("arguments"), dict):
+            raw_params = obj["arguments"]
+        elif isinstance(obj.get("params"), dict):
+            raw_params = obj["params"]
+        elif isinstance(obj.get("input"), dict):
+            raw_params = obj["input"]
+        else:
+            # All other keys become params
+            for k, v in obj.items():
+                if k not in ("tool", "name", "function", "type"):
+                    if isinstance(v, str):
+                        raw_params[k] = v
+                    elif isinstance(v, (int, float, bool)):
+                        raw_params[k] = str(v)
+                    elif isinstance(v, dict):
+                        # Flatten nested dict into params
+                        for nk, nv in v.items():
+                            raw_params[nk] = str(nv) if not isinstance(nv, str) else nv
+
+        # For single-value input like {"tool":"calculator","input":"2+2"}
+        # where "input" is a string, not a dict
+        if not raw_params and isinstance(obj.get("input"), str):
+            # Map the generic "input" to the tool's primary param
+            raw_params = {"input": obj["input"]}
+
+        params = _apply_param_aliases(tool_name, raw_params)
+
+        # Build XML-body string for compatibility with existing match processing
+        xml_body = ''.join(f'<{k}>{v}</{k}>' for k, v in params.items())
+        results.append((tool_name, xml_body))
+
+    return results
+
+
+def _regex_detect_tools(query: str) -> List[str]:
+    """Regex-based tool detection fallback when classifier is unavailable or
+    returns no tools.  Mirrors the battle-tested heuristics that shipped
+    before the MicroGPT overhaul."""
     tools = []
-    query_lower = query.lower()
+    q = query.lower()
 
-    # Calculator detection
+    # Calculator
     math_patterns = [
-        r"\d+\s*[\+\-\*/\^]\s*\d+",  # Basic arithmetic
+        r"\d+\s*[\+\-\*/\^]\s*\d+",
         r"calculate|compute|solve|evaluate",
         r"what is \d+",
         r"sum|product|average|mean|sqrt|log",
+        r"how many .*(if|when|after|before|left|remain)",
+        r"\d+.*(?:plus|minus|add|subtract|give away|take away|more than|less than|divided|times|multiplied).*\d+",
+        r"how much is \d+",
+        r"what(?:'?s| is) \d+\s*(?:percent|%|divided|times|plus|minus)",
+        r"(?:convert|conversion)\s+\d+",
     ]
-    for pattern in math_patterns:
-        if re.search(pattern, query_lower):
-            tools.append("calculator")
-            break
+    if any(re.search(p, q) for p in math_patterns):
+        tools.append("calculator")
 
-    # Date/time detection
+    # Date / time
     datetime_patterns = [
         r"what (day|date|time) is it",
         r"what('?s| is) today",
@@ -364,12 +520,10 @@ def detect_tools_needed(query: str, understanding: Dict = None) -> List[str]:
         r"today'?s date",
         r"what year is it",
     ]
-    for pattern in datetime_patterns:
-        if re.search(pattern, query_lower):
-            tools.append("current_datetime")
-            break
+    if any(re.search(p, q) for p in datetime_patterns):
+        tools.append("current_datetime")
 
-    # Web search detection
+    # Web search
     search_patterns = [
         r"current (price|news|weather|status|version|events?|situation)",
         r"today'?s?\s+(news|weather|price|date|events?)",
@@ -387,129 +541,185 @@ def detect_tools_needed(query: str, understanding: Dict = None) -> List[str]:
         r"what (is|are) the .*(score|result|winner|weather|price|rate)",
         r"how much (does|is|are|did)",
     ]
-    for pattern in search_patterns:
-        if re.search(pattern, query_lower):
-            tools.append("web_search")
-            break
+    if any(re.search(p, q) for p in search_patterns):
+        tools.append("web_search")
 
-    # Document search detection - require explicit uploaded/attached doc intent.
-    # Do not trigger on generic "file" mentions in coding requests.
+    # Document search
     doc_patterns = [
         r"\b(uploaded|attached)\s+(document|file|pdf|attachment)\b",
         r"\b(this|that|the|my)\s+(document|pdf|attachment)\b",
         r"according to (the|my|this|that)\s+(document|pdf|attachment)",
         r"(search|look|find)\s+(in|through|within)\s+(the|my|this)\s+(document|file|pdf|attachment)\b",
     ]
-    for pattern in doc_patterns:
-        if re.search(pattern, query_lower):
-            tools.append("document_search")
-            break
+    if any(re.search(p, q) for p in doc_patterns):
+        tools.append("document_search")
 
-    # Code detection - only detect if code execution is actually enabled.
-    # Keep this conservative: most "write code" asks should be answered inline,
-    # not via tool mode. Trigger code_display mainly for explicit execution/debug
-    # intent where running code or iterative fixing is useful.
+    # Code execution (only when enabled)
     if CODE_EXECUTION_ENABLED:
-        code_generation_patterns = [
-            r"(write|create|generate|build|make)\s+(me\s+)?(a\s+)?(code|function|program|script|class)",
-            r"(show|give)\s+me\s+(the\s+)?(code|function|implementation)",
-            r"(python|javascript|typescript|java|c\+\+|rust|go)\s+(code|function|program|script|implementation)",
-            r"implement\b|write\s+a?\s*function|def\s+\w+\(|class\s+\w+[\(:]",
-            r"(create|write|generate)\s+(a\s+)?(python|javascript|typescript|java|c\+\+|rust|go)\s+file",
-        ]
-        code_exec_or_fix_patterns = [
+        code_exec_patterns = [
             r"\b(debug|refactor|optimize|fix)\s+(this|the|my)\s+(?:\w+\s+){0,2}(code|function|program|script)",
             r"\b(run|execute|test)\s+(this|the|my)\s+(code|script|program)",
             r"\b(run|execute)\b.*\b(python|javascript|node|script)\b",
         ]
-        explicit_workspace_or_path_patterns = [
+        workspace_patterns = [
             r"\b(workspace|project|repo|repository|directory|folder|codebase)\b",
             r"\b(path|filepath|file path)\b",
-            r"(?:^|\s)(?:\.{1,2}/|/)\S+",  # ./foo, ../foo, /abs/path
+            r"(?:^|\s)(?:\.{1,2}/|/)\S+",
             r"\b\w[\w\-./]*\.(?:py|js|ts|tsx|jsx|json|md|txt|html|css|yaml|yml|sh|rs|go|java|c|cpp)\b",
-            r"\b(?:named|called)\s+\w[\w\-./]*\.\w+\b",
-            r"\bsave (?:it|this|that)?\s*(?:to|as)\s+\w[\w\-./]*\.\w+\b",
         ]
-
-        has_code_generation = any(re.search(pattern, query_lower) for pattern in code_generation_patterns)
-        has_code_exec_or_fix = any(re.search(pattern, query_lower) for pattern in code_exec_or_fix_patterns)
-        has_explicit_workspace_or_path = any(
-            re.search(pattern, query_lower) for pattern in explicit_workspace_or_path_patterns
-        )
-
-        # Only trigger tool-mode code handling when explicit execution/fixing
-        # or concrete filesystem intent exists.
-        if has_code_exec_or_fix or (has_code_generation and has_explicit_workspace_or_path):
+        code_gen_patterns = [
+            r"(write|create|generate|build|make)\s+(me\s+)?(a\s+)?(code|function|program|script|class)",
+            r"(show|give)\s+me\s+(the\s+)?(code|function|implementation)",
+            r"implement\b|write\s+a?\s*function|def\s+\w+\(|class\s+\w+[\(:]",
+        ]
+        has_exec = any(re.search(p, q) for p in code_exec_patterns)
+        has_workspace = any(re.search(p, q) for p in workspace_patterns)
+        has_codegen = any(re.search(p, q) for p in code_gen_patterns)
+        if has_exec or (has_codegen and has_workspace):
             tools.append("code_display")
 
-    # Fact check detection - require full phrases, not bare words
+    # Fact check
     fact_patterns = [
         r"is it (true|correct|accurate)\s+that",
         r"(verify|fact.?check|confirm)\s+(that|whether|if|this)",
         r"is that (really|actually|correct|true|accurate)",
     ]
-    for pattern in fact_patterns:
-        if re.search(pattern, query_lower):
-            tools.append("fact_check")
-            break
+    if any(re.search(p, q) for p in fact_patterns):
+        tools.append("fact_check")
 
-    # Memory recall detection — only QUESTIONS about the user, not statements
-    # "what is my name" → recall.  "my name is owen" → NOT recall (that's save).
-    # "I remember the beach" → NOT recall (that's a user statement, not a question).
+    # Memory save (explicit "remember" requests)
+    save_patterns = [
+        r"\bremember (that|this)\b",
+        r"\b(save|store|keep|note)\b.*(fact|memory|info|detail|that)",
+        r"\bremember\b.*\b(my |i |is |like|prefer|work|live|name)\b",
+        r"\bdon'?t forget\b",
+        r"\bkeep in mind\b",
+        r"\bmemorize\b",
+        r"\brecord (that|this)\b",
+    ]
+    if any(re.search(p, q) for p in save_patterns):
+        tools.append("save_memory")
+
+    # Memory recall (questions about the user, NOT statements)
     memory_patterns = [
         r"do you (remember|recall)\b",
         r"what do you know about me",
-        r"what('?s| is| was) my (name|job|role|prefer|location|email|age)",
-        r"tell me (about|what you know about) me",
+        r"what('?s| is| was| are) my (name|job|role|prefer\w*|location|email|age|favorite|colour|color|birthday|hobby|hobbies|interest|interests|company|team|project|stack|language|goal|work)",
+        r"tell me .*(?:about|know about) me",
         r"what .* about me\??",
         r"you said\b|i told you\b",
         r"what did i\b",
+        r"what do i\b",
+        r"who am i\b",
+        r"where do i (live|work)\b",
+        r"do you know (my|me|who i)\b",
     ]
-    for pattern in memory_patterns:
-        if re.search(pattern, query_lower):
-            tools.append("recall_memory")
-            break
+    if any(re.search(p, q) for p in memory_patterns):
+        tools.append("recall_memory")
 
-    # Memory forget detection
+    # Memory forget
     forget_patterns = [
         r"forget (?:that|about|my|the|what)",
         r"don't remember|stop remembering",
         r"delete.*(?:memory|fact|what you know)",
         r"remove.*(?:memory|fact|what you know)",
     ]
-    for pattern in forget_patterns:
-        if re.search(pattern, query_lower):
-            tools.append("forget_memory")
-            break
+    if any(re.search(p, q) for p in forget_patterns):
+        tools.append("forget_memory")
 
-    # Filesystem tool detection
-    # Keep this strict to avoid hijacking normal "write code" requests
-    # into filesystem mode when the user only wants inline code.
+    # Filesystem
     fs_scope_patterns = [
         r"\b(workspace|project|repo|repository|directory|folder|codebase)\b",
         r"\b(path|filepath|file path)\b",
-        r"(?:^|\s)(?:\.{1,2}/|/)\S+",  # ./foo, ../foo, /abs/path
+        r"(?:^|\s)(?:\.{1,2}/|/)\S+",
         r"\b\w[\w\-./]*\.(?:py|js|ts|tsx|jsx|json|md|txt|html|css|yaml|yml|sh|rs|go|java|c|cpp)\b",
-        r"\b(?:named|called)\s+\w[\w\-./]*\.\w+\b",
-        r"\bsave (?:it|this|that)?\s*(?:to|as)\s+\w[\w\-./]*\.\w+\b",
     ]
     fs_action_patterns = [
         r"(read|show|open|cat|display|view)\s+.*?(file|source\s+code|code\s+in)",
         r"(list|show)\s+(the\s+|me\s+the\s+)?(files?|director|folder|project\s+structure)",
         r"(write|create|save)\s+(?:a\s+)?file\b",
         r"(search|find|grep|look\s+for)\s+.*(in\s+the\s+)?(code|project|repo|files?|codebase)",
-        r"what('?s|\s+is)\s+in\s+(this|the|my)\s+(project|directory|folder|repo)",
     ]
-    fs_execute_patterns = [
+    fs_exec_patterns = [
         r"(run|execute)\s+(the\s+)?(test|pytest|python|node|script|command)",
     ]
-    has_fs_scope = any(re.search(pattern, query_lower) for pattern in fs_scope_patterns)
-    has_fs_action = any(re.search(pattern, query_lower) for pattern in fs_action_patterns)
-    has_fs_execute = any(re.search(pattern, query_lower) for pattern in fs_execute_patterns)
-    if has_fs_execute or (has_fs_action and has_fs_scope):
-        tools.append("read_file")  # General filesystem signal
+    has_scope = any(re.search(p, q) for p in fs_scope_patterns)
+    has_action = any(re.search(p, q) for p in fs_action_patterns)
+    has_fsexec = any(re.search(p, q) for p in fs_exec_patterns)
+    if has_fsexec or (has_action and has_scope):
+        tools.append("read_file")
 
-    return list(set(tools))  # Remove duplicates
+    return list(set(tools))
+
+
+def detect_tools_needed(query: str, understanding: Dict = None) -> List[str]:
+    """
+    Detect which tools might be needed for a query.
+
+    Uses a tiny byte-level transformer classifier (~100K params, <1ms)
+    as the primary detector, with regex heuristics providing both:
+      - Fallback when the classifier is unavailable or returns no tools.
+      - Confirmation gate to suppress false positives from the classifier.
+
+    The regex safety net embodies MicroGPT's defense-in-depth principle:
+    if the classifier says "tool X" but regex says "no tools" AND the
+    classifier confidence is below the high-confidence threshold, we
+    trust the regex (false positive suppression). High-confidence
+    classifier predictions override regex disagreement.
+
+    Args:
+        query: User's query
+        understanding: Optional parsed understanding (unused, kept for API compat)
+
+    Returns:
+        List of tool names that might be relevant
+    """
+    # High-confidence threshold: above this we trust classifier unconditionally
+    HIGH_CONF = 0.92
+
+    classifier_result = []
+    classifier_conf = 0.0
+
+    try:
+        from services.tiny_classifier import detect_tools, _get_tool_model, TOOL_CLASSES
+        import numpy as np
+
+        classifier_result = detect_tools(query)
+
+        # Get raw confidence for the confirmation gate
+        if classifier_result:
+            model = _get_tool_model()
+            if model is not None:
+                logits = model.forward(query)
+                probs = np.exp(logits - logits.max()) / np.exp(logits - logits.max()).sum()
+                classifier_conf = float(probs.max())
+    except Exception:
+        pass
+
+    regex_result = _regex_detect_tools(query)
+
+    # Case 1: Classifier found tools
+    if classifier_result:
+        # High confidence → trust classifier unconditionally
+        if classifier_conf >= HIGH_CONF:
+            return classifier_result
+
+        # Moderate confidence + regex agrees → trust classifier
+        if regex_result:
+            return classifier_result
+
+        # Moderate confidence + regex disagrees → false positive suppression
+        # (e.g. "Hello, how are you?" → classifier says recall_memory,
+        #  regex says [] — trust the regex)
+        logger.info(
+            "🔧 Tool detection: classifier=%s (%.2f) overridden by regex=[] "
+            "(confidence below %.2f and no regex match)",
+            classifier_result, classifier_conf, HIGH_CONF,
+        )
+        return []
+
+    # Case 2: Classifier returned [] — fall back to regex
+    return regex_result
 
 
 def replace_tool_calls_with_results(text: str, results: Dict[str, ToolResult]) -> str:

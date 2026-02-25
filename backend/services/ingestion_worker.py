@@ -33,10 +33,7 @@ from config import (
     GRAPH_MEMORY_ENABLED,
     MEMORY_INGESTION_ENABLED,
     MEMORY_INGESTION_QUEUE_MAXSIZE,
-    OLLAMA_INGEST_HOST,
-    OLLAMA_INGEST_MODEL,
-    OLLAMA_TIMEOUT_TOOLS,
-    http_session,
+    LLM_TIMEOUT_TOOLS,
 )
 
 logger = logging.getLogger(__name__)
@@ -242,26 +239,15 @@ def _summarize_incremental(previous_summary: str, new_messages: List[Dict]) -> s
         "Keep the summary compact and factual."
     )
 
-    payload = {
-        "model": OLLAMA_INGEST_MODEL,
-        "messages": [{"role": "user", "content": prompt}],
-        "stream": False,
-        "think": False,
-        "options": {
-            "temperature": 0.1,
-            "num_predict": SUMMARY_MAX_TOKENS,
-        },
-    }
+    from services.provider_factory import get_ingest_provider
 
-    response = http_session.post(
-        f"{OLLAMA_INGEST_HOST}/api/chat",
-        json=payload,
-        timeout=OLLAMA_TIMEOUT_TOOLS,
+    provider = get_ingest_provider()
+    content = provider.chat(
+        [{"role": "user", "content": prompt}],
+        max_tokens=SUMMARY_MAX_TOKENS,
+        temperature=0.1,
+        timeout=LLM_TIMEOUT_TOOLS,
     )
-    if response.status_code != 200:
-        raise ValueError(f"Ollama status {response.status_code}")
-
-    content = response.json().get("message", {}).get("content", "")
     return (content or "").strip()
 
 

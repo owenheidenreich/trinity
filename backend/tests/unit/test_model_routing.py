@@ -22,7 +22,6 @@ class TestProviderFactoryRouting:
     @patch("config.CONVERSATION_MODEL_NAME", "chat-model")
     @patch("config.CODER_MODEL_NAME", "coder-model")
     @patch("config.MODEL_NAME", "coder-model")
-    @patch("config.OLLAMA_HOST", "http://localhost:11434")
     @patch("config.NUM_CTX", 32768)
     def test_get_provider_routes_models(self):
         from services.provider_factory import get_provider, reset_provider

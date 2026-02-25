@@ -3,7 +3,7 @@
  * Self-contained component replacing scattered enhanceCodeBlocks() + addDownloadSection() logic.
  */
 import { useState, useCallback, useRef } from 'react';
-import { copyToClipboard, downloadCode } from '../../utils/codeParser';
+import { copyToClipboard } from '../../utils/codeParser';
 import styles from '../../styles/components/CodeBlock.module.css';
 
 interface CodeBlockProps {
@@ -14,7 +14,7 @@ interface CodeBlockProps {
 }
 
 export function CodeBlock({ code, language, filename, highlightedHtml }: CodeBlockProps) {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
   const [copyLabel, setCopyLabel] = useState('Copy');
   const codeRef = useRef<HTMLDivElement>(null);
 
@@ -25,10 +25,6 @@ export function CodeBlock({ code, language, filename, highlightedHtml }: CodeBlo
       setTimeout(() => setCopyLabel('Copy'), 2000);
     }
   }, [code]);
-
-  const handleDownload = useCallback(() => {
-    downloadCode(code, language, filename);
-  }, [code, language, filename]);
 
   const toggleCollapse = useCallback(() => {
     setCollapsed((prev) => !prev);
@@ -50,9 +46,6 @@ export function CodeBlock({ code, language, filename, highlightedHtml }: CodeBlo
           </button>
           <button className={styles.headerBtn} onClick={handleCopy}>
             {copyLabel}
-          </button>
-          <button className={styles.headerBtn} onClick={handleDownload}>
-            Download
           </button>
         </div>
       </div>
@@ -81,15 +74,28 @@ export function StreamingCodeCard({
   code: string;
   lineCount: number;
 }) {
+  const [collapsed, setCollapsed] = useState(true);
+
+  const toggleCollapse = useCallback(() => {
+    setCollapsed((prev) => !prev);
+  }, []);
+
   return (
-    <div className={`${styles.container} ${styles.streamingCard}`}>
+    <div className={`${styles.container} ${styles.streamingCard} ${collapsed ? styles.collapsed : ''}`}>
       <div className={styles.header}>
         <span className={styles.language}>{language || 'code'}</span>
-        <span className={styles.lineCount}>{lineCount} lines...</span>
+        <div className={styles.headerActions}>
+          <button className={styles.headerBtn} onClick={toggleCollapse}>
+            {collapsed ? `Show (${lineCount} lines...)` : 'Collapse'}
+          </button>
+          <span className={styles.lineCount}>{lineCount} lines...</span>
+        </div>
       </div>
-      <div className={styles.code}>
-        <pre><code>{code}</code></pre>
-      </div>
+      {!collapsed && (
+        <div className={styles.code}>
+          <pre><code>{code}</code></pre>
+        </div>
+      )}
     </div>
   );
 }

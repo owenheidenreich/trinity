@@ -1,14 +1,17 @@
 """
 Trinity ICP Authentication Verification Module
-Verifies Ed25519 signatures from ICP Principal IDs
+Verifies Ed25519 signatures from ICP Principal IDs.
+Supports anonymous access with per-IP rate limiting.
 """
 
 import base64
 import hashlib
+import json
 import logging
 import time
 import zlib
 from functools import wraps
+from pathlib import Path
 from typing import Optional, Tuple
 
 from cachetools import TTLCache
@@ -240,7 +243,73 @@ def require_auth(f):
 
         # Attach principal to request object
         request.principal = principal
+        request.is_anonymous = False
         logger.info(f"✅ Authenticated request from: {principal[:20]}...")
+
+        return f(*args, **kwargs)
+
+    return decorated_function
+
+
+# =============================================================================
+# ANONYMOUS ACCESS (open by default, rate-limited)
+# =============================================================================
+
+
+def get_anonymous_principal(ip: str) -> str:
+    """Derive a deterministic anonymous principal from an IP address."""
+    ip_hash = hashlib.sha256(ip.encode()).hexdigest()[:16]
+    return f"anon-{ip_hash}"
+
+
+def require_auth_or_anonymous(f):
+    """
+    Decorator that allows both authenticated ICP users and anonymous visitors.
+
+    - If valid ICP auth headers are present → proceed as authenticated user.
+    - If ICP headers are present but invalid → reject (401).
+    - If no ICP headers → proceed as anonymous with a synthetic principal.
+      Rate limiting (middleware/rate_limit.py) handles abuse prevention.
+
+    Sets on request:
+        request.principal   — ICP principal or "anon-{ip_hash}"
+        request.is_anonymous — True if no ICP auth was provided
+    """
+
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        # 1. Try normal ICP auth
+        success, principal, error = verify_request_auth()
+
+        if success:
+            request.principal = principal
+            request.is_anonymous = False
+            logger.info(f"✅ Authenticated request from: {principal[:20]}...")
+            return f(*args, **kwargs)
+
+        # 2. If auth headers were present but invalid → hard reject
+        has_auth_headers = bool(
+            request.headers.get("ICP-Principal")
+            or request.headers.get("X-ICP-Principal")
+        )
+        if has_auth_headers:
+            logger.warning(f"❌ Auth failed (headers present): {error}")
+            return (
+                jsonify({
+                    "success": False,
+                    "error": "Authentication failed",
+                    "details": error,
+                }),
+                401,
+            )
+
+        # 3. No auth headers → anonymous access
+        ip = request.remote_addr or "unknown"
+        request.principal = get_anonymous_principal(ip)
+        request.is_anonymous = True
+        logger.info(
+            f"👤 Anonymous request from IP {ip} → {request.principal}"
+        )
 
         return f(*args, **kwargs)
 

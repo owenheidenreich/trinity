@@ -45,8 +45,6 @@ App
     │   │   ├── MarkdownRenderer        ← Tail prose (re-renders each tick)
     │   │   ├── StreamingCodeCard       ← In-progress code block
     │   │   └── TypingIndicator         ← Phase-aware thinking animation
-    │   │
-    │   └── ContinueButton             ← Shown when response was truncated
     │
     ├── MessageInput                    ← Text input, send/stop, file attachment
     │
@@ -68,8 +66,7 @@ src-react/
 │
 ├── components/
 │   ├── chat/
-│   │   ├── CodeBlock.tsx       # Collapsible code block with copy/download
-│   │   ├── ContinueButton.tsx  # "Continue generating" for truncated responses
+│   │   ├── CodeBlock.tsx       # Collapsible code block with copy
 │   │   ├── CopyAllButton.tsx   # Copy entire message content
 │   │   ├── DownloadCards.tsx    # File download cards extracted from code
 │   │   ├── MarkdownRenderer.tsx# Splits rendered HTML into text + CodeBlock segments
@@ -247,9 +244,6 @@ Handles sending messages and processing the streaming response.
 │  │   1. POST to /generate/agent with auth headers                 │
 │  │   2. Process SSE stream via streamSSE() utility                │
 │  │   3. Accumulate tokens, update phase, detect completion        │
-│  │                                                                │
-│  ├── continueGeneration(buildAuthHeaders)                         │
-│  │   Send continuation prompt with last 200 chars of context      │
 │  │                                                                │
 │  └── stop()                                                       │
 │      Abort via AbortController                                    │

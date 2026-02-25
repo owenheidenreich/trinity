@@ -7,7 +7,7 @@ from typing import Dict
 
 from flask import Blueprint, jsonify, request
 
-from icp_auth import require_auth
+from icp_auth import require_auth, require_auth_or_anonymous
 from middleware import storage_rate_limit
 from services.state_store import get_state_store
 
@@ -15,7 +15,7 @@ chat_bp = Blueprint("chat", __name__)
 
 
 @chat_bp.route("/chat/start", methods=["POST"])
-@require_auth
+@require_auth_or_anonymous
 @storage_rate_limit
 def start_chat():
     principal = request.principal
@@ -48,7 +48,7 @@ def list_chats():
 
 
 @chat_bp.route("/chat/<chat_id>", methods=["GET"])
-@require_auth
+@require_auth_or_anonymous
 @storage_rate_limit
 def get_chat(chat_id):
     principal = request.principal

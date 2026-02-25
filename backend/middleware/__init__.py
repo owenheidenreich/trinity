@@ -43,6 +43,8 @@ from .observability import (  # Phase 5: Cost optimization metrics
     update_system_metrics,
 )
 from .rate_limit import (
+    ANONYMOUS_RATE_LIMIT,
+    ANONYMOUS_RATE_WINDOW,
     RATE_LIMIT,
     RATE_WINDOW,
     STORAGE_RATE_LIMIT,
@@ -61,6 +63,8 @@ __all__ = [
     "request_counts",
     "RATE_LIMIT",
     "RATE_WINDOW",
+    "ANONYMOUS_RATE_LIMIT",
+    "ANONYMOUS_RATE_WINDOW",
     "storage_request_counts",
     "STORAGE_RATE_LIMIT",
     "STORAGE_RATE_WINDOW",

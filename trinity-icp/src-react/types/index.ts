@@ -7,6 +7,7 @@ export type {
   UserMemory,
   MemoryFact,
   AuthHeaders,
+  RequestHeaders,
 } from './api';
 export type {
   AuthState,

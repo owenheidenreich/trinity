@@ -75,7 +75,7 @@ function renderAbout() {
         </Section>
         <Section title="Backend — Akash Network">
           <p style={{ margin: 0 }}>
-            AI inference (Ollama) runs on Akash&apos;s decentralized GPU cloud. Your messages are processed without any single company controlling access.
+            AI inference (llama-server) runs on Akash&apos;s decentralized GPU cloud. Your messages are processed without any single company controlling access.
           </p>
         </Section>
         <Section title="Storage — Encrypted Autosave">
@@ -90,7 +90,7 @@ function renderAbout() {
         </Section>
         <Section title="Data Flow">
           <pre style={{ ...monoStyle, overflowX: 'auto', whiteSpace: 'pre' }}>
-{`Browser → ICP Canister → Cloudflare → Akash GPU → Ollama LLM
+{`Browser → ICP Canister → Cloudflare → Akash GPU → llama-server LLM
                               ↓
                    Encrypted Autosave → Akash Disk`}
           </pre>
@@ -201,7 +201,7 @@ function renderModel(data: Record<string, unknown>) {
 
   let modelFamily = 'Unknown';
   let modelDescription = 'A large language model running on decentralized infrastructure.';
-  let modelLink = 'https://ollama.com/library';
+  let modelLink = 'https://huggingface.co';
 
   if (isLlama) {
     modelFamily = 'Meta Llama';
@@ -242,9 +242,9 @@ function renderModel(data: Record<string, unknown>) {
             <li><strong>Privacy:</strong> Your prompts never leave this infrastructure</li>
           </ul>
         </Section>
-        <Section title="Powered by Ollama">
+        <Section title="Powered by llama.cpp">
           <p style={{ margin: 0 }}>
-            Trinity uses Ollama to run models locally on GPU. No API calls to OpenAI, Anthropic, or other centralized providers.
+            Trinity uses llama.cpp to run models locally on GPU. No API calls to OpenAI, Anthropic, or other centralized providers.
           </p>
         </Section>
         <div style={{ textAlign: 'center', marginTop: '16px' }}>

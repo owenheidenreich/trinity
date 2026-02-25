@@ -64,6 +64,7 @@ export function AppShell() {
   const [showKeyExport, setShowKeyExport] = useState(false);
   const [infoVariant, setInfoVariant] = useState<InfoVariant | null>(null);
   const [isLoadingChats, setIsLoadingChats] = useState(false);
+  const [showSignUpModal, setShowSignUpModal] = useState(false);
   const chatListRequestSeq = useRef(0);
   const memoryPollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -85,11 +86,31 @@ export function AppShell() {
   const userMemory = useStore((s) => s.userMemory);
   const reset = useStore((s) => s.reset);
 
+  // Pagination
+  const hasMoreMessages = useStore((s) => s.hasMoreMessages);
+  const setHasMoreMessages = useStore((s) => s.setHasMoreMessages);
+  const setOldestMessageId = useStore((s) => s.setOldestMessageId);
+  const prependMessages = useStore((s) => s.prependMessages);
+
   // Hooks
   const auth = useAuth();
   const chat = useChat();
   const { status: connectionStatus } = useConnection();
   const passphrase = usePassphrase();
+
+  // Anonymous access — guest mode (no account, ephemeral chats)
+  const isAnonymous = !auth.isInitializing && !auth.isAuthenticated;
+
+  /** Header builder that works for both authenticated and anonymous users. */
+  const effectiveBuildAuthHeaders = useCallback(
+    async (endpoint: string): Promise<Record<string, string> | null> => {
+      if (auth.isAuthenticated) {
+        return auth.buildAuthHeaders(endpoint);
+      }
+      return { 'Content-Type': 'application/json' };
+    },
+    [auth.isAuthenticated, auth.buildAuthHeaders]
+  );
 
   const loadChats = useCallback(async () => {
     const requestSeq = ++chatListRequestSeq.current;
@@ -120,7 +141,7 @@ export function AppShell() {
     const existing = useStore.getState().currentChatId;
     if (existing) return existing;
 
-    const headers = await auth.buildAuthHeaders('/chat/start');
+    const headers = await effectiveBuildAuthHeaders('/chat/start');
     if (!headers) return null;
 
     const response = await fetch(`${CONFIG.API_URL}/chat/start`, {
@@ -136,7 +157,7 @@ export function AppShell() {
       setCurrentChatId(chatId);
     }
     return chatId;
-  }, [auth.buildAuthHeaders, setCurrentChatId]);
+  }, [effectiveBuildAuthHeaders, setCurrentChatId]);
 
   // Auto-setup/unlock passphrase after authentication
   useEffect(() => {
@@ -273,10 +294,12 @@ export function AppShell() {
       const pendingUserMessage = addMessage('user', prompt);
       const sendChatId = canonicalChatId || pendingUserMessage.chatId;
       // Start polling memory immediately so queued/processing ingestion jobs
-      // become visible quickly in the raw memory panel.
-      refreshMemoryAfterIngestion();
+      // become visible quickly in the raw memory panel (skip for anonymous).
+      if (!isAnonymous) {
+        refreshMemoryAfterIngestion();
+      }
 
-      const result = await chat.send(prompt, auth.buildAuthHeaders);
+      const result = await chat.send(prompt, effectiveBuildAuthHeaders);
 
       if (!result.success) {
         if (result.error && result.error !== 'Aborted') {
@@ -289,42 +312,63 @@ export function AppShell() {
         return;
       }
 
-      const persistedChatId = result.chatId ?? sendChatId;
-      if (persistedChatId) {
-        try {
-          const headers = await auth.buildAuthHeaders(`/chat/${persistedChatId}`);
-          if (headers) {
-            const response = await fetch(`${CONFIG.API_URL}/chat/${persistedChatId}?limit=80`, {
-              headers,
-            });
-            if (response.ok) {
-              const data = await response.json();
-              const normalizedMessages = normalizeMessages(persistedChatId, data.messages ?? []);
-              if (useStore.getState().currentChatId === persistedChatId) {
-                setChatHistory(normalizedMessages);
-                setContextMemory(normalizedMessages.slice(-useStore.getState().CONTEXT_WINDOW_SIZE));
-                setChatStarted(normalizedMessages.length > 0);
-              }
-            }
-          }
-        } catch (err) {
-          Logger.error('Failed to refresh persisted chat after send:', err);
-        }
-      } else {
+      // For guest users: chats are ephemeral — just add the response locally.
+      // For authenticated users: refresh from server to get persisted IDs.
+      if (isAnonymous) {
         const finalTokens = chat.getTokens();
         if (finalTokens) {
           addMessage('assistant', finalTokens);
         } else {
           addMessage('assistant', '*The model processed your request but returned an empty response. Please try again.*');
         }
+      } else {
+        const persistedChatId = result.chatId ?? sendChatId;
+        if (persistedChatId) {
+          try {
+            const headers = await effectiveBuildAuthHeaders(`/chat/${persistedChatId}`);
+            if (headers) {
+              const response = await fetch(`${CONFIG.API_URL}/chat/${persistedChatId}?limit=80`, {
+                headers,
+              });
+              if (response.ok) {
+                const data = await response.json();
+                const normalizedMessages = normalizeMessages(persistedChatId, data.messages ?? []);
+                if (useStore.getState().currentChatId === persistedChatId) {
+                  setChatHistory(normalizedMessages);
+                  setContextMemory(normalizedMessages.slice(-useStore.getState().CONTEXT_WINDOW_SIZE));
+                  setChatStarted(normalizedMessages.length > 0);
+                }
+              } else {
+                // Server fetch failed — fall back to local tokens
+                const fallbackTokens = chat.getTokens();
+                if (fallbackTokens) {
+                  addMessage('assistant', fallbackTokens);
+                }
+              }
+            }
+          } catch (err) {
+            Logger.error('Failed to refresh persisted chat after send:', err);
+            // Fall back to local tokens on error
+            const fallbackTokens = chat.getTokens();
+            if (fallbackTokens) {
+              addMessage('assistant', fallbackTokens);
+            }
+          }
+        } else {
+          const finalTokens = chat.getTokens();
+          if (finalTokens) {
+            addMessage('assistant', finalTokens);
+          } else {
+            addMessage('assistant', '*The model processed your request but returned an empty response. Please try again.*');
+          }
+        }
+        void loadChats();
       }
-
-      void loadChats();
     },
     [
       addMessage,
       chat,
-      auth.buildAuthHeaders,
+      effectiveBuildAuthHeaders,
       normalizeMessages,
       setChatHistory,
       setContextMemory,
@@ -332,6 +376,7 @@ export function AppShell() {
       loadChats,
       refreshMemoryAfterIngestion,
       ensureCanonicalChatId,
+      isAnonymous,
     ]
   );
 
@@ -346,7 +391,7 @@ export function AppShell() {
         setLoadingChat(true);
         const headers = await auth.buildAuthHeaders(`/chat/${chatId}`);
         if (!headers) return;
-        const response = await fetch(`${CONFIG.API_URL}/chat/${chatId}?limit=200`, {
+        const response = await fetch(`${CONFIG.API_URL}/chat/${chatId}?limit=50`, {
           headers,
         });
         if (response.ok) {
@@ -358,6 +403,12 @@ export function AppShell() {
           setContextMemory(
             normalizedMessages.slice(-useStore.getState().CONTEXT_WINDOW_SIZE)
           );
+          setHasMoreMessages(data.pagination?.has_more ?? false);
+          if (normalizedMessages.length > 0) {
+            setOldestMessageId(normalizedMessages[0]!.id);
+          } else {
+            setOldestMessageId(null);
+          }
         }
       } catch (err) {
         Logger.error('Failed to load chat:', err);
@@ -375,7 +426,37 @@ export function AppShell() {
       setChatStarted,
       setContextMemory,
       setLoadingChat,
+      setHasMoreMessages,
+      setOldestMessageId,
     ]
+  );
+
+  // Load earlier messages (pagination)
+  const loadMoreMessages = useCallback(
+    async () => {
+      const state = useStore.getState();
+      if (!state.currentChatId || !state.oldestMessageId || !state.hasMoreMessages) return;
+      try {
+        const headers = await auth.buildAuthHeaders(`/chat/${state.currentChatId}`);
+        if (!headers) return;
+        const response = await fetch(
+          `${CONFIG.API_URL}/chat/${state.currentChatId}?limit=50&before_message_id=${state.oldestMessageId}`,
+          { headers }
+        );
+        if (response.ok) {
+          const data = await response.json();
+          const normalized = normalizeMessages(state.currentChatId, data.messages ?? []);
+          prependMessages(normalized);
+          setHasMoreMessages(data.pagination?.has_more ?? false);
+          if (normalized.length > 0) {
+            setOldestMessageId(normalized[0]!.id);
+          }
+        }
+      } catch (err) {
+        Logger.error('Failed to load earlier messages:', err);
+      }
+    },
+    [auth.buildAuthHeaders, normalizeMessages, prependMessages, setHasMoreMessages, setOldestMessageId]
   );
 
   // Delete chat
@@ -516,8 +597,10 @@ export function AppShell() {
         return;
       }
       addMessage('user', content);
-      refreshMemoryAfterIngestion();
-      const editResult = await chat.send(content, auth.buildAuthHeaders);
+      if (!isAnonymous) {
+        refreshMemoryAfterIngestion();
+      }
+      const editResult = await chat.send(content, effectiveBuildAuthHeaders);
 
       if (!editResult.success) {
         if (editResult.error && editResult.error !== 'Aborted') {
@@ -526,26 +609,38 @@ export function AppShell() {
         return;
       }
 
-      const persistedChatId = editChatId;
-      if (persistedChatId) {
-        try {
-          const headers = await auth.buildAuthHeaders(`/chat/${persistedChatId}`);
-          if (headers) {
-            const response = await fetch(`${CONFIG.API_URL}/chat/${persistedChatId}?limit=80`, {
-              headers,
-            });
-            if (response.ok) {
-              const data = await response.json();
-              const normalizedMessages = normalizeMessages(persistedChatId, data.messages ?? []);
-              if (useStore.getState().currentChatId === persistedChatId) {
-                setChatHistory(normalizedMessages);
-                setContextMemory(normalizedMessages.slice(-useStore.getState().CONTEXT_WINDOW_SIZE));
-                setChatStarted(normalizedMessages.length > 0);
+      if (isAnonymous) {
+        const finalTokens = chat.getTokens();
+        if (finalTokens) {
+          addMessage('assistant', finalTokens);
+        }
+      } else {
+        const persistedChatId = editChatId;
+        if (persistedChatId) {
+          try {
+            const headers = await effectiveBuildAuthHeaders(`/chat/${persistedChatId}`);
+            if (headers) {
+              const response = await fetch(`${CONFIG.API_URL}/chat/${persistedChatId}?limit=80`, {
+                headers,
+              });
+              if (response.ok) {
+                const data = await response.json();
+                const normalizedMessages = normalizeMessages(persistedChatId, data.messages ?? []);
+                if (useStore.getState().currentChatId === persistedChatId) {
+                  setChatHistory(normalizedMessages);
+                  setContextMemory(normalizedMessages.slice(-useStore.getState().CONTEXT_WINDOW_SIZE));
+                  setChatStarted(normalizedMessages.length > 0);
+                }
+              } else {
+                const fallbackTokens = chat.getTokens();
+                if (fallbackTokens) addMessage('assistant', fallbackTokens);
               }
             }
+          } catch (err) {
+            Logger.error('Failed to refresh chat after edit:', err);
+            const fallbackTokens = chat.getTokens();
+            if (fallbackTokens) addMessage('assistant', fallbackTokens);
           }
-        } catch (err) {
-          Logger.error('Failed to refresh chat after edit:', err);
         }
       }
     },
@@ -556,61 +651,47 @@ export function AppShell() {
       setChatStarted,
       addMessage,
       chat,
-      auth.buildAuthHeaders,
+      effectiveBuildAuthHeaders,
       normalizeMessages,
       refreshMemoryAfterIngestion,
       ensureCanonicalChatId,
+      isAnonymous,
     ]
   );
 
-  // Continue generation
-  const handleContinue = useCallback(async () => {
-    const continueChatId = useStore.getState().currentChatId;
-    await chat.continueGeneration(auth.buildAuthHeaders);
-    const persistedChatId = continueChatId;
-    if (persistedChatId) {
-      try {
-        const headers = await auth.buildAuthHeaders(`/chat/${persistedChatId}`);
-        if (headers) {
-          const response = await fetch(`${CONFIG.API_URL}/chat/${persistedChatId}?limit=80`, {
-            headers,
-          });
-          if (response.ok) {
-            const data = await response.json();
-            const normalizedMessages = normalizeMessages(persistedChatId, data.messages ?? []);
-            if (useStore.getState().currentChatId === persistedChatId) {
-              setChatHistory(normalizedMessages);
-              setContextMemory(normalizedMessages.slice(-useStore.getState().CONTEXT_WINDOW_SIZE));
-              setChatStarted(normalizedMessages.length > 0);
-            }
-          }
-        }
-      } catch (err) {
-        Logger.error('Failed to refresh chat after continue:', err);
-      }
+  // Clear sign-in modal when auth succeeds
+  useEffect(() => {
+    if (auth.isAuthenticated && passphrase.status === 'unlocked' && showSignUpModal) {
+      setShowSignUpModal(false);
     }
-  }, [chat, auth.buildAuthHeaders, normalizeMessages, setChatHistory, setContextMemory, setChatStarted]);
+  }, [auth.isAuthenticated, passphrase.status, showSignUpModal]);
 
-  // Show welcome modal if not authenticated or passphrase not unlocked
-  const needsAuth =
+  // Show welcome modal: initializing, passphrase locked, or user clicked sign in
+  const showWelcomeModal =
     auth.isInitializing ||
-    !auth.isAuthenticated ||
-    passphrase.status !== 'unlocked';
+    (auth.isAuthenticated && passphrase.status !== 'unlocked') ||
+    showSignUpModal;
 
-  if (needsAuth) {
+  if (showWelcomeModal) {
     return (
       <WelcomeModal
         isInitializing={auth.isInitializing || (auth.isAuthenticated && passphrase.status !== 'unlocked')}
         savedUsername={auth.savedUsername}
         onRegister={handleRegister}
         onSignIn={handleSignIn}
+        onDismiss={
+          // Allow dismiss if user voluntarily opened modal (not auto-restore / passphrase unlock)
+          showSignUpModal && !auth.isInitializing && !(auth.isAuthenticated && passphrase.status !== 'unlocked')
+            ? () => setShowSignUpModal(false)
+            : undefined
+        }
       />
     );
   }
 
   return (
     <div className={styles.container}>
-      {/* Sidebar */}
+      {/* Sidebar — always visible, adapts to guest/auth mode */}
       {sidebarOpen && (
         <div className={styles.sidebar}>
           <Sidebar
@@ -620,6 +701,7 @@ export function AppShell() {
             isLoadingChats={isLoadingChats}
             isBusy={chat.isStreaming || isLoadingChat || isGenerating}
             memoryData={userMemory}
+            isGuest={isAnonymous}
             onNewChat={handleNewChat}
             onLoadChat={handleLoadChat}
             onDeleteChat={(chatId) => setDeleteTarget(chatId)}
@@ -627,6 +709,7 @@ export function AppShell() {
             onExportChat={handleExportChat}
             onExportKey={handleExportKey}
             onLogout={auth.logout}
+            onSignIn={() => setShowSignUpModal(true)}
             onShowInfo={setInfoVariant}
           />
         </div>
@@ -672,9 +755,9 @@ export function AppShell() {
             streamingTokens={chat.tokens}
             isStreaming={chat.isStreaming}
             phase={chat.phase}
-            agentResponse={chat.agentResponse}
             onEdit={handleEdit}
-            onContinue={handleContinue}
+            hasMoreMessages={hasMoreMessages}
+            onLoadMore={loadMoreMessages}
           />
         )}
 

@@ -102,12 +102,16 @@ class TestReactLoopExecute:
 
     def test_max_iterations_forces_answer(self):
         """Loop exits at max_iterations even if model keeps calling tools."""
-        # Model always wants to call tools
-        tool_response = '<tool_call name="calculator"><expression>1+1</expression></tool_call>'
+        # Model always wants to call tools — each with different params to avoid duplicate guard
+        tool_responses = [
+            '<tool_call name="calculator"><expression>1+1</expression></tool_call>',
+            '<tool_call name="calculator"><expression>2+2</expression></tool_call>',
+            '<tool_call name="calculator"><expression>3+3</expression></tool_call>',
+        ]
         # After max iterations, forced final answer
         final_response = "Based on my calculations: 2."
 
-        responses = [tool_response, tool_response, tool_response, final_response]
+        responses = tool_responses + [final_response]
         client = self._make_mock_client(responses)
         loop = ReactLoop(client, max_iterations=3)
 
@@ -117,6 +121,23 @@ class TestReactLoopExecute:
         assert result.iterations == 3
         # 3 tool iterations + 1 forced final = 4 chat calls
         assert client.chat.call_count == 4
+
+    def test_duplicate_tool_call_guard(self):
+        """Duplicate tool call (same name + params) is blocked, forces final answer."""
+        tool_response = '<tool_call name="calculator"><expression>1+1</expression></tool_call>'
+        final_response = "The answer is 2."  # Should never be reached
+
+        responses = [tool_response, tool_response, final_response]
+        client = self._make_mock_client(responses)
+        loop = ReactLoop(client, max_iterations=5)
+
+        with patch("services.react_loop.execute_tool", return_value=(True, "2")):
+            result = loop.execute(question="What is 1+1?")
+
+        # Should short-circuit on iteration 2 (duplicate detected)
+        assert result.iterations == 2
+        assert len(result.tools_used) == 1  # Only executed once
+        assert "2" in result.answer  # Should use cached result
 
     def test_tool_error_continues_loop(self):
         """Tool execution error is reported to model, loop continues."""
@@ -219,11 +240,14 @@ class TestReactLoopStreaming:
 
     def test_streaming_max_iterations_uses_chat_stream(self):
         """When max iterations hit, final answer uses chat_stream for real streaming."""
-        tool_response = '<tool_call name="calculator"><expression>1+1</expression></tool_call>'
+        # Different params each iteration to avoid duplicate-call guard
+        tool_responses = [
+            '<tool_call name="calculator"><expression>1+1</expression></tool_call>',
+            '<tool_call name="calculator"><expression>2+2</expression></tool_call>',
+        ]
         stream_tokens = ["The ", "answer ", "is ", "2."]
 
-        responses = [tool_response, tool_response]
-        client = self._make_mock_client(responses, stream_tokens=stream_tokens)
+        client = self._make_mock_client(tool_responses, stream_tokens=stream_tokens)
         loop = ReactLoop(client, max_iterations=2)
 
         with patch("services.react_loop.execute_tool", return_value=(True, "2")):

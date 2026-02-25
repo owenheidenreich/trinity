@@ -7,7 +7,7 @@ import json
 import logging
 from typing import Dict, Optional
 
-from config import MODEL_NAME, OLLAMA_HOST
+from config import MODEL_NAME, LLAMA_SERVER_CHAT_PORT
 
 logger = logging.getLogger(__name__)
 
@@ -144,9 +144,9 @@ def generate_structured(prompt: str, schema: Dict, model_name: str = None) -> Op
 
         model_name = model_name or MODEL_NAME
 
-        # Connect to the LLM via OpenAI-compatible API (Ollama)
-        base_url = f"{OLLAMA_HOST}/v1"
-        api_key = "ollama"
+        # Connect to the LLM via OpenAI-compatible API (llama-server)
+        base_url = f"http://localhost:{LLAMA_SERVER_CHAT_PORT}/v1"
+        api_key = "no-key"
 
         model = models.openai(
             model_name,
