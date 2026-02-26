@@ -1,6 +1,6 @@
 # Trinity Chat System Architecture
 
-> **Last Updated:** February 19, 2026
+> **Last Updated:** February 25, 2026
 > **Status:** Canonical — reflects production codebase
 
 ## Overview
@@ -19,12 +19,11 @@ Frontend (React 19)  →  /generate/agent (SSE)
                     ┌─────────┴─────────┐
                     │   ReAct Loop      │   (tools needed)
                     │   Direct chat     │   (no tools)
-                    │   Fast-path       │   (smalltalk)
                     └─────────┬─────────┘
                               │
                         execute_tool()  (code_executor.py)
                               │
-                        Ollama (qwen3:32b)
+                        llama-server (qwen3:32b)
 ```
 
 The former 1086-line `agent.py` god module was refactored into: `context_loader.py`, `query_classifier.py`, `prompt_assembler.py`, `pipeline.py`, and `think_filter.py`. Legacy callers still work via `AgentPipeline` (thin wrapper).
@@ -64,9 +63,8 @@ user types message
 
 **Key rules:**
 - `context_memory[]` is a sliding window of recent messages sent in every request (frontend-side context, not the server's DB context)
-- `think=True/False` is NOT a frontend concern — the backend always passes `think=False`
+- `<think>` blocks are stripped server-side by `think_filter.py` before tokens reach the frontend
 - `continueGeneration()` re-sends with `"continue"` message when `done_reason === "length"`
-- `<think>` blocks are stripped server-side before tokens reach the frontend
 
 ---
 
@@ -82,12 +80,10 @@ POST /generate/agent
   context_loader.load_context(store, knowledge_store, prompt, chat_id, principal_id)
        │
   ┌────┴──────────────────────────────────────────────────────┐
-  │  Classifies query via query_classifier.classify_context_level():│
-  │  NONE      → trivial smalltalk, no DB reads              │
-  │  MINIMAL   → last 5 messages only                         │
-  │  DISCLOSURE → last 5 messages, preserve identity context   │
-  │  FULL      → 25 msgs + summary + 20 semantic results     │
-  │             + graph context + query embedding              │
+  │  Every query gets full context:                           │
+  │  25 msgs + summary + 20 semantic results + query embedding│
+  │  + tool detection (ByteTransformer + regex fallback)      │
+  │  + temperature routing (code→0.1, tools→0.3, else→0.7)   │
   └────────────────────────────────────────────────────────────┘
        │
   prompt_assembler.assemble(question, context, knowledge_items, ...)
@@ -111,12 +107,10 @@ POST /generate/agent
 ```
 StreamingPipeline.process_streaming(question, messages, principal_id, tools_needed, ...)
        │
-  context.level == NONE?  ──YES──→  yield static SSE tokens (no LLM call)
-       │ NO
   tools_needed?  ──YES──→  optional web_search pre-fetch
        │                    → ReactLoop.execute_streaming()
        │ NO
-  chat_stream() (direct, single-pass)
+  chat_stream() (direct, single-pass) + tool-call rescue
        │
   think_filter.filter_think_blocks(stream) → strip <think>…</think>
        │
@@ -125,26 +119,25 @@ StreamingPipeline.process_streaming(question, messages, principal_id, tools_need
 
 Note: All classification (smalltalk, disclosure, code intent) is done **once** in `context_loader.load_context()` via `query_classifier.py` — not re-evaluated in the pipeline.
 
-### Smalltalk Fast-Path
+### Tool Detection (3-Tier)
 
-`is_trivial_smalltalk()` matches patterns like `"hi"`, `"hello"`, `"how are you"`, `"thanks"` using regex. On match: pre-built response text is chunked and yielded immediately — **no Ollama call, no memory load, no DB reads**.
+`detect_tools_needed()` in `backend/services/tools.py` uses a 3-tier system:
 
-### Tool Detection Heuristics
-
-`detect_tools_needed()` in `backend/services/tools.py` uses pure regex (no LLM) to scan the question:
+1. **ByteTransformer** `detect_tools()` — neural classifier (<1ms, ~50K params)
+2. **Confirmation gate** — suppresses false positives when confidence < 0.92 unless regex agrees
+3. **Regex fallback** — `_regex_detect_tools()` catches tools the classifier missed
 
 | Trigger Pattern | Tool(s) Activated |
 |---|---|
 | `calculate`, `\d+\s*[+\-*/]`, `sqrt`, `sin(`, … | `calculator` |
 | `search the web`, `look up`, `latest news`, … | `web_search` |
 | `fact.check`, `verify`, `is it true`, … | `fact_check` |
-| `search my docs`, `find in documents`, … | `document_search` |
 | `remember`, `save.*fact`, `store.*memory`, … | `save_memory` |
 | `recall`, `what do you know about me`, … | `recall_memory` |
 | `run`, `execute`, `write code`, explicit file path | `code_display` / `run_command` |
 | `read file`, `list directory`, `search codebase` | filesystem tools |
 
-Returns a `list[str]` of tool names. **Empty list → direct chat. Non-empty → ReAct loop.**
+Returns a `list[str]` of tool names. **Empty list → direct chat (with tool-call rescue). Non-empty → ReAct loop.**
 
 `code_display` additionally requires `CODE_EXECUTION_ENABLED=true` AND explicit execution/fix intent or a concrete filesystem path.
 
@@ -164,7 +157,7 @@ ReactLoop.execute_streaming(question, context_messages, ...)
        │
   for iteration in range(REACT_MAX_ITERATIONS):
        │
-    client.chat(messages, think=False)        ← non-streaming; avoids SSE gaps
+    client.chat(messages)                      ← non-streaming; avoids SSE gaps
        │
     parse_tool_calls(response)
        │
@@ -204,7 +197,7 @@ ReactLoop.execute_streaming(question, context_messages, ...)
 
 | Config Key | Default | Description |
 |---|---|---|
-| `REACT_MAX_ITERATIONS` | 15 | Max tool-calling rounds |
+| `REACT_MAX_ITERATIONS` | 5 | Max tool-calling rounds |
 | `REACT_TOKEN_BUDGET` | 48000 | Estimated token cap before forcing final answer |
 | `REFLEXION_MAX_RETRIES` | 3 | Self-correction retries for failed code/write/run tools |
 
@@ -234,7 +227,6 @@ execute_tool()
     ├── "current_datetime"  datetime.now(UTC)
     ├── "web_search"        _execute_web_search()         (Brave Search API)
     ├── "fact_check"        _execute_fact_check()         (dual web searches)
-    ├── "document_search"   _execute_document_search()    (vector store)
     ├── "save_memory"  ┐
     ├── "recall_memory"│
     ├── "search_memory"├── _execute_memory_tool()        (memory_tools.py)
@@ -244,8 +236,7 @@ execute_tool()
     ├── "write_file"        _execute_write_file()         (sandboxed)
     ├── "list_directory"    _execute_list_directory()     (sandboxed)
     ├── "search_codebase"   _execute_search_codebase()    (sandboxed)
-    ├── "run_command"       _execute_run_command()        (allowlist only)
-    └── (unknown)           _execute_mcp_tool()           (external MCP server fallback)
+    └── "run_command"       _execute_run_command()        (allowlist only)
 ```
 
 ### Calculator
@@ -314,16 +305,14 @@ The model emits tool calls as XML:
 - Success: `[Tool Result]\n{output}`
 - Failure: `[Tool Error: {error}]`
 
-### All 15 Tools
+### All 14 Tools
 
 | Tool | Category | Description |
 |---|---|---|
 | `calculator` | Math | AST-safe expression evaluator |
 | `code_display` | Code | Format + optionally execute Python (sandbox) |
-| `current_datetime` | Utility | UTC date/time |
 | `web_search` | Web | Brave Search API, top 5 results |
 | `fact_check` | Web | Dual web searches to verify a claim |
-| `document_search` | Memory | Vector search across uploaded documents |
 | `save_memory` | Memory | Persist a fact to the user's profile |
 | `recall_memory` | Memory | Retrieve facts by category or query |
 | `search_memory` | Memory | Semantic search over facts |
@@ -362,7 +351,7 @@ data: {"done": true, "assistant_message_id": 43,
 | `token` | string chunk | Streamed answer text (4-char chunks from ReAct, native from direct stream) |
 | `done` | true | Terminal event |
 | `done_reason` | `"stop"`, `"length"`, `"tool_limit"` | `"length"` → frontend calls `continueGeneration()` |
-| `response_mode` | `"react"`, `"direct"`, `"smalltalk"` | Metadata |
+| `response_mode` | `"react"`, `"direct"` | Metadata |
 | `error` | string | Terminal error event |
 
 ---
@@ -401,12 +390,13 @@ Context messages: last 20, capped at 4000 chars each.
 
 ---
 
-## 9. Chat CRUD API
+## 9. Chat & Memory CRUD API
 
-**File:** `backend/routes/chat.py`
+**Files:** `backend/routes/chat.py`, `backend/routes/memory.py`, `backend/routes/user.py`
 
 All routes require `@require_auth` (Ed25519). Write routes also apply `@storage_rate_limit`.
 
+**Chat routes** (`routes/chat.py`):
 | Method | Route | Action |
 |---|---|---|
 | `POST` | `/chat/start` | Create chat; `chat_id` optionally client-supplied |
@@ -415,11 +405,22 @@ All routes require `@require_auth` (Ed25519). Write routes also apply `@storage_
 | `PATCH` | `/chat/<chat_id>` | Update `title`, `pinned`, `archived` |
 | `DELETE` | `/chat/<chat_id>` | Hard delete chat + messages |
 | `POST` | `/chat/<chat_id>/pin` | Toggle pin state |
-| `POST` | `/chat/<chat_id>/archive` | Archive (one-way; use PATCH to unarchive) |
+| `POST` | `/chat/<chat_id>/archive` | Archive to IPFS |
+| `GET` | `/chat/recover-archives` | List IPFS archives |
+| `GET` | `/chat/archive/status/<cid>` | Check archive status |
+
+**Memory routes** (`routes/memory.py`):
+| Method | Route | Action |
+|---|---|---|
 | `GET` | `/user/memory` | Full memory dump: facts + summaries + recent jobs |
 | `POST` | `/user/memory/fact` | Create fact (auto-embeds) |
 | `PATCH` | `/user/memory/fact/<id>` | Edit fact text/category/importance (re-embeds) |
 | `DELETE` | `/user/memory/fact/<id>` | Soft-delete fact |
+
+**User routes** (`routes/user.py`):
+| Method | Route | Action |
+|---|---|---|
+| `GET` | `/user/status` | User account status |
 | `GET` | `/user/export` | Full data export (chats metadata + memory) |
 | `GET` | `/user/stats` | Aggregate stats (chat count, fact count, encryption info) |
 
@@ -450,11 +451,10 @@ All routes require `@require_auth` (Ed25519). Write routes also apply `@storage_
           │
           ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│  AgentPipeline.process_streaming()  (agent.py)                      │
+│  StreamingPipeline.process_streaming()  (pipeline.py)                │
 │                                                                     │
-│  smalltalk? → static tokens  (no Ollama call)                      │
 │  tools?     → ReactLoop.execute_streaming()                        │
-│  direct?    → client.chat_stream() + _filter_think_blocks()        │
+│  direct?    → client.chat_stream() + think_filter + tool-call rescue│
 └─────────────────────────────────────────────────────────────────────┘
           │
           ▼
@@ -462,12 +462,12 @@ All routes require `@require_auth` (Ed25519). Write routes also apply `@storage_
 │  ReactLoop  (react_loop.py)                            [if tools]   │
 │                                                                     │
 │  iteration 1..N:                                                    │
-│    client.chat(think=False) → parse_tool_calls()                   │
+│    client.chat() → parse_tool_calls()                              │
 │    no calls? → stream final answer → react_done event              │
 │    call?     → execute_tool() → inject observation → repeat        │
 │                                                                     │
-│  reflexion: code/run/write errors → self-correction up to 2×       │
-│  token budget: ~32k tokens → force final answer                    │
+│  reflexion: code/run/write errors → self-correction up to 3×       │
+│  token budget: ~48k tokens → force final answer                    │
 │  max iterations: force chat_stream() final answer                  │
 └─────────────────────────────────────────────────────────────────────┘
           │
@@ -481,15 +481,14 @@ All routes require `@require_auth` (Ed25519). Write routes also apply `@storage_
 │  memory tools  → memory_tools.py → state.db                       │
 │  filesystem    → sandboxed to WORKSPACE_ROOT                       │
 │  run_command   → allowlist + subprocess (shell=False)              │
-│  unknown       → MCP client fallback                               │
 └─────────────────────────────────────────────────────────────────────┘
           │
           ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│  Ollama  (OLLAMA_CHAT_HOST, qwen3:32b)                              │
+│  llama-server  (port 8081, qwen3:32b)                               │
 │                                                                     │
-│  All calls: think=False, max_tokens=24000                          │
-│  Timeout: 60000ms hard limit (Akash read_timeout)                  │
+│  OpenAI-compatible API: POST /v1/chat/completions                  │
+│  max_tokens=16384, timeout=600s, think blocks stripped by filter   │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -499,10 +498,9 @@ All routes require `@require_auth` (Ed25519). Write routes also apply `@storage_
 
 **File:** `backend/services/think_filter.py` (extracted from agent.py)
 
-Qwen3 emits `<think>…</think>` blocks containing internal reasoning. Trinity suppresses them at two layers:
+Qwen3 emits `<think>…</think>` blocks containing internal reasoning. Trinity strips them via:
 
-1. **`think=False`** — passed on every `client.chat()` and `client.chat_stream()` call; tells Ollama not to stream the thinking tokens at all
-2. **`think_filter.filter_think_blocks(token_stream, accumulator)`** — streaming generator that strips `<think>...</think>` in real-time as tokens arrive
+**`think_filter.filter_think_blocks(token_stream, accumulator)`** — streaming generator that strips `<think>...</think>` in real-time as tokens arrive from llama-server.
 
 **Safety:** ~20k token think-block limit triggers flush (prevents unbounded buffering).
 
@@ -542,7 +540,7 @@ When `done_reason === "length"`, `useChat.ts` automatically calls `continueGener
 | Knowledge retrieval | `backend/services/knowledge_store.py` |
 | Background ingestion | `backend/services/ingestion_worker.py` |
 | Chat CRUD routes | `backend/routes/chat.py` |
-| Persistent storage | `backend/services/state_store.py` |
+| Persistent storage | `backend/services/state_store/` |
 | Frontend SSE hook | `trinity-icp/src-react/hooks/useChat.ts` |
 | Frontend orchestration | `trinity-icp/src-react/components/layout/AppShell.tsx` |
 | Zustand store | `trinity-icp/src-react/store/index.ts` |
@@ -553,7 +551,7 @@ When `done_reason === "length"`, `useChat.ts` automatically calls `continueGener
 
 | Variable | Default | Description |
 |---|---|---|
-| `REACT_MAX_ITERATIONS` | 15 | Max ReAct tool-calling rounds |
+| `REACT_MAX_ITERATIONS` | 5 | Max ReAct tool-calling rounds |
 | `REACT_TOKEN_BUDGET` | 48000 | Estimated token threshold — force answer |
 | `REFLEXION_MAX_RETRIES` | 3 | Self-correction retries for code/run/write errors |
 | `CODE_EXECUTION_ENABLED` | false | Enable Python sandbox execution |
@@ -564,5 +562,6 @@ When `done_reason === "length"`, `useChat.ts` automatically calls `continueGener
 | `WORKSPACE_MAX_SEARCH_RESULTS` | 50 | Max grep results per search |
 | `WORKSPACE_COMMAND_TIMEOUT` | 30 | `run_command` subprocess timeout (seconds) |
 | `WORKSPACE_ALLOWED_COMMANDS` | `["python","python3","pip","git","ls","cat"]` | `run_command` allowlist |
-| `OLLAMA_CHAT_HOST` | — | Inference host (qwen3:32b) |
-| `OLLAMA_CHAT_MODEL` | `qwen3:32b` | Primary model |
+| `LLAMA_SERVER_CHAT_PORT` | `8081` | Chat llama-server port |
+| `LLAMA_SERVER_INGEST_PORT` | `8082` | Ingest llama-server port |
+| `MODEL_NAME` | `qwen3:32b` | Primary model |

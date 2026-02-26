@@ -1,6 +1,6 @@
 # Trinity Deployment Workflow
 
-> **Last Updated:** February 17, 2026  
+> **Last Updated:** February 25, 2026
 > **Scripts:** [scripts/](../../scripts/)  
 > **Configs:** [deploy/](../../deploy/)
 
@@ -173,8 +173,12 @@ dfx deploy --network ic
 env:
   - name: MODEL_NAME
     value: "qwen3:32b"
-  - name: OLLAMA_HOST
-    value: "http://localhost:11434"
+  - name: MODEL_BACKEND
+    value: "llama-server"
+  - name: LLAMA_SERVER_CHAT_PORT
+    value: "8081"
+  - name: LLAMA_SERVER_INGEST_PORT
+    value: "8082"
   - name: DEPLOYMENT_TIER
     value: "production"
   - name: BRAVE_SEARCH_API_KEY
@@ -232,7 +236,7 @@ curl -X POST https://api.dubya.ai/generate \
 
 **Symptom:** First request after deployment times out or takes 30+ seconds.
 
-**Cause:** Ollama loading model into GPU memory.
+**Cause:** llama-server downloading and loading GGUF model into GPU memory on first boot.
 
 **Solution:** This is expected. Subsequent requests are fast (1-10 seconds).
 

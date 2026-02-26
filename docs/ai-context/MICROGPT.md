@@ -1,7 +1,7 @@
 # Trinity — MicroGPT Intelligence Architecture
 
 > **Purpose:** Complete reference for Trinity's neural classification, tool detection, temperature routing, memory, and learning systems.
-> **Last Updated:** February 20, 2026
+> **Last Updated:** February 25, 2026
 > **Read when:** Working on tool detection, temperature routing, memory extraction, training pipeline, or the learning-from-user roadmap.
 
 ---
@@ -132,7 +132,6 @@ The query classifier still exists as a file and can still be called, but it **no
 |-------|------|-----------------|
 | `calculator` | calculator | "what is 2+2", "calculate 15% of 200" |
 | `web_search` | web_search | "latest AI news", "bitcoin price" |
-| `document_search` | document_search | "search my docs for..." |
 | `code_display` | code_display | "write a python function" |
 | `fact_check` | fact_check | "is it true that..." |
 | `recall_memory` | recall_memory | "what do you know about me" |
@@ -187,7 +186,6 @@ detect_tools_needed(query)
             ├── calculator patterns (math operators, "calculate", "compute")
             ├── datetime patterns ("current time", "today's date")
             ├── web_search patterns ("search", "look up", "find online")
-            ├── document_search patterns ("search my docs", "find the report")
             ├── code patterns ("write...code", "create...function")
             ├── fact_check patterns ("is it true", "verify")
             ├── recall_memory patterns ("what do you know about me")

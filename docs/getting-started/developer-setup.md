@@ -6,7 +6,6 @@ This guide will help you set up a local development environment for Trinity.
 
 - **Python 3.11+** (macOS: `brew install python@3.11`, Linux: `apt install python3.11`)
 - **Git** for version control
-- **Ollama** for local LLM inference (optional but recommended)
 - **Node.js 18+** for frontend development (optional)
 
 ## Quick Start (5 minutes)
@@ -37,14 +36,15 @@ Create a `.env` file in the `backend/` directory:
 
 ```bash
 # backend/.env
-OLLAMA_HOST=http://localhost:11434
-MODEL_NAME=llama3.1:8b
+MODEL_BACKEND=llama-server
+MODEL_NAME=qwen3:32b
+LLAMA_SERVER_CHAT_PORT=8081
+LLAMA_SERVER_INGEST_PORT=8082
 CHAT_DIR=/tmp/trinity/chats
 LOG_LEVEL=DEBUG
 
 # Optional: For production testing
-# AKASH_WALLET_ADDRESS=akash1...
-# DEPLOYMENT_TIER=2
+# DEPLOYMENT_TIER=production
 ```
 
 ### 3. Run Tests
@@ -72,26 +72,6 @@ python inference_server.py
 # Metrics: http://localhost:5000/metrics
 ```
 
-## Optional: Ollama Setup
-
-For local LLM inference without external APIs:
-
-```bash
-# Install Ollama (macOS)
-brew install ollama
-
-# Or download from https://ollama.ai
-
-# Start Ollama service
-ollama serve
-
-# Pull the model (in another terminal)
-ollama pull llama3.1:8b
-
-# Verify
-curl http://localhost:11434/api/tags
-```
-
 ## Project Structure
 
 ```
@@ -99,25 +79,28 @@ trinity/
 ├── backend/                    # Python Flask backend
 │   ├── inference_server.py     # App factory + blueprint registration
 │   ├── config.py               # All constants, env vars, defaults
-│   ├── routes/                 # 9 API blueprints (54 endpoints)
+│   ├── routes/                 # 7 API blueprints (31 endpoints)
 │   │   ├── health.py           # /health, /metrics, /stats
 │   │   ├── generate.py         # /generate, /generate/agent
-│   │   ├── chat.py             # /chat/*, /user/*
+│   │   ├── chat.py             # /chat/*
+│   │   ├── memory.py           # /user/memory/*
+│   │   ├── user.py             # /user/status, /user/export, /user/stats
 │   │   ├── tools.py            # /tools/*
-│   │   └── ...                 # admin, v4, session, mcp
+│   │   └── passphrase.py       # /api/passphrase/*
 │   ├── middleware/             # Request middleware
 │   │   ├── observability.py    # Prometheus metrics
 │   │   ├── rate_limit.py       # Per-principal rate limiting
 │   │   └── icp_cache.py        # ICP idempotency cache
-│   ├── services/               # Business logic
-│   │   ├── agent.py            # Single-pass agent orchestrator
+│   ├── services/               # ~25 modules + state_store package
+│   │   ├── pipeline.py         # StreamingPipeline (main entry point)
+│   │   ├── context_loader.py   # Query classification + context loading
 │   │   ├── react_loop.py       # ReAct agentic loop (tool calling)
-│   │   ├── tools.py            # Tool definitions (15 tools)
+│   │   ├── tools.py            # Tool definitions (14 tools)
 │   │   ├── code_executor.py    # Tool dispatcher
-│   │   ├── caching.py          # Embedding + semantic caching
-│   │   ├── memory.py           # Semantic memory retrieval
-│   │   └── ...                 # embeddings, search, ollama, etc.
-│   └── tests/                  # 978 tests
+│   │   ├── knowledge_store.py  # Unified retrieval (facts + messages)
+│   │   ├── state_store/        # Per-principal encrypted SQLite (8 mixins)
+│   │   └── ...                 # embeddings, search, caching, etc.
+│   └── tests/                  # 934+ tests
 │       ├── unit/               # Unit tests
 │       ├── integration/        # Integration tests
 │       └── e2e/                # End-to-end tests
@@ -160,16 +143,6 @@ curl http://localhost:5000/metrics | grep trinity_
 # - trinity_embedding_cache_hits_total (cache effectiveness)
 ```
 
-### Checking Cache Status
-
-```bash
-# View cache statistics
-curl http://localhost:5000/admin/cache/stats | jq
-
-# Clear caches (if needed)
-curl -X POST http://localhost:5000/admin/cache/clear
-```
-
 ## IDE Setup
 
 ### VS Code (Recommended)
@@ -207,16 +180,6 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### Ollama connection refused
-
-```bash
-# Make sure Ollama is running
-ollama serve
-
-# Check if model is available
-ollama list
-```
-
 ### Tests failing with "Prometheus registry" errors
 
 ```bash
@@ -235,5 +198,5 @@ pytest tests/ --forked
 ## Next Steps
 
 - Check [Common Tasks](common-tasks.md) for development workflows
-- Read the [Architecture Docs](../architecture/SYSTEM-OVERVIEW.md) for system overview
+- Read the [AI Context Reference](../ai-context/CLAUDE.md) for system overview
 - Review the [architecture docs](../architecture/) for design rationale

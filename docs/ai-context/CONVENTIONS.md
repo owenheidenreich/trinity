@@ -1,7 +1,7 @@
 # Trinity Conventions
 
 > Machine-readable rules for AI coding assistants. One rule per line, grep-friendly.
-> **Last Updated:** February 20, 2026
+> **Last Updated:** February 25, 2026
 
 ## State Management
 DO: Use Zustand setter methods — `State.setAuthenticated()`, `State.setChatHistory()`

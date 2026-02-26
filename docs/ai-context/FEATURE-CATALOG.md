@@ -1,7 +1,7 @@
 # Trinity Feature Catalog
 
 > Complete inventory of production features.
-> **Last Updated:** February 20, 2026
+> **Last Updated:** February 25, 2026
 
 ---
 
@@ -31,9 +31,8 @@
 - **Status**: Production
 
 ### File Storage + IPFS Persistence
-- **Where**: `backend/storage.py`, `backend/lighthouse.py`, `backend/services/user_data_store.py`
-- **How**: IPFS is source of truth, local disk is cache. Exponential-backoff retry (3 attempts: 1s/4s/16s), at-least-once delivery via `_pending_syncs`, per-user sync status tracking
-- **Monitoring**: `GET /admin/storage/status` returns pending syncs, per-user sync state, manifest CIDs
+- **Where**: `backend/storage.py`, `backend/lighthouse.py`, `backend/services/state_checkpoint.py`
+- **How**: Per-principal encrypted SQLite (state.db) is canonical source of truth. IPFS checkpoints via `state_checkpoint.py` for backup/restore.
 - **Status**: Production
 
 ---
@@ -60,12 +59,12 @@
 ### ReAct Agentic Loop
 - **Where**: `backend/services/react_loop.py`
 - **How**: Iterative think→act→observe with dual-mode tool calling (native JSON + XML fallback). `think_filter.py` strips `<think>` blocks from llama-server stream. Defensive `<tool_call>` XML stripping in `_get_response_content()`.
-- **Safeguards**: 48K token budget, 15 max iterations, Reflexion for code errors
+- **Safeguards**: 48K token budget, 5 max iterations, Reflexion for code errors
 - **Status**: Production
 
-### 15 Tools
+### 14 Tools
 - **Where**: `backend/services/tools.py`, `backend/services/code_executor.py`
-- **Tools**: calculator, code_display, web_search, fact_check, document_search, save_memory, recall_memory, search_memory, update_memory, forget_memory, read_file, write_file, list_directory, search_codebase, run_command
+- **Tools**: calculator, code_display, web_search, fact_check, save_memory, recall_memory, search_memory, update_memory, forget_memory, read_file, write_file, list_directory, search_codebase, run_command
 - **Parsing**: 4-tier `parse_tool_calls()` fallback: strict XML → lenient XML → nameless `<tool_call>` inference via `_TAG_TO_TOOL` mapping → bare tool name
 - **Status**: Production (code execution disabled by default)
 
@@ -82,7 +81,7 @@
 - **Status**: Production
 
 ### User Profile System (v3 Canonical)
-- **Where**: `backend/services/state_store.py`, `backend/services/profile_extractor.py`, `backend/services/ingestion_worker.py`, `backend/services/knowledge_store.py`
+- **Where**: `backend/services/state_store/`, `backend/services/profile_extractor.py`, `backend/services/ingestion_worker.py`, `backend/services/knowledge_store.py`
 - **How**: Canonical encrypted SQLite + stable `fact_id` records. `ingestion_worker.py` (event-driven daemon) handles extraction, indexing, and summarization. `knowledge_store.py` handles retrieval and dedup. `prompt_assembler.py` handles token-budget injection.
 - **Extraction categories**: identity, work, interests, preferences, relationships, general
 - **Budgets**: PROFILE_TOKEN_BUDGET=3500, PROFILE_MAX_FACTS=25, KNOWLEDGE_TOP_K=20
@@ -92,11 +91,6 @@
 ### Database Connection Factory (Feb 19, 2026)
 - **Where**: `backend/services/db.py`
 - **How**: sqlcipher whole-DB encryption (when available) + sqlite-vec ANN extension. Graceful fallback to plain sqlite3.
-- **Status**: Production
-
-### MCP (Model Context Protocol)
-- **Where**: `backend/services/mcp_server.py`, `backend/services/mcp_client.py`, `backend/routes/mcp.py`
-- **How**: Server exposes all 15 tools via JSON-RPC 2.0 (HTTP + stdio). Client connects to external MCP servers.
 - **Status**: Production
 
 ### Memory Panel (Frontend)
@@ -151,7 +145,7 @@ Three-phase overhaul replacing hardcoded intelligence with trained models and di
 
 ### Tiny Classifiers (Phase 2)
 - **Where**: `backend/services/tiny_classifier.py`, `backend/models/query_classifier.npz`, `backend/models/tool_detector.npz`
-- **How**: Two trained ByteTransformer models (~100K params each, pure numpy inference). Query classifier: 7 classes (smalltalk, disclosure, code, lightweight, memory_recall, preference, general). Tool detector: 16 classes (15 tools + no_tool). Input is raw UTF-8 bytes, zero-padded to 256. Classifier-first with regex fallback: confidence < 0.75 falls to regex heuristics in `query_classifier.py` and `tools.py`, then defaults to FULL context / no tools.
+- **How**: Two trained ByteTransformer models (~100K params each, pure numpy inference). Query classifier: 7 classes (smalltalk, disclosure, code, lightweight, memory_recall, preference, general). Tool detector: 15 classes (14 tools + no_tool). Input is raw UTF-8 bytes, zero-padded to 256. Classifier-first with regex fallback: confidence < 0.75 falls to regex heuristics in `query_classifier.py` and `tools.py`, then defaults to FULL context / no tools.
 - **Regex fallback**: Permanent safety net — 22 canonical smalltalk phrases, 6 disclosure patterns, 4 code patterns, 7 memory patterns in `query_classifier.py`; calculator/web/code/memory/filesystem patterns in `tools.py`. See [MICROGPT.md](MICROGPT.md) for full details.
 - **Training**: `scripts/generate_training_data.py` (seed phrases + augmentation), `scripts/train_classifiers.py` (PyTorch, dev-only). Models are static — no continuous training.
 - **Tests**: `backend/tests/unit/test_tiny_classifier.py` (32 tests), `backend/tests/unit/test_regex_fallback.py` (38 tests)

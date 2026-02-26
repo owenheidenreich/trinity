@@ -12,7 +12,7 @@
 | Document | Description |
 |----------|-------------|
 | [architecture/FRONTEND.md](architecture/FRONTEND.md) | React component tree, hooks, state management, rendering pipeline |
-| [architecture/BACKEND.md](architecture/BACKEND.md) | Flask server, 54 API endpoints, middleware, configuration |
+| [architecture/BACKEND.md](architecture/BACKEND.md) | Flask server, 31 API endpoints, middleware, configuration |
 | [architecture/CHAT-SYSTEM.md](architecture/CHAT-SYSTEM.md) | Chat lifecycle, message storage, memory integration, archiving |
 | [architecture/STORAGE-AND-ENCRYPTION.md](architecture/STORAGE-AND-ENCRYPTION.md) | Encryption, IPFS, autosave, recovery |
 
@@ -38,7 +38,7 @@
 
 | Document | Description |
 |----------|-------------|
-| [security/SECURITY-AUDITOR-OVERVIEW.md](security/SECURITY-AUDITOR-OVERVIEW.md) | Security architecture, trust boundaries, crypto details |
+| *(Security doc planned)* | Security architecture, trust boundaries, crypto details |
 
 ### For AI Assistants
 
@@ -58,9 +58,9 @@
 Trinity/
 ├── backend/                         # Python Flask inference server
 │   ├── inference_server.py          # App factory + blueprint registration
-│   ├── routes/                      # 9 blueprints (54 endpoints)
+│   ├── routes/                      # 7 blueprints (31 endpoints)
 │   ├── middleware/                   # Observability, rate limiting, caching
-│   ├── services/                    # 45 service modules (pipeline, agent, memory, tools, etc.)
+│   ├── services/                    # ~25 service modules + state_store package
 │   └── tests/                       # Unit, integration, and E2E tests
 │
 ├── trinity-icp/                     # Frontend (ICP canister)
