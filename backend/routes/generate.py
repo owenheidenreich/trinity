@@ -164,11 +164,6 @@ def generate_agent():
                     if isinstance(event, dict) and "token" in event:
                         full_response += event["token"]
                         if not first_token_recorded:
-                            try:
-                                from services.slo_metrics import record_first_token_latency
-                                record_first_token_latency((time.time() - start_time) * 1000)
-                            except Exception:
-                                pass
                             first_token_recorded = True
 
                     yield f"data: {json.dumps(event)}\n\n"

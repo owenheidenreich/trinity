@@ -32,7 +32,6 @@ def _memory_response(principal: str, include_embeddings: bool = False, raw: bool
         "lastUpdated": int(time.time() * 1000),
     }
     if raw:
-        payload["graph_triples"] = store.list_graph_triples(limit=200, include_invalid=True)
         payload["sync_checkpoint"] = store.get_sync_checkpoint()
     return payload
 
@@ -50,20 +49,6 @@ def get_user_memory():
     raw = str(request.args.get("raw", "")).lower() in {"1", "true", "yes"}
     return jsonify(_memory_response(principal, include_embeddings=include_embeddings, raw=raw))
 
-
-@memory_bp.route("/user/memory", methods=["POST"])
-@require_auth
-@storage_rate_limit
-def update_user_memory():
-    return (
-        jsonify(
-            {
-                "error": "Route retired",
-                "message": "Use /user/memory/fact and /user/memory/fact/{fact_id} for memory writes.",
-            }
-        ),
-        410,
-    )
 
 
 @memory_bp.route("/user/memory/fact", methods=["POST"])

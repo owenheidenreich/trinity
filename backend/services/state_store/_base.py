@@ -67,7 +67,6 @@ class StateStoreBase:
         "messages",
         "memory_facts",
         "conversation_summaries",
-        "graph_triples",
         "ingestion_jobs",
         "sync_checkpoints",
     }
@@ -166,19 +165,6 @@ class StateStoreBase:
 
             self.conn.executescript(
                 """
-
-                CREATE TABLE IF NOT EXISTS graph_triples (
-                    triple_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    principal_id TEXT NOT NULL,
-                    subject_enc TEXT NOT NULL,
-                    predicate_enc TEXT NOT NULL,
-                    object_enc TEXT NOT NULL,
-                    source_message_id INTEGER,
-                    created_at INTEGER NOT NULL,
-                    invalid_at INTEGER
-                );
-                CREATE INDEX IF NOT EXISTS idx_graph_triples_principal
-                    ON graph_triples(principal_id, created_at DESC);
 
                 CREATE TABLE IF NOT EXISTS embeddings_messages (
                     message_id INTEGER PRIMARY KEY,

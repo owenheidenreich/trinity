@@ -42,30 +42,12 @@ from routes import ALL_BLUEPRINTS
 # canonical runtime behavior instead of import-probing sidecar modules.
 V4_IMPORT_ERROR = None
 V4_FEATURES = {
-    "embeddings": True,          # canonical embeddings tables in state.db
-    "vector_store": False,       # sidecar vectors.db is retired from runtime path
+    "embeddings": True,
     "semantic_memory": True,
     "tools": True,
     "code_executor": True,
-    "structured": True,
 }
 V4_FEATURES_AVAILABLE = True
-
-MCP_SERVER_AVAILABLE = False
-MCP_CLIENT_TOOLS = 0
-try:
-    from services.mcp_server import MCP_SERVER_AVAILABLE  # noqa: F811
-    logger.info(f"✅ MCP server: {'ENABLED' if MCP_SERVER_AVAILABLE else 'DISABLED'}")
-except Exception as e:
-    logger.warning(f"⚠️ MCP server not available: {e}")
-
-try:
-    from services.mcp_client import initialize_mcp_client
-    MCP_CLIENT_TOOLS = initialize_mcp_client()
-    if MCP_CLIENT_TOOLS > 0:
-        logger.info(f"✅ MCP client: {MCP_CLIENT_TOOLS} external tools discovered")
-except Exception as e:
-    logger.debug(f"MCP client init: {e}")
 
 
 # ===========================================================================
@@ -95,8 +77,6 @@ CORS(app, origins=ALLOWED_ORIGINS, supports_credentials=True)
 app.config["V4_FEATURES_AVAILABLE"] = V4_FEATURES_AVAILABLE
 app.config["V4_IMPORT_ERROR"] = V4_IMPORT_ERROR
 app.config["V4_FEATURES"] = V4_FEATURES
-app.config["MCP_SERVER_AVAILABLE"] = MCP_SERVER_AVAILABLE
-app.config["MCP_CLIENT_TOOLS"] = MCP_CLIENT_TOOLS
 
 
 def _startup_state_integrity_scan(max_users: int = 500):
@@ -150,15 +130,6 @@ for bp in ALL_BLUEPRINTS:
     app.register_blueprint(bp)
     logger.info(f"  📦 Registered blueprint: {bp.name}")
 
-# Diagnostic blueprint (opt-in via DIAGNOSTIC_ENABLED env var)
-try:
-    from config import DIAGNOSTIC_ENABLED
-    if DIAGNOSTIC_ENABLED:
-        from routes.diagnostic import diagnostic_bp
-        app.register_blueprint(diagnostic_bp)
-        logger.info("  🔬 Registered diagnostic blueprint (DIAGNOSTIC_ENABLED=true)")
-except Exception as e:
-    logger.debug(f"Diagnostic blueprint not loaded: {e}")
 
 # ===========================================================================
 # Request Hooks

@@ -23,7 +23,6 @@ from config import REACT_MAX_ITERATIONS, REACT_TOKEN_BUDGET, REFLEXION_MAX_RETRI
 
 from .agent_prompts import REACT_SYSTEM_PROMPT, TOOL_PROMPT_SECTION
 from .code_executor import execute_tool
-from .loading_messages import format_phase_update
 from .tools import (
     ToolResult,
     parse_tool_calls,
@@ -48,6 +47,11 @@ except ImportError:
 
 
 logger = logging.getLogger(__name__)
+
+
+def _phase_update(phase: str, message: str) -> Dict:
+    """Format a phase update for SSE streaming."""
+    return {"phase": phase, "message": message}
 
 
 @dataclass
@@ -509,7 +513,7 @@ class ReactLoop:
                 logger.info(f"ReAct streaming iteration {iteration + 1}: calling {tc.name}")
                 tools_used.append(tc.name)
 
-                yield format_phase_update(
+                yield _phase_update(
                     "tool_execution",
                     f"Using {tc.name}...",
                 )
@@ -519,7 +523,7 @@ class ReactLoop:
                 _last_tool_output = result.output or ""
 
                 status = "done" if result.success else "error"
-                yield format_phase_update(
+                yield _phase_update(
                     "tool_result",
                     f"{tc.name}: {status}",
                 )
@@ -541,7 +545,7 @@ class ReactLoop:
                         observation = self._build_reflexion_observation(
                             tc.name, error_text, retry_count, self.reflexion_max_retries
                         )
-                        yield format_phase_update(
+                        yield _phase_update(
                             "tool_execution",
                             f"Reflexion: fixing error ({retry_count}/{self.reflexion_max_retries})...",
                         )

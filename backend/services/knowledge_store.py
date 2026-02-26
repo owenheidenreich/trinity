@@ -612,15 +612,6 @@ class KnowledgeStore:
         if not text or len(text) < 5:
             return ("skip", None)
 
-        # Also store in graph_triples table for backwards compatibility
-        try:
-            self.store.insert_graph_triples(
-                [{"subject": subject, "predicate": predicate, "object": obj}],
-                source_message_id=source_message_id,
-            )
-        except Exception as e:
-            logger.debug(f"Graph triple insert skipped: {e}")
-
         return self.save_fact(
             text=text,
             category="relationship",

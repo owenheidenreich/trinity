@@ -78,25 +78,6 @@ class TestPersonalMemoryDetection:
 # ============================================================================
 
 
-class TestDeprecatedStubs:
-    """Deprecated functions should return inert values."""
-
-    def test_is_trivial_smalltalk_always_false(self):
-        from services.query_classifier import is_trivial_smalltalk
-        assert is_trivial_smalltalk("hello") is False
-        assert is_trivial_smalltalk("hey there") is False
-        assert is_trivial_smalltalk("thanks") is False
-
-    def test_smalltalk_fast_response_returns_empty(self):
-        from services.query_classifier import smalltalk_fast_response
-        assert smalltalk_fast_response("hello") == ""
-
-    def test_classify_context_level_always_full(self):
-        from services.query_classifier import classify_context_level, ContextLevel
-        assert classify_context_level("hello") == ContextLevel.FULL
-        assert classify_context_level("explain quantum physics") == ContextLevel.FULL
-        assert classify_context_level("my name is Owen") == ContextLevel.FULL
-
 
 # ============================================================================
 # 3. TOOL DETECTION — Regex fallback (the one classifier that earns its keep)

@@ -30,7 +30,6 @@ from typing import Dict, List, Optional, Set
 from config import (
     AUTO_EXTRACT_ASSISTANT_MEMORY,
     CHATS_DIR,
-    GRAPH_MEMORY_ENABLED,
     MEMORY_INGESTION_ENABLED,
     MEMORY_INGESTION_QUEUE_MAXSIZE,
     LLM_TIMEOUT_TOOLS,
@@ -187,23 +186,6 @@ def _extract_and_save(principal_id: str, message_text: str, source: str):
         except Exception as e:
             logger.debug("Fact save failed: %s", e)
 
-    # Save graph triples
-    triples = extracted.get("triples", [])
-    if GRAPH_MEMORY_ENABLED and triples:
-        try:
-            from services.state_store import get_state_store
-            from services.knowledge_store import KnowledgeStore
-
-            store = get_state_store(principal_id)
-            ks = KnowledgeStore(store)
-            for triple in triples:
-                ks.save_relationship(
-                    subject=triple.get("subject", "user"),
-                    predicate=triple.get("predicate", ""),
-                    obj=triple.get("object", ""),
-                )
-        except Exception as e:
-            logger.debug("Triple save failed: %s", e)
 
 
 # ---------------------------------------------------------------------------

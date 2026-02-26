@@ -62,38 +62,6 @@ class TestGetUserMemory:
         assert len(data["facts"]) == 1
         assert data["facts"][0]["text"] == "Likes Python"
 
-    def test_raw_flag_includes_graph_triples(self, client, auth_headers):
-        mock_store = MagicMock()
-        mock_store.list_facts.return_value = []
-        mock_store.list_conversation_summaries.return_value = []
-        mock_store.list_recent_ingestion_jobs.return_value = []
-        mock_store.list_graph_triples.return_value = [{"s": "User", "p": "likes", "o": "Python"}]
-        mock_store.get_sync_checkpoint.return_value = None
-
-        with patch("routes.memory.get_state_store", return_value=mock_store):
-            headers = auth_headers("/user/memory")
-            resp = client.get("/user/memory?raw=true", headers=headers)
-
-        assert resp.status_code == 200
-        data = resp.get_json()
-        assert "graph_triples" in data
-        assert len(data["graph_triples"]) == 1
-
-
-# =============================================================================
-# POST /user/memory (retired)
-# =============================================================================
-
-
-class TestUpdateUserMemoryRetired:
-    def test_returns_410_gone(self, client, auth_headers):
-        with patch("routes.memory.get_state_store"):
-            headers = auth_headers("/user/memory")
-            resp = client.post("/user/memory", json={"facts": []}, headers=headers)
-
-        assert resp.status_code == 410
-        data = resp.get_json()
-        assert "retired" in data["error"].lower() or "Route retired" in data["error"]
 
 
 # =============================================================================

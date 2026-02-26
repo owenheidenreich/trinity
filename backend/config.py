@@ -88,12 +88,6 @@ LIGHTHOUSE_GATEWAY = "https://gateway.lighthouse.storage"
 if not LIGHTHOUSE_API_KEY:
     LIGHTHOUSE_API_KEY = os.getenv("FILECOIN_API_KEY", "")
 
-# ===== AKASH CONFIGURATION =====
-AKASH_WALLET_ADDRESS = os.getenv(
-    "AKASH_WALLET_ADDRESS", "akash155hphg6qyy3vtr584p38wlngtqxzdr0l6jutmp"
-)
-ICP_BACKEND_CANISTER = os.getenv("ICP_BACKEND_CANISTER", "au5zq-2qaaa-aaaal-qtowa-cai")
-ICP_FRONTEND_CANISTER = os.getenv("ICP_FRONTEND_CANISTER", "zc67k-kiaaa-aaaal-qtmiq-cai")
 
 # ===== BUILD INFO =====
 BUILD_TIMESTAMP = datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -162,9 +156,6 @@ CHAT_CHECKPOINT_DEBOUNCE_SECONDS = int(os.getenv("CHAT_CHECKPOINT_DEBOUNCE_SECON
 # Hard cap for how long autosave writes can stay unsynced during active chats
 CHAT_CHECKPOINT_MAX_WAIT_SECONDS = int(os.getenv("CHAT_CHECKPOINT_MAX_WAIT_SECONDS", "180"))
 
-# ===== SESSION LIMITS =====
-MIN_SESSION_HOURS = 1
-MAX_SESSION_HOURS = 24
 
 # ===== ENCRYPTION =====
 PBKDF2_ITERATIONS = 100000
@@ -206,9 +197,6 @@ MEMORY_INGESTION_ENABLED = os.getenv("MEMORY_INGESTION_ENABLED", "true").lower()
 MEMORY_INGESTION_QUEUE_MAXSIZE = int(os.getenv("MEMORY_INGESTION_QUEUE_MAXSIZE", "2000"))
 # Enforce strict model-capacity isolation: extraction/summarization may only use ingest endpoint.
 MEMORY_INGEST_STRICT_ISOLATION = os.getenv("MEMORY_INGEST_STRICT_ISOLATION", "true").lower() == "true"
-# Graph memory (Kuzu-backed where available)
-GRAPH_MEMORY_ENABLED = os.getenv("GRAPH_MEMORY_ENABLED", "true").lower() == "true"
-GRAPH_MEMORY_TOP_K = int(os.getenv("GRAPH_MEMORY_TOP_K", "6"))
 
 # ===== TOOL CONFIGURATION =====
 # Enable code execution (RestrictedPython sandbox)
@@ -247,13 +235,6 @@ WORKSPACE_COMMAND_TIMEOUT = int(os.getenv("WORKSPACE_COMMAND_TIMEOUT", "30"))
 # ===== MEMORY TOOLS (MemGPT) =====
 MEMORY_TOOLS_ENABLED = os.getenv("MEMORY_TOOLS_ENABLED", "true").lower() == "true"
 
-# ===== MCP (Model Context Protocol) =====
-# Enable MCP server (exposes Trinity tools to external MCP clients)
-MCP_SERVER_ENABLED = os.getenv("MCP_SERVER_ENABLED", "true").lower() == "true"
-
-# ===== DIAGNOSTIC MODE =====
-# Enable /diagnostic/* endpoints for LLM behavior analysis (no auth required)
-DIAGNOSTIC_ENABLED = os.getenv("DIAGNOSTIC_ENABLED", "false").lower() == "true"
 # ===== PATHS =====
 # Only create directories in production (not during import for tests)
 try:

@@ -19,18 +19,7 @@ def test_document_query_requires_auth(client):
     assert response.status_code == 401
 
 
-def test_transcript_clean_requires_auth(client):
-    response = client.post("/tools/transcript/clean", json={"text": "hello"})
-    assert response.status_code == 401
-
-
 def test_document_query_allows_authenticated_request(client, auth_headers):
     headers = auth_headers("/tools/documents/query")
     response = client.post("/tools/documents/query", json={}, headers=headers)
-    assert response.status_code == 400
-
-
-def test_transcript_clean_allows_authenticated_request(client, auth_headers):
-    headers = auth_headers("/tools/transcript/clean")
-    response = client.post("/tools/transcript/clean", json={}, headers=headers)
     assert response.status_code == 400

@@ -120,14 +120,6 @@ class TestNamedConstants:
     def test_principal_display_length_exists(self):
         assert "PRINCIPAL_DISPLAY_LENGTH" in self.config_content
 
-    # --- Session ---
-
-    def test_min_session_hours_exists(self):
-        assert "MIN_SESSION_HOURS" in self.config_content
-
-    def test_max_session_hours_exists(self):
-        assert "MAX_SESSION_HOURS" in self.config_content
-
     # --- Constants are importable ---
 
     def test_constants_importable(self):
@@ -143,8 +135,6 @@ class TestNamedConstants:
             IPFS_SCAN_LIMIT,
             CHAT_INACTIVE_DAYS,
             PRINCIPAL_DISPLAY_LENGTH,
-            MIN_SESSION_HOURS,
-            MAX_SESSION_HOURS,
         )
         # Spot-check values
         assert DEFAULT_MAX_TOKENS == 16384
@@ -152,8 +142,6 @@ class TestNamedConstants:
         assert LLM_TIMEOUT == 600
         assert MAX_ARCHIVED_CHATS == 20
         assert PRINCIPAL_DISPLAY_LENGTH == 16
-        assert MIN_SESSION_HOURS == 1
-        assert MAX_SESSION_HOURS == 24
 
     # --- Route files actually USE the constants ---
 
@@ -170,10 +158,6 @@ class TestNamedConstants:
         assert "get_state_store" in content
         assert "/chat/start" in content
 
-    def test_session_route_uses_constants(self):
-        content = _read(ROUTES_DIR / "session.py")
-        assert "MIN_SESSION_HOURS" in content
-        assert "MAX_SESSION_HOURS" in content
 
 # =============================================================================
 # 4.3 FIX IMPORT PATTERNS
@@ -221,10 +205,6 @@ class TestImportPatterns:
             assert module in allowed or any(
                 module.startswith(a) for a in allowed
             ), f"Unexpected function-level import at generate.py:{lineno}: {module}"
-
-    def test_session_no_function_imports(self):
-        violations = self._get_function_level_imports(ROUTES_DIR / "session.py")
-        assert len(violations) == 0, f"Function-level imports in session.py: {violations}"
 
     def test_chat_only_allowed_lazy_imports(self):
         violations = self._get_function_level_imports(ROUTES_DIR / "chat.py")
@@ -303,7 +283,7 @@ class TestIntegrationScaffold:
     def test_integration_tests_use_skipif(self):
         """Integration tests should skip when Ollama is unavailable."""
         content = _read(self.INTEGRATION_DIR / "test_inference.py")
-        assert "skipif" in content or "ollama_available" in content
+        assert "skipif" in content or "llm_available" in content
 
 
 # =============================================================================

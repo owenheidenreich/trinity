@@ -178,10 +178,6 @@ def recover_archives():
     return jsonify({"success": True, "archives": archives, "count": len(archives)})
 
 
-@chat_bp.route("/chat/archive/<cid>", methods=["GET"])
-def get_archived_chat(_cid):
-    return jsonify({"error": "Archived CID retrieval is retired in canonical-db mode"}), 410
-
 
 @chat_bp.route("/chat/archive/status/<cid>", methods=["GET"])
 def get_archive_status(cid):

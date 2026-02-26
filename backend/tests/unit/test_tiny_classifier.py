@@ -189,19 +189,6 @@ class TestToolDetection:
 class TestQueryClassifierIntegration:
     """Test that query_classifier.py correctly uses the classifier."""
 
-    def test_classify_context_level_always_full(self):
-        """classify_context_level is deprecated — always returns FULL."""
-        from services.query_classifier import classify_context_level, ContextLevel
-        assert classify_context_level("hello") == ContextLevel.FULL
-        assert classify_context_level("explain quantum") == ContextLevel.FULL
-        assert classify_context_level("my name is Owen") == ContextLevel.FULL
-
-    def test_is_trivial_smalltalk_deprecated(self):
-        """is_trivial_smalltalk is deprecated — always returns False."""
-        from services.query_classifier import is_trivial_smalltalk
-        assert not is_trivial_smalltalk("hello")
-        assert not is_trivial_smalltalk("explain quantum computing")
-
     def test_is_personal_disclosure(self):
         from services.query_classifier import is_personal_disclosure
         assert is_personal_disclosure("my name is Owen")
@@ -211,12 +198,6 @@ class TestQueryClassifierIntegration:
         from services.query_classifier import requests_personal_memory
         assert requests_personal_memory("what do you know about me")
         assert not requests_personal_memory("what is the quadratic formula")
-
-    def test_smalltalk_fast_response_deprecated(self):
-        """smalltalk_fast_response is deprecated — returns empty string with warning."""
-        from services.query_classifier import smalltalk_fast_response
-        response = smalltalk_fast_response("hello")
-        assert response == ""
 
     def test_fallback_when_model_missing(self):
         """If model files are missing, functions should return safe defaults."""

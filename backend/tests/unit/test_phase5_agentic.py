@@ -614,11 +614,11 @@ class TestPhase5ToolDefinitions:
         assert detect_tools_needed("run the tests")
         assert detect_tools_needed("search for def main in the codebase")
 
-    def test_15_tools_total(self):
-        """Total tool count is 15 (8 original + 5 filesystem + 2 memory management)."""
+    def test_14_tools_total(self):
+        """Total tool count is 14 (removed document_search)."""
         from services.tools import TOOL_DEFINITIONS
 
-        assert len(TOOL_DEFINITIONS) == 15
+        assert len(TOOL_DEFINITIONS) == 14
 
 
 # ============================================================================

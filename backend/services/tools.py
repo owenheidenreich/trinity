@@ -68,13 +68,6 @@ TOOL_DEFINITIONS = {
             '<tool_call name="code_display"><language>python</language><code>def factorial(n): return 1 if n <= 1 else n * factorial(n-1)</code><execute>false</execute></tool_call>'
         ],
     },
-    "document_search": {
-        "description": "Search through uploaded documents for relevant information.",
-        "params": {"query": "What to search for in the documents"},
-        "examples": [
-            '<tool_call name="document_search"><query>contract termination clause</query></tool_call>'
-        ],
-    },
     "web_search": {
         "description": "Search the web for current information. Use for recent events, prices, news.",
         "params": {"query": "Search query"},
@@ -297,7 +290,7 @@ def parse_tool_calls(text: str) -> List[ToolCall]:
     # e.g. "recall_memory  <query>name</query>" or "save_memory <fact>...</fact>"
     if not matches:
         _KNOWN_TOOLS = (
-            "calculator|code_display|document_search|web_search|fact_check|"
+            "calculator|code_display|web_search|fact_check|"
             "save_memory|recall_memory|search_memory|update_memory|forget_memory|"
             "read_file|write_file|list_directory|search_codebase|run_command"
         )
@@ -369,7 +362,6 @@ _JSON_PARAM_ALIASES = {
     "search_memory": {"input": "query", "key": "query"},
     "forget_memory": {"input": "query", "memory": "query"},
     "update_memory": {"input": "query", "value": "new_value"},
-    "document_search": {"input": "query", "search": "query"},
     "fact_check": {"input": "claim", "query": "claim", "statement": "claim"},
     "code_display": {"input": "code", "source": "code"},
     "read_file": {"file": "path", "filename": "path"},
@@ -380,7 +372,7 @@ _JSON_PARAM_ALIASES = {
 }
 
 _KNOWN_TOOL_NAMES = {
-    "calculator", "code_display", "document_search", "web_search", "fact_check",
+    "calculator", "code_display", "web_search", "fact_check",
     "save_memory", "recall_memory", "search_memory", "update_memory", "forget_memory",
     "read_file", "write_file", "list_directory", "search_codebase", "run_command",
     "current_datetime",
@@ -543,16 +535,6 @@ def _regex_detect_tools(query: str) -> List[str]:
     ]
     if any(re.search(p, q) for p in search_patterns):
         tools.append("web_search")
-
-    # Document search
-    doc_patterns = [
-        r"\b(uploaded|attached)\s+(document|file|pdf|attachment)\b",
-        r"\b(this|that|the|my)\s+(document|pdf|attachment)\b",
-        r"according to (the|my|this|that)\s+(document|pdf|attachment)",
-        r"(search|look|find)\s+(in|through|within)\s+(the|my|this)\s+(document|file|pdf|attachment)\b",
-    ]
-    if any(re.search(p, q) for p in doc_patterns):
-        tools.append("document_search")
 
     # Code execution (only when enabled)
     if CODE_EXECUTION_ENABLED:

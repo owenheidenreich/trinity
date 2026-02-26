@@ -296,14 +296,6 @@ class TestPipelineIntegration:
         assert len(done_signals) == 1
         assert done_signals[0]["__done_reason"] == "stop"
 
-    def test_smalltalk_detection_is_deprecated(self):
-        """is_trivial_smalltalk is deprecated — always returns False."""
-        from services.query_classifier import is_trivial_smalltalk
-
-        assert not is_trivial_smalltalk("hello")
-        assert not is_trivial_smalltalk("thanks!")
-        assert not is_trivial_smalltalk("hello can you summarize this file")
-
     def test_smalltalk_goes_through_llm(self):
         """All queries go through the LLM — no fast-path."""
         from services.agent import AgentPipeline
@@ -439,21 +431,3 @@ class TestPipelineIntegration:
 # ============================================================================
 
 
-class TestStructuredOutputDispatch:
-    """Verify structured output correctly dispatches to Ollama."""
-
-    @patch("config.MODEL_BACKEND", "llama-server")
-    def test_structured_fallback_uses_provider(self):
-        """safe_structured_generate fallback path should use get_provider()."""
-        with patch("services.structured.generate_structured", return_value=None):
-            with patch("services.provider_factory.get_provider") as mock_factory:
-                mock_provider = MagicMock()
-                mock_provider.generate.return_value = '{"tool": "web_search"}'
-                mock_factory.return_value = mock_provider
-
-                from services.structured import safe_structured_generate
-                result = safe_structured_generate(
-                    "test prompt",
-                    {"type": "object", "properties": {"tool": {"type": "string"}}},
-                )
-                mock_provider.generate.assert_called_once()

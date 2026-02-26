@@ -20,7 +20,7 @@ Public API:
 import logging
 import re
 from enum import Enum
-from typing import List, Optional
+from typing import List
 
 logger = logging.getLogger(__name__)
 
@@ -190,46 +190,3 @@ def classify_temperature(
         return TEMPERATURE_FACTUAL
 
     return TEMPERATURE_CONVERSATIONAL
-
-
-# ---------------------------------------------------------------------------
-# Deprecated — kept as stubs for backwards compatibility
-# ---------------------------------------------------------------------------
-
-
-def is_trivial_smalltalk(question: str, context_messages: Optional[List] = None) -> bool:
-    """DEPRECATED: No longer drives any pipeline behavior."""
-    return False
-
-
-def smalltalk_fast_response(question: str) -> str:
-    """DEPRECATED: All queries go through the LLM."""
-    return ""
-
-
-def classify_context_level(prompt: str) -> ContextLevel:
-    """DEPRECATED: Every query gets FULL context now."""
-    return ContextLevel.FULL
-
-
-def is_code_generation_request(question: str) -> bool:
-    """DEPRECATED: Only used for temperature routing now (handled internally)."""
-    normalized = _normalize(question)
-    if not normalized:
-        return False
-    try:
-        label, confidence = _classify(question)
-        if label == "code" and confidence >= _CONFIDENCE_THRESHOLD:
-            return True
-    except Exception:
-        pass
-    return any(p.search(normalized) for p in _CODE_PATTERNS)
-
-
-def is_preference_query(query: str) -> bool:
-    """DEPRECATED: No longer drives pipeline behavior."""
-    try:
-        label, confidence = _classify(query)
-        return label == "preference" and confidence >= _CONFIDENCE_THRESHOLD
-    except Exception:
-        return False

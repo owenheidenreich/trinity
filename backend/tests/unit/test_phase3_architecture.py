@@ -44,7 +44,7 @@ class TestBlueprintRegistration:
     def test_all_blueprints_registered(self, app):
         """Canonical blueprints should be registered on the app."""
         blueprint_names = list(app.blueprints.keys())
-        expected = ["health", "admin", "generate", "chat", "tools", "session", "mcp", "passphrase"]
+        expected = ["health", "generate", "chat", "tools", "passphrase"]
         for name in expected:
             assert name in blueprint_names, f"Blueprint '{name}' not registered"
 
@@ -68,12 +68,6 @@ class TestBlueprintRegistration:
                 response = client.post(path, json={})
             assert response.status_code != 404, f"{method} {path} returned 404"
 
-    def test_session_routes_exist(self, client):
-        """Session blueprint routes should exist."""
-        for path in ["/funding/status", "/session/status"]:
-            response = client.get(path)
-            assert response.status_code != 404, f"{path} returned 404"
-
     def test_v4_routes_removed(self, client):
         """Legacy /v4 endpoints are fully removed in hard-cutover mode."""
         response = client.get("/v4/status")
@@ -86,11 +80,11 @@ class TestBlueprintRegistration:
         assert lines < 500, f"inference_server.py has {lines} lines (should be < 500)"
 
     def test_route_count(self, app):
-        """App should have ~50 registered URL rules (49 routes + static)."""
+        """App should have ~31 registered URL rules."""
         rules = list(app.url_map.iter_rules())
         # Filter out the default 'static' rule
         non_static = [r for r in rules if r.endpoint != "static"]
-        assert len(non_static) >= 40, f"Only {len(non_static)} routes registered"
+        assert len(non_static) >= 25, f"Only {len(non_static)} routes registered"
 
     def test_feature_flags_on_config(self, app):
         """V4 feature flags should be on app.config."""
@@ -122,7 +116,7 @@ class TestBlueprintImports:
     def test_all_blueprints_list(self):
         """routes.__init__ exports canonical ALL_BLUEPRINTS list."""
         from routes import ALL_BLUEPRINTS
-        assert len(ALL_BLUEPRINTS) == 10
+        assert len(ALL_BLUEPRINTS) == 7
 
 
 class TestRequestHooks:

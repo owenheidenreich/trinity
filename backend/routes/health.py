@@ -10,7 +10,6 @@ from flask import Blueprint, Response, jsonify
 from config import (
     BRAVE_SEARCH_API_KEY,
     BUILD_TIMESTAMP,
-    GRAPH_MEMORY_ENABLED,
     GPU_TYPE,
     MAX_QUEUE_SIZE,
     MEMORY_INGESTION_ENABLED,
@@ -62,7 +61,6 @@ def health():
         "features": {
             "canonical_state_db": True,
             "semantic_memory": True,
-            "graph_memory": GRAPH_MEMORY_ENABLED,
             "ingestion_worker": MEMORY_INGESTION_ENABLED,
             "ipfs_checkpoints": True,
             # Legacy key kept for compatibility.

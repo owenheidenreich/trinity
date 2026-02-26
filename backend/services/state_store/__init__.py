@@ -2,7 +2,7 @@
 Canonical per-principal encrypted state store.
 
 This package is the backend source of truth for chats, messages, memory facts,
-conversation summaries, graph triples, embeddings, and ingestion jobs.
+conversation summaries, embeddings, and ingestion jobs.
 
 PrincipalStateStore is assembled from domain-specific mixins:
   _base.py        — schema, encryption, connection management
@@ -10,7 +10,6 @@ PrincipalStateStore is assembled from domain-specific mixins:
   _messages.py    — message append/retrieve/search
   _facts.py       — memory fact CRUD + bulk replace
   _summaries.py   — conversation summary CRUD
-  _graph.py       — graph triple insert/list/search
   _embeddings.py  — embedding storage + similarity search
   _ingestion.py   — ingestion job queue
   _sync.py        — checkpoint + export/import
@@ -26,7 +25,6 @@ from services.state_store._base import StateStoreBase, _quarantine_db_family
 from services.state_store._chats import ChatStoreMixin
 from services.state_store._embeddings import EmbeddingStoreMixin
 from services.state_store._facts import FactStoreMixin
-from services.state_store._graph import GraphStoreMixin
 from services.state_store._ingestion import IngestionStoreMixin
 from services.state_store._messages import MessageStoreMixin
 from services.state_store._summaries import SummaryStoreMixin
@@ -40,7 +38,6 @@ class PrincipalStateStore(
     MessageStoreMixin,
     FactStoreMixin,
     SummaryStoreMixin,
-    GraphStoreMixin,
     EmbeddingStoreMixin,
     IngestionStoreMixin,
     SyncStoreMixin,

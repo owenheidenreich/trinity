@@ -27,7 +27,6 @@ from typing import Dict, Generator, List, Optional
 from middleware.observability import record_complexity, record_routing
 
 from .llm_provider import LLMProvider
-from .loading_messages import format_phase_update
 from .search import format_search_context, is_search_available, search_web
 from .think_filter import (
     contains_fenced_code,
@@ -37,6 +36,12 @@ from .think_filter import (
     wrap_code_block,
 )
 logger = logging.getLogger(__name__)
+
+
+def _phase_update(phase: str, message: str = "") -> Dict:
+    """Format a phase update for SSE streaming."""
+    return {"phase": phase, "message": message}
+
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -248,7 +253,7 @@ class StreamingPipeline:
 
         # ----- Web search (non-tool path only) -----
         if not use_tools and not search_context:
-            yield format_phase_update("searching")
+            yield _phase_update("searching")
             search_context, search_performed = self._maybe_web_search(question)
             if search_performed:
                 yield {
@@ -257,7 +262,7 @@ class StreamingPipeline:
                 }
 
         try:
-            yield format_phase_update("executing")
+            yield _phase_update("executing")
 
             if use_tools:
                 # ------ ReAct loop ------
@@ -359,7 +364,7 @@ class StreamingPipeline:
                         tc = tool_calls[0]
                         logger.info("🔧 Tool rescue: executing %s", tc.name)
 
-                        yield format_phase_update(
+                        yield _phase_update(
                             "tool_execution", f"Using {tc.name}..."
                         )
 
@@ -375,7 +380,7 @@ class StreamingPipeline:
                             success, output = False, str(exc)
 
                         status = "done" if success else "error"
-                        yield format_phase_update(
+                        yield _phase_update(
                             "tool_result", f"{tc.name}: {status}"
                         )
 
