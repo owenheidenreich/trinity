@@ -517,124 +517,7 @@ class TestCrossAccountIsolation:
 
 
 # ============================================================================
-# 6. CHAT AUTOSAVE LIFECYCLE — Bug #1 (Recovered Chat for new accounts)
-# ============================================================================
-
-
-@pytest.mark.skip(reason="Legacy autosave lifecycle retired in canonical-db mode")
-class TestChatAutosaveLifecycle:
-    """Test the autosave → list → load round-trip."""
-
-    def test_autosave_stores_title(self, client, mock_ipfs, mock_auth):
-        """Autosave should store the title from the request body."""
-        headers = _auth_headers(PRINCIPAL_A)
-        with patch("routes.chat.save_metadata"), \
-             patch("routes.chat.load_metadata", return_value={"chats": [], "principalId": PRINCIPAL_A}):
-            resp = client.post("/chat/autosave", json={
-                "chatId": "chat-001",
-                "title": "My First Chat",
-                "messages": [
-                    {"role": "user", "content": "hello"},
-                    {"role": "assistant", "content": "hi there"},
-                ],
-                "metadata": {"title": "My First Chat", "updatedAt": int(time.time() * 1000)},
-            }, headers=headers)
-            assert resp.status_code == 200
-            data = resp.get_json()
-            assert data["success"] is True
-            assert data["chatId"] == "chat-001"
-
-    def test_autosave_missing_chatid_returns_400(self, client, mock_auth):
-        """Autosave without chatId should fail."""
-        headers = _auth_headers(PRINCIPAL_A)
-        resp = client.post("/chat/autosave", json={
-            "messages": [{"role": "user", "content": "hello"}],
-        }, headers=headers)
-        assert resp.status_code == 400
-
-    def test_list_empty_for_new_user(self, client, mock_ipfs, mock_auth):
-        """A brand-new user should see zero chats."""
-        headers = _auth_headers(PRINCIPAL_A)
-        resp = client.get("/chat/list", headers=headers)
-        assert resp.status_code == 200
-        data = resp.get_json()
-        assert data["count"] == 0
-        assert data["chats"] == []
-
-    def test_autosave_queues_checkpoint_sync(self, client, mock_auth):
-        """Autosave should queue a chat checkpoint instead of uploading in-request."""
-        headers = _auth_headers(PRINCIPAL_A)
-
-        with patch("routes.chat._ensure_restored"), \
-             patch("routes.chat._get_chat_manifest", return_value={"chats": []}), \
-             patch("routes.chat.load_metadata", return_value={"chats": [], "principalId": PRINCIPAL_A}), \
-             patch("routes.chat.save_metadata"), \
-             patch("routes.chat.update_chat_in_manifest"), \
-             patch("routes.chat.queue_chat_sync") as mock_queue:
-            resp = client.post("/chat/autosave", json={
-                "chatId": "chat-queued",
-                "title": "Queued Chat",
-                "messages": [{"role": "user", "content": "hello"}],
-                "metadata": {"title": "Queued Chat"},
-            }, headers=headers)
-
-        assert resp.status_code == 200
-        data = resp.get_json()
-        assert data["success"] is True
-        assert data["syncQueued"] is True
-        mock_queue.assert_called_once()
-
-    def test_get_chat_uses_local_snapshot_before_ipfs(self, client, mock_ipfs, mock_auth):
-        """After autosave, GET /chat/<id> should return local snapshot without IPFS download."""
-        headers = _auth_headers(PRINCIPAL_A)
-        chat_id = "chat-local-cache"
-
-        with patch("routes.chat._ensure_restored"), \
-             patch("routes.chat._get_chat_manifest", return_value={"chats": []}), \
-             patch("routes.chat.load_metadata", return_value={"chats": [], "principalId": PRINCIPAL_A}), \
-             patch("routes.chat.save_metadata"), \
-             patch("routes.chat.update_chat_in_manifest"), \
-             patch("routes.chat.queue_chat_sync"):
-            save_resp = client.post("/chat/autosave", json={
-                "chatId": chat_id,
-                "title": "Local Cache Chat",
-                "messages": [{"role": "user", "content": "hello from local cache"}],
-                "metadata": {"title": "Local Cache Chat"},
-            }, headers=headers)
-            assert save_resp.status_code == 200
-
-        with patch("routes.chat.http_session.get") as mock_gateway:
-            load_resp = client.get(f"/chat/{chat_id}", headers=headers)
-
-        assert load_resp.status_code == 200
-        loaded = load_resp.get_json()
-        assert loaded["chatId"] == chat_id
-        assert loaded["messages"][0]["content"] == "hello from local cache"
-        mock_gateway.assert_not_called()
-
-    def test_archive_flushes_pending_checkpoint_when_cid_missing(self, client, mock_auth):
-        """Archiving should force-flush queued checkpoint if manifest chat has no CID yet."""
-        headers = _auth_headers(PRINCIPAL_A)
-        chat_id = "chat-archive-queued"
-
-        manifest_without_cid = {
-            "chats": [{"chatId": chat_id, "title": "Archive Me", "cid": None, "archived": False}]
-        }
-        manifest_with_cid = {
-            "chats": [{"chatId": chat_id, "title": "Archive Me", "cid": "cid-queued", "archived": False}]
-        }
-
-        with patch("routes.chat._ensure_restored"), \
-             patch("routes.chat._get_chat_manifest", side_effect=[manifest_without_cid, manifest_with_cid]), \
-             patch("routes.chat.flush_chat_sync_now", return_value="cid-queued") as mock_flush, \
-             patch("routes.chat.save_manifest"), \
-             patch("routes.chat.sync_manifest_to_ipfs"), \
-             patch("routes.chat.load_metadata", return_value={"chats": [{"chatId": chat_id}]}), \
-             patch("routes.chat.save_metadata"):
-            resp = client.post(f"/chat/{chat_id}/archive", headers=headers)
-
-        assert resp.status_code == 200
-        mock_flush.assert_called_once_with(PRINCIPAL_A, chat_id)
+# 6. CHAT AUTOSAVE LIFECYCLE — Removed (retired in canonical-db mode)
 
 
 # ============================================================================
@@ -714,38 +597,7 @@ class TestSendToMemoryPipeline:
 # ============================================================================
 
 
-@pytest.mark.skip(reason="Manifest listing tests target retired manifest-first flow")
-class TestManifestChatListing:
-    """Chat list should come from manifest, not upload fallback scans."""
-
-    def test_manifest_chats_sorted_by_last_updated(self, client, mock_auth):
-        fake_manifest = {
-            "chats": [
-                {"chatId": "chat-a", "title": "A", "cid": "cid-a", "lastUpdated": 1000, "archived": False},
-                {"chatId": "chat-b", "title": "B", "cid": "cid-b", "lastUpdated": 2000, "archived": True},
-            ]
-        }
-
-        headers = _auth_headers(PRINCIPAL_A)
-        with patch("routes.chat.ensure_user_data_restored", return_value=True), \
-             patch("routes.chat.load_manifest", return_value=fake_manifest):
-            resp = client.get("/chat/list", headers=headers)
-            data = resp.get_json()
-
-        assert data["count"] == 2
-        assert data["chats"][0]["chatId"] == "chat-b"
-        assert data["chats"][0]["isArchived"] is True
-        assert data["chats"][1]["chatId"] == "chat-a"
-
-    def test_empty_manifest_returns_empty_sidebar(self, client, mock_auth):
-        headers = _auth_headers(PRINCIPAL_A)
-        with patch("routes.chat.ensure_user_data_restored", return_value=True), \
-             patch("routes.chat.load_manifest", return_value={"chats": []}):
-            resp = client.get("/chat/list", headers=headers)
-            data = resp.get_json()
-
-        assert data["count"] == 0
-        assert data["chats"] == []
+# 9. MANIFEST LISTING — Removed (retired manifest-first flow)
 
 
 # ============================================================================
@@ -796,32 +648,6 @@ class TestGenerateEndpoint:
         resp = client.get("/health")
         assert resp.status_code in (200, 503)
 
-    @pytest.mark.skip(reason="Generate endpoint rewritten — services.memory module removed in v5.0 rewrite")
-    def test_new_chat_turn_still_queries_semantic_memory(self, client, app, mock_auth):
-        """First turn of a new chat should still query semantic memory across chats."""
-        pass
+    # Removed: test_new_chat_turn_still_queries_semantic_memory (services.memory removed in v5.0)
 
-@pytest.mark.skip(reason="Legacy message index resolver removed in canonical message-id flow")
-class TestMessageIndexResolution:
-    """Ensure semantic index fallback never overwrites index 0 repeatedly."""
-
-    def test_uses_provided_index(self):
-        from routes.generate import _resolve_message_index
-
-        assert _resolve_message_index("principal", "chat-1", 12) == 12
-        assert _resolve_message_index("principal", "chat-1", "7") == 7
-
-    def test_falls_back_to_vector_store_when_missing(self):
-        from routes.generate import _resolve_message_index
-
-        mock_store = MagicMock()
-        mock_store.get_next_message_index.return_value = 21
-
-        with patch("services.vector_store.get_vector_store", return_value=mock_store):
-            assert _resolve_message_index("principal", "chat-1", None) == 21
-
-    def test_fallback_errors_return_zero(self):
-        from routes.generate import _resolve_message_index
-
-        with patch("services.vector_store.get_vector_store", side_effect=Exception("db unavailable")):
-            assert _resolve_message_index("principal", "chat-1", None) == 0
+# 11b. MESSAGE INDEX RESOLUTION — Removed (legacy resolver removed)

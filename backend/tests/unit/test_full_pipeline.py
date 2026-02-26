@@ -309,9 +309,8 @@ class TestTokenTracking:
 class TestRateLimiting:
     """Test rate limiting behavior."""
 
-    def test_rate_limit_not_triggered_normal_use(self, client, mock_ollama):
+    def test_rate_limit_not_triggered_normal_use(self, client, mock_ollama_generate):
         """Normal usage should not trigger rate limits."""
-        # Make a few requests
         for _ in range(5):
             response = client.post(
                 "/generate", json={"prompt": "Test"}, content_type="application/json"
