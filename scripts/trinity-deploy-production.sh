@@ -7,10 +7,11 @@
 # Pipeline: Local Validation → Docker Build → Push → Akash Deploy → Verify
 #
 # Usage:
-#   ./scripts/trinity-deploy-production.sh             # Interactive tier selection
-#   ./scripts/trinity-deploy-production.sh production  # Qwen3 32B (~$600-1000/mo)
-#   ./scripts/trinity-deploy-production.sh test        # Qwen3 8B (~$40-100/mo)
-#   ./scripts/trinity-deploy-production.sh tier3       # Qwen3-Coder-Next 80B MoE (~$1200-2500/mo)
+#   ./scripts/trinity-deploy-production.sh             # Interactive model selection
+#   ./scripts/trinity-deploy-production.sh production  # Qwen3 8B GPU
+#   ./scripts/trinity-deploy-production.sh test        # Qwen3 0.6B GPU (demo)
+#   ./scripts/trinity-deploy-production.sh tier3       # Qwen3-Coder-Next 80B MoE
+#   ./scripts/trinity-deploy-production.sh qwen3:4b    # Any model directly
 #
 # =============================================================================
 
@@ -42,16 +43,9 @@ API_PROXY_URL="https://api.dubya.ai"  # Custom domain (once DNS configured)
 ICP_FRONTEND_URL="https://zc67k-kiaaa-aaaal-qtmiq-cai.icp0.io"
 CUSTOM_FRONTEND_URL="https://dubya.ai"
 
-# Tier configurations: production (32B), test (8B), and tier3 (80B MoE)
-typeset -A TIER_YAML
-TIER_YAML[production]="deploy-production.yaml"
-TIER_YAML[test]="deploy-test.yaml"
-TIER_YAML[tier3]="deploy-tier3.yaml"
-
-typeset -A TIER_DESC
-TIER_DESC[production]="Qwen3 32B — Production (~\$600-1000/mo)"
-TIER_DESC[test]="Qwen3 8B — Test/Smoke (~\$40-100/mo)"
-TIER_DESC[tier3]="Qwen3-Coder-Next 80B MoE — High Perf (~\$1200-2500/mo)"
+# Model selection is handled by Python (akash_deploy.py) which generates SDL dynamically.
+# Legacy tier names (test, production, tier3) are aliased to models in Python.
+# SELECTED_MODEL stores the user's choice (tier name or model name like qwen3:4b).
 
 # =============================================================================
 # HELPER FUNCTIONS
@@ -178,35 +172,20 @@ check_prerequisites() {
 # AKASH DEPLOYMENT (via Python helper)
 # =============================================================================
 
-select_tier() {
-    log_step "Select Deployment Tier"
-    
-    # Check if tier was passed as argument
-    if [[ "$TIER_ARG" == "production" || "$TIER_ARG" == "test" || "$TIER_ARG" == "tier3" ]]; then
-        SELECTED_TIER="$TIER_ARG"
-        log_success "Using $SELECTED_TIER: ${TIER_DESC[$SELECTED_TIER]}"
+select_model() {
+    log_step "Select Model"
+
+    # If a model/tier was passed as argument, use it directly
+    # Python handles all validation and tier alias resolution
+    if [[ -n "$TIER_ARG" ]]; then
+        SELECTED_MODEL="$TIER_ARG"
+        log_success "Using: $SELECTED_MODEL"
         return
     fi
-    
-    echo ""
-    echo "┌─────────────────────────────────────────────────────────────┐"
-    echo "│                    SELECT DEPLOYMENT TIER                    │"
-    echo "├─────────────────────────────────────────────────────────────┤"
-    echo "│  1) test        — Qwen3 8B    (~\$40-100/mo)               │"
-    echo "│  2) production  — Qwen3 32B   (~\$600-1000/mo)            │"
-    echo "│  3) tier3       — Coder-Next 80B MoE (~\$1200-2500/mo)    │"
-    echo "└─────────────────────────────────────────────────────────────┘"
-    echo ""
-    
-    echo -n "Select tier [1=test / 2=production / 3=tier3] (default: production): "
-    read -r TIER_CHOICE </dev/tty
-    
-    case "$TIER_CHOICE" in
-        1|test)  SELECTED_TIER="test" ;;
-        3|tier3) SELECTED_TIER="tier3" ;;
-        *)       SELECTED_TIER="production" ;;
-    esac
-    log_success "Selected: $SELECTED_TIER — ${TIER_DESC[$SELECTED_TIER]}"
+
+    # No argument — Python will show interactive model selection
+    SELECTED_MODEL=""
+    log_info "No model specified — Python script will show interactive selection"
 }
 
 ask_deposit() {
@@ -221,7 +200,7 @@ ask_deposit() {
     
     echo ""
     echo "  Current wallet balance: $CURRENT_AKT AKT"
-    echo "  Selected tier: ${TIER_DESC[$SELECTED_TIER]}"
+    echo "  Selected model: ${SELECTED_MODEL:-interactive}"
     echo ""
     echo "  Base deployment escrow: 0.5 AKT (Akash minimum)"
     echo "  How many ADDITIONAL AKT to add to the escrow?"
@@ -253,15 +232,15 @@ deploy_to_akash() {
     
     cd "$PROJECT_ROOT"
     
-    echo "Running Python deployment helper with tier $SELECTED_TIER..."
+    echo "Running Python deployment helper..."
     echo ""
-    
+
     # Create temp file for output capture
     DEPLOY_OUTPUT_FILE=$(mktemp)
-    
+
     # Run Python script with tee to show progress and capture output
-    # Pass deposit amount as 4th arg so create uses --deposit flag
-    python3 "$SCRIPT_DIR/akash_deploy.py" "$DEPLOY_DIR" "$DEPLOY_TAG" "$SELECTED_TIER" "${FUNDING_AKT_AMOUNT:-0}" 2>&1 | tee "$DEPLOY_OUTPUT_FILE"
+    # Pass model/tier as 3rd arg, deposit as 4th arg
+    python3 "$SCRIPT_DIR/akash_deploy.py" "$DEPLOY_DIR" "$DEPLOY_TAG" "$SELECTED_MODEL" "${FUNDING_AKT_AMOUNT:-0}" 2>&1 | tee "$DEPLOY_OUTPUT_FILE"
     DEPLOY_RESULT=${pipestatus[1]}
     
     DEPLOY_OUTPUT=$(cat "$DEPLOY_OUTPUT_FILE")
@@ -274,13 +253,12 @@ deploy_to_akash() {
     
     # Parse the result section (after __RESULT__ marker)
     DEPLOYED_TIER=$(echo "$DEPLOY_OUTPUT" | grep "^TIER=" | cut -d'=' -f2)
+    DEPLOYED_TIER_DESC=$(echo "$DEPLOY_OUTPUT" | grep "^TIER_DESC=" | cut -d'=' -f2-)
     DEPLOYED_DSEQ=$(echo "$DEPLOY_OUTPUT" | grep "^DSEQ=" | cut -d'=' -f2)
     DEPLOYED_PROVIDER=$(echo "$DEPLOY_OUTPUT" | grep "^PROVIDER=" | cut -d'=' -f2)
     DEPLOYED_URI=$(echo "$DEPLOY_OUTPUT" | grep "^URI=" | cut -d'=' -f2)
     DEPLOYED_URL=$(echo "$DEPLOY_OUTPUT" | grep "^URL=" | cut -d'=' -f2-)
-    
-    # Set TIER for summary
-    TIER="${DEPLOYED_TIER:-$SELECTED_TIER}"
+    DEPLOYED_COST=$(echo "$DEPLOY_OUTPUT" | grep "^COST=" | cut -d'=' -f2-)
     
     if [ -z "$DEPLOYED_URI" ]; then
         log_error "Could not extract deployment URI from output"
@@ -570,10 +548,11 @@ print_summary() {
     echo -e "${GREEN}                    ✅ TRINITY PRODUCTION READY                          ${NC}"
     echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
-    echo "  Tier:       ${TIER_DESC[$TIER]}"
+    echo "  Model:      ${DEPLOYED_TIER_DESC:-$DEPLOYED_TIER}"
     echo "  Image:      ${DOCKER_IMAGE}:${DEPLOY_TAG}"
     echo "  DSEQ:       $DEPLOYED_DSEQ"
     echo "  Provider:   $DEPLOYED_PROVIDER"
+    echo "  Cost:       ${DEPLOYED_COST:-unknown}"
     echo ""
     echo "  Akash:      $DEPLOYED_URL"
     echo "  Proxy:      $CLOUDFLARE_WORKER_URL"
@@ -633,14 +612,14 @@ main() {
     
     echo ""
     echo -e "${CYAN}╔══════════════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║                     TRINITY UNIFIED DEPLOYMENT                           ║${NC}"
-    echo -e "${CYAN}║                                                                          ║${NC}"
+    echo -e "${CYAN}║                     TRINITY UNIFIED DEPLOYMENT                          ║${NC}"
+    echo -e "${CYAN}║                                                                         ║${NC}"
     echo -e "${CYAN}║  Pipeline: Build → Push → Deploy Akash → Update Cloudflare → Update ICP║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
     
     check_prerequisites
-    select_tier
+    select_model
     ask_deposit
     validate_local
     push_image

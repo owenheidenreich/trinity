@@ -63,6 +63,16 @@ resolve_model() {
         qwen3:1.7b|qwen3-1.7b)
             echo "Qwen/Qwen3-1.7B-GGUF Qwen3-1.7B-Q8_0.gguf single"
             ;;
+        qwen3:0.6b|qwen3-0.6b)
+            echo "Qwen/Qwen3-0.6B-GGUF Qwen3-0.6B-Q4_K_M.gguf single"
+            ;;
+        # Qwen2.5 alternatives (drop-in replacements for earlier model family)
+        qwen2.5:1.5b|qwen2.5-1.5b)
+            echo "Qwen/Qwen2.5-1.5B-Instruct-GGUF qwen2.5-1.5b-instruct-q4_k_m.gguf single"
+            ;;
+        qwen2.5:7b|qwen2.5-7b)
+            echo "Qwen/Qwen2.5-7B-Instruct-GGUF qwen2.5-7b-instruct-q4_k_m.gguf single"
+            ;;
         qwen3-coder-next|qwen3-coder-next:80b)
             # Split GGUF: 80B MoE model (3B activated), 4 shards (~48.4GB total)
             # llama-server loads shard 1 and auto-discovers shards 2-4
@@ -252,6 +262,14 @@ INGEST_MODEL_PATH=$(model_path "$INGEST_MODEL")
 
 # --- Step 3: Start llama-server instances (background, tracked PIDs) ---
 
+# CPU-aware GPU layers: skip GPU offload when no GPU available
+if [[ "$GPU_TYPE" == "CPU" ]]; then
+    GPU_LAYERS_FLAG="--n-gpu-layers 0"
+    echo "   CPU mode: GPU offload disabled"
+else
+    GPU_LAYERS_FLAG="--n-gpu-layers -1"
+fi
+
 # Build extra flags for qwen3_next architecture models
 CHAT_EXTRA_FLAGS=""
 if [[ "$CHAT_MODEL" == qwen3-coder-next* ]]; then
@@ -268,13 +286,13 @@ fi
 echo "🧠 Starting llama-server (chat) on port ${CHAT_PORT}..."
 echo "   Model: ${CHAT_MODEL_PATH}"
 echo "   Context: ${CHAT_CTX} tokens"
-echo "   GPU layers: all (-1)"
+echo "   GPU layers: ${GPU_LAYERS_FLAG}"
 su -s /bin/bash trinity -c "LD_LIBRARY_PATH=/usr/local/lib llama-server \
     --host 0.0.0.0 \
     --port ${CHAT_PORT} \
     --model ${CHAT_MODEL_PATH} \
     --ctx-size ${CHAT_CTX} \
-    --n-gpu-layers -1 \
+    ${GPU_LAYERS_FLAG} \
     --cache-type-k q8_0 \
     --cache-type-v q8_0 \
     --cont-batching \
@@ -289,7 +307,7 @@ su -s /bin/bash trinity -c "LD_LIBRARY_PATH=/usr/local/lib llama-server \
     --port ${INGEST_PORT} \
     --model ${INGEST_MODEL_PATH} \
     --ctx-size ${INGEST_CTX} \
-    --n-gpu-layers -1 \
+    ${GPU_LAYERS_FLAG} \
     --cont-batching" 2>&1 | sed 's/^/[ingest-llama] /' &
 INGEST_PID=$!
 

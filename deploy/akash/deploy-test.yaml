@@ -1,15 +1,15 @@
 version: "2.0"
 
 # ============================================================================
-# Trinity Test: Qwen3 8B
+# Trinity Demo: Qwen3 0.6B (Reference YAML)
 # ============================================================================
 #
-# Cheap deploy for smoke-testing before committing to production GPU costs.
-# Same model family as production (qwen3), just smaller.
+# NOTE: The deploy script (akash_deploy.py) generates SDL dynamically.
+# This file is kept as a reference and for manual deployments.
 #
-# Model: Qwen3 8B (~5GB)
-# Cost: ~$0.05-0.15/hour (~$40-100/month)
-# GPU: Any NVIDIA GPU (T4, RTX 3090, 4090, A10, etc.)
+# Model: Qwen3 0.6B Q4_K_M (~400MB)
+# Cost: ~$10-30/month (GPU)
+# GPU: Any nvidia GPU (model only needs ~1GB VRAM)
 #
 # Deploy:
 #   ./scripts/trinity-deploy-production.sh test
@@ -17,19 +17,22 @@ version: "2.0"
 
 services:
   trinity:
-    image: gdubx/trinity-inference:v2-20260225-202034
+    image: gdubx/trinity-inference:v2-20260312-215746
     env:
-      - PROVIDER_ID=trinity-test-qwen3-8b
-      - MODEL_NAME=qwen3:8b
+      - PROVIDER_ID=trinity-demo-qwen3-0.6b
+      - MODEL_NAME=qwen3:0.6b
       - MODEL_BACKEND=llama-server
       - LLAMA_SERVER_CHAT_PORT=8081
       - LLAMA_SERVER_INGEST_PORT=8082
-      - CHAT_MODEL=qwen3:8b
-      - INGEST_MODEL=qwen3:8b
+      - LLAMA_SERVER_CHAT_CTX=2048
+      - LLAMA_SERVER_INGEST_CTX=1024
+      - CHAT_MODEL=qwen3:0.6b
+      - INGEST_MODEL=qwen3:0.6b
       - GPU_TYPE=auto
+      - NUM_CTX=2048
       - CHATS_DIR=/data/chats
       - TZ=UTC
-      - MAX_QUEUE_SIZE=10
+      - MAX_QUEUE_SIZE=5
       # RAG & Semantic Memory
       - EMBEDDING_MODEL=BAAI/bge-small-en-v1.5
       - RAG_TOP_K=5
@@ -48,17 +51,9 @@ services:
       - BRAVE_SEARCH_API_KEY=${BRAVE_SEARCH_API_KEY}
       - HF_TOKEN=${HF_TOKEN}
       # Deployment tracking
-      - DIAGNOSTIC_ENABLED=true
       - DEPLOYMENT_TIER=test
-      - DEPLOYMENT_TIER_NAME=Test
-      - HOURLY_COST_AKT=0.15
-      - DAILY_COST_AKT=3.6
+      - DEPLOYMENT_TIER_NAME=Demo
       - SESSION_TYPE=community
-    params:
-      storage:
-        models:
-          mount: /home/trinity/.models
-          readMode: false
     expose:
       - port: 8000
         as: 80
@@ -76,19 +71,27 @@ profiles:
         cpu:
           units: 4
         memory:
-          size: 16Gi
+          size: 4Gi
         storage:
-          - size: 10Gi
-          - name: models
-            size: 30Gi
-            attributes:
-              persistent: true
-              class: beta3
+          - size: 8Gi
         gpu:
           units: 1
           attributes:
             vendor:
               nvidia:
+                # Names must match provider capabilities/gpu/vendor/nvidia/model/<name>
+                - model: rtx3080
+                - model: rtx-3070
+                - model: 3090
+                - model: 4090
+                - model: rtx5090
+                - model: t4
+                - model: v100
+                - model: a4000
+                - model: A4000
+                - model: a100
+                - model: h100
+                - model: h200
 
   placement:
     akash:
