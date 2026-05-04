@@ -48,7 +48,7 @@ ENV_VALUES = load_env_file()
 
 # Confirm API keys are loaded (without revealing them)
 if 'LIGHTHOUSE_API_KEY' in ENV_VALUES and 'BRAVE_SEARCH_API_KEY' in ENV_VALUES:
-    print(f"✓ API keys loaded from .env (Lighthouse: {ENV_VALUES['LIGHTHOUSE_API_KEY'][:8]}..., Brave: {ENV_VALUES['BRAVE_SEARCH_API_KEY'][:8]}...)")
+    print("✓ Lighthouse and Brave API keys loaded from .env")
 elif 'LIGHTHOUSE_API_KEY' in ENV_VALUES:
     print(f"✓ Lighthouse API key loaded, Brave API key missing")
 elif 'BRAVE_SEARCH_API_KEY' in ENV_VALUES:
@@ -70,10 +70,13 @@ AKASH_RPC_NODES = [
 AKASH_NODE = AKASH_RPC_NODES[0]  # Will be updated by find_working_rpc()
 AKASH_CHAIN_ID = "akashnet-2"
 WALLET_NAME = "trinity-wallet"
+DEPLOYMENT_DENOM = os.getenv("AKASH_DEPLOYMENT_DENOM", "uact")
+GAS_DENOM = os.getenv("AKASH_GAS_DENOM", "uakt")
+GAS_PRICE = os.getenv("AKASH_GAS_PRICE", f"0.025{GAS_DENOM}")
 
 # Model definitions: what each model needs to run
 MODELS = {
-    "qwen3:0.6b":   {"vram_min": 1,  "cpu": 4, "ram": "4Gi",  "storage": "8Gi",  "chat_ctx": 2048,  "ingest_ctx": 1024, "gguf_gb": 0.4,  "desc": "Qwen3 0.6B — tiny, fast, basic quality"},
+    "qwen3:0.6b":   {"vram_min": 1,  "cpu": 4, "ram": "4Gi",  "storage": "8Gi",  "chat_ctx": 2048,  "ingest_ctx": 1024, "gguf_gb": 0.7,  "desc": "Qwen3 0.6B — tiny, fast, basic quality"},
     "qwen3:1.7b":   {"vram_min": 2,  "cpu": 4, "ram": "4Gi",  "storage": "8Gi",  "chat_ctx": 4096,  "ingest_ctx": 2048, "gguf_gb": 1.0,  "desc": "Qwen3 1.7B — good demo quality"},
     "qwen3:4b":     {"vram_min": 4,  "cpu": 4, "ram": "6Gi",  "storage": "10Gi", "chat_ctx": 8192,  "ingest_ctx": 4096, "gguf_gb": 2.5,  "desc": "Qwen3 4B — solid quality"},
     "qwen3:8b":     {"vram_min": 6,  "cpu": 4, "ram": "8Gi",  "storage": "20Gi", "chat_ctx": 40960, "ingest_ctx": 8192, "gguf_gb": 5.0,  "desc": "Qwen3 8B — production quality"},
@@ -124,13 +127,21 @@ BLOCKED_PROVIDERS = [
     "akash1adyrcsp2ptwd83txgv555eqc0vhfufc37wx040",  # airitdecomp.net - DNS doesn't resolve
     "akash1kqzpqqhm39umt06wu8m4hx63v5hefhrfmjf9dj",  # leet.haus - containers fail to start
     "akash1ggfvyhr9sar4uxjs4hth3p4kzrwk7lysnenj3g",  # ghost provider - bids but never provisions
+    "akash1al463a2f6jvf506e73hx0329fwgwz66r7cpkhr",  # 5090.mel.val.akash.pub - GPU lost / NVLink allocation loop
+    "akash1t5k2a687erc2mqwtnf6w9um3hr96gkc2f64v3p",  # djs232-compute.com - NVIDIA CDI device injection failure
 ]
 
-# Provider URIs to AVOID - matched against ingress hostnames
+# Provider URIs to AVOID - matched against provider hostnames
 BLOCKED_PROVIDER_URIS = [
-    "subangle.com",   # subangle - unreliable
-    "leet.haus",      # leet.haus - containers fail to start
+    "subangle.com",                 # subangle - unreliable
+    "leet.haus",                    # leet.haus - containers fail to start
+    "provider.djs232-compute.com",  # NVIDIA CDI device injection failure
 ]
+
+
+def is_blocked_provider(provider, host=""):
+    """Return True when a provider should not be selected for review demos."""
+    return provider in BLOCKED_PROVIDERS or any(blocked in host for blocked in BLOCKED_PROVIDER_URIS)
 
 # =============================================================================
 # INFRASTRUCTURE (RPC, wallet, Akash CLI wrappers)
@@ -204,7 +215,7 @@ def close_all_active_deployments(wallet_addr):
                 f"provider-services tx deployment close "
                 f"--dseq {dseq} --from {WALLET_NAME} --keyring-backend os "
                 f"--node {AKASH_NODE} --chain-id {AKASH_CHAIN_ID} "
-                f"--gas-prices 0.025uakt --gas auto --gas-adjustment 1.5 -y 2>&1",
+                f"--gas-prices {GAS_PRICE} --gas auto --gas-adjustment 1.5 -y 2>&1",
                 timeout=30
             )
             closed_count += 1
@@ -226,7 +237,7 @@ def close_deployment(dseq):
         f"provider-services tx deployment close --dseq {dseq} "
         f"--from {WALLET_NAME} --keyring-backend os "
         f"--node {AKASH_NODE} --chain-id {AKASH_CHAIN_ID} "
-        f"--gas-prices 0.025uakt --gas auto --gas-adjustment 1.5 "
+        f"--gas-prices {GAS_PRICE} --gas auto --gas-adjustment 1.5 "
         f"--yes 2>/dev/null"
     )
 
@@ -237,7 +248,7 @@ def create_lease(dseq, provider):
         f"--dseq {dseq} --gseq 1 --oseq 1 --provider {provider} "
         f"--from {WALLET_NAME} --keyring-backend os "
         f"--node {AKASH_NODE} --chain-id {AKASH_CHAIN_ID} "
-        f"--gas auto --gas-adjustment 1.5 --gas-prices 0.025uakt "
+        f"--gas auto --gas-adjustment 1.5 --gas-prices {GAS_PRICE} "
         f"--yes 2>&1"
     )
     return code == 0
@@ -407,7 +418,7 @@ profiles:
     akash:
       pricing:
         trinity:
-          denom: uakt
+          denom: {DEPLOYMENT_DENOM}
           amount: 100000
 
 deployment:
@@ -418,7 +429,7 @@ deployment:
 """
     return sdl
 
-def create_deployment_from_sdl(sdl_content, deposit_uakt=500000):
+def create_deployment_from_sdl(sdl_content, deposit_units=500000):
     """Create a deployment from generated SDL content and return DSEQ."""
     with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
         f.write(sdl_content)
@@ -427,10 +438,10 @@ def create_deployment_from_sdl(sdl_content, deposit_uakt=500000):
     try:
         stdout, stderr, code = run_cmd(
             f"provider-services tx deployment create {temp_yaml} "
-            f"--deposit {deposit_uakt}uakt "
+            f"--deposit {deposit_units}{DEPLOYMENT_DENOM} "
             f"--from {WALLET_NAME} --keyring-backend os "
             f"--node {AKASH_NODE} --chain-id {AKASH_CHAIN_ID} "
-            f"--gas auto --gas-adjustment 1.5 --gas-prices 0.025uakt "
+            f"--gas auto --gas-adjustment 1.5 --gas-prices {GAS_PRICE} "
             f"--yes -o json"
         )
 
@@ -473,7 +484,7 @@ def send_manifest_from_sdl(sdl_content, dseq, provider):
 # LEGACY SUPPORT — tier3 still uses static YAML
 # =============================================================================
 
-def create_deployment_from_yaml(yaml_path, image_tag, deposit_uakt=500000):
+def create_deployment_from_yaml(yaml_path, image_tag, deposit_units=500000):
     """Create a deployment from a static YAML file (for tier3)."""
     with open(yaml_path, 'r') as f:
         yaml_content = f.read()
@@ -483,6 +494,7 @@ def create_deployment_from_yaml(yaml_path, image_tag, deposit_uakt=500000):
         f'gdubx/trinity-inference:{image_tag}',
         yaml_content
     )
+    yaml_content = re.sub(r'denom:\s*uakt\b', f'denom: {DEPLOYMENT_DENOM}', yaml_content)
 
     # Inject API keys
     for key_name in ['LIGHTHOUSE_API_KEY', 'BRAVE_SEARCH_API_KEY', 'HF_TOKEN']:
@@ -503,10 +515,10 @@ def create_deployment_from_yaml(yaml_path, image_tag, deposit_uakt=500000):
     try:
         stdout, stderr, code = run_cmd(
             f"provider-services tx deployment create {temp_yaml} "
-            f"--deposit {deposit_uakt}uakt "
+            f"--deposit {deposit_units}{DEPLOYMENT_DENOM} "
             f"--from {WALLET_NAME} --keyring-backend os "
             f"--node {AKASH_NODE} --chain-id {AKASH_CHAIN_ID} "
-            f"--gas auto --gas-adjustment 1.5 --gas-prices 0.025uakt "
+            f"--gas auto --gas-adjustment 1.5 --gas-prices {GAS_PRICE} "
             f"--yes -o json"
         )
 
@@ -670,15 +682,13 @@ def display_providers(bids, provider_hosts, provider_gpus):
 
         # Flag issues but still show the provider
         flags = ""
-        if provider in BLOCKED_PROVIDERS:
+        if is_blocked_provider(provider, host):
             flags = " ⛔"
-        elif any(blocked in host for blocked in BLOCKED_PROVIDER_URIS):
-            flags = " ⚠️"
 
         print(f"│  {i:>2}) ${monthly:>7.2f}/mo  {gpu:<14} {host:<40}{flags:>3}│")
 
     print("├──────────────────────────────────────────────────────────────────────────────────┤")
-    print("│  ⛔ = known bad provider   ⚠️ = previously unreliable (still selectable)        │")
+    print("│  ⛔ = blocked provider, do not select for review demos                         │")
     print("└──────────────────────────────────────────────────────────────────────────────────┘")
 
 # =============================================================================
@@ -735,15 +745,15 @@ def main():
         except ValueError:
             pass
 
-    BASE_DEPOSIT_UAKT = 500000
-    additional_uakt = int(additional_akt * 1000000)
-    deposit_uakt = BASE_DEPOSIT_UAKT + additional_uakt
-    total_akt = deposit_uakt / 1000000
+    BASE_DEPOSIT_UNITS = 500000
+    additional_units = int(additional_akt * 1000000)
+    deposit_units = BASE_DEPOSIT_UNITS + additional_units
+    total_units = deposit_units / 1000000
 
     if additional_akt > 0:
-        print(f"💰 Escrow deposit: {total_akt:.1f} AKT (0.5 base + {additional_akt:.1f} additional)")
+        print(f"💰 Escrow deposit: {total_units:.1f} {DEPLOYMENT_DENOM} (0.5 base + {additional_akt:.1f} additional)")
     else:
-        print(f"💰 Escrow deposit: {total_akt:.1f} AKT (base minimum)")
+        print(f"💰 Escrow deposit: {total_units:.1f} {DEPLOYMENT_DENOM} (base minimum)")
 
     # --- Step 3: Generate SDL or use static YAML ---
     if selected_model == "tier3":
@@ -780,9 +790,9 @@ def main():
     print(f"\nCreating deployment for {model_desc}...", end=" ", flush=True)
 
     if sdl_content:
-        dseq = create_deployment_from_sdl(sdl_content, deposit_uakt)
+        dseq = create_deployment_from_sdl(sdl_content, deposit_units)
     else:
-        dseq = create_deployment_from_yaml(yaml_path, image_tag, deposit_uakt)
+        dseq = create_deployment_from_yaml(yaml_path, image_tag, deposit_units)
 
     if not dseq:
         print("FAILED")
@@ -844,17 +854,11 @@ def main():
     selected_host = provider_hosts.get(selected_provider, "unknown")
     selected_gpu = provider_gpus.get(selected_provider, "GPU")
 
-    # Warn about known-bad providers but let user proceed
-    if selected_provider in BLOCKED_PROVIDERS:
-        print(f"\n  ⛔ WARNING: This provider has known issues!")
-        try:
-            confirm = input("  Continue anyway? [y/N]: ").strip().lower()
-        except (EOFError, KeyboardInterrupt):
-            confirm = "n"
-        if confirm != "y":
-            print("  Cancelled. Closing deployment...")
-            close_deployment(dseq)
-            sys.exit(1)
+    if is_blocked_provider(selected_provider, selected_host):
+        print(f"\n  ⛔ Blocked provider: {selected_host}")
+        print("  Closing deployment so this provider cannot be used for the review demo.")
+        close_deployment(dseq)
+        sys.exit(1)
 
     print(f"\n✓ Selected: {selected_host} ({selected_gpu}, ${selected_monthly:.2f}/mo)")
 

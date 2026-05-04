@@ -64,7 +64,7 @@ resolve_model() {
             echo "Qwen/Qwen3-1.7B-GGUF Qwen3-1.7B-Q8_0.gguf single"
             ;;
         qwen3:0.6b|qwen3-0.6b)
-            echo "Qwen/Qwen3-0.6B-GGUF Qwen3-0.6B-Q4_K_M.gguf single"
+            echo "Qwen/Qwen3-0.6B-GGUF Qwen3-0.6B-Q8_0.gguf single"
             ;;
         # Qwen2.5 alternatives (drop-in replacements for earlier model family)
         qwen2.5:1.5b|qwen2.5-1.5b)

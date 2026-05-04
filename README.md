@@ -16,10 +16,18 @@ Just cryptographic keys that belong to you.
 </p>
 
 <p align="center">
-  <strong><a href="https://trinityai.cc">→ Start Chatting at trinityai.cc ←</a></strong>
+  <strong><a href="https://dubya.ai">→ Start Chatting at dubya.ai ←</a></strong>
 </p>
 
 ---
+
+## Reviewer Summary
+
+- **What it is:** self-custody AI chat with browser-generated identity, encrypted memory, and decentralized hosting/compute goals.
+- **Tech stack:** React/Vite frontend on ICP, Flask/Python backend, llama.cpp server, Akash GPU deployment, IPFS/Filecoin archival through Lighthouse, pytest/Vitest coverage.
+- **Demo path:** open `https://dubya.ai` and use guest/anonymous chat or create a username/password identity.
+- **Current deployment target:** low-cost Akash model for interview demonstration.
+- **Secrets:** API keys are loaded from local or deployment environment variables only; `.env` files are not part of the public repo.
 
 ## Why Trinity Exists
 
@@ -209,9 +217,9 @@ pip install -r requirements.txt
 # Run tests (615 tests, ~7 seconds)
 pytest tests/ --no-cov -q
 
-# Start the server (requires Ollama running)
+# Start the server (requires the configured llama-server backend)
 python3 inference_server.py
-# → http://localhost:5000
+# → http://localhost:8000
 ```
 
 ### Production Deployment

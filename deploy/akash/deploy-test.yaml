@@ -7,7 +7,7 @@ version: "2.0"
 # NOTE: The deploy script (akash_deploy.py) generates SDL dynamically.
 # This file is kept as a reference and for manual deployments.
 #
-# Model: Qwen3 0.6B Q4_K_M (~400MB)
+# Model: Qwen3 0.6B Q8_0 (~700MB)
 # Cost: ~$10-30/month (GPU)
 # GPU: Any nvidia GPU (model only needs ~1GB VRAM)
 #
