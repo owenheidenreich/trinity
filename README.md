@@ -15,9 +15,7 @@ No accounts. No passwords. No company storing your conversations.<br>
 Just cryptographic keys that belong to you.
 </p>
 
-<p align="center">
-  <strong><a href="https://dubya.ai">→ Start Chatting at dubya.ai ←</a></strong>
-</p>
+
 
 ---
 
