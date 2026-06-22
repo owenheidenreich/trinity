@@ -19,14 +19,6 @@ Just cryptographic keys that belong to you.
 
 ---
 
-## Reviewer Summary
-
-- **What it is:** self-custody AI chat with browser-generated identity, encrypted memory, and decentralized hosting/compute goals.
-- **Tech stack:** React/Vite frontend on ICP, Flask/Python backend, llama.cpp server, Akash GPU deployment, IPFS/Filecoin archival through Lighthouse, pytest/Vitest coverage.
-- **Demo path:** open `https://dubya.ai` and use guest/anonymous chat or create a username/password identity.
-- **Current deployment target:** low-cost Akash model for interview demonstration.
-- **Secrets:** API keys are loaded from local or deployment environment variables only; `.env` files are not part of the public repo.
-
 ## Why Trinity Exists
 
 Every AI chat service today follows the same model: create an account, hand over your data, trust them not to read it, sell it, or lock you out. You don't own your conversations—they do.
